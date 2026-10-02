@@ -1,3 +1,41 @@
-"""规则定义：每条规则一个数据式 dict，由 core.engine 评估。"""
+"""规则定义：数据式 dict，由 core.engine 评估。加规则=加一个 dict。"""
+from zhulong import config
 
-RULES = []
+
+def _commit_high(ctx):
+    v = ctx.get("memory.commit_percent")
+    return v is not None and v >= config.HIGH_WATER["enter"]
+
+
+def _commit_high_reset(ctx):
+    v = ctx.get("memory.commit_percent")
+    return v is not None and v <= config.HIGH_WATER["exit"]
+
+
+def _hyphelper(ctx):
+    gb = ctx.process_commit_gb("HYPHelper.exe")
+    return gb is not None and gb > 15
+
+
+RULES = [
+    {
+        "name": "hyphelper_leak",
+        "condition": _hyphelper,
+        "for_seconds": 0,
+        "cooldown_seconds": config.COOLDOWN_S,
+        "actions": ["kill_process", "toast"],
+        "params": {"process": "HYPHelper.exe",
+                   "toast_title": "烛龙：已自动结束泄漏进程",
+                   "toast_body": "HYPHelper.exe 占用超过 15GB，已结束。重新打开 HoYoPlay 即可重置。"},
+    },
+    {
+        "name": "commit_high",
+        "condition": _commit_high,
+        "reset_below": _commit_high_reset,   # 迟滞：触发态须 ≤80% 才解除
+        "for_seconds": config.HIGH_WATER["for_seconds"],
+        "cooldown_seconds": config.COOLDOWN_S,
+        "actions": ["toast"],
+        "params": {"toast_title": "烛龙：虚拟内存水位过高",
+                   "toast_body": "commit 超过 85% 已持续 90 秒，点击查看面板定位占用大户。"},
+    },
+]
