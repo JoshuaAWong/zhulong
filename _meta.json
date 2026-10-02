@@ -1,0 +1,10 @@
+{
+  "name": "烛龙",
+  "version": "1.0.0",
+  "author": "Tuesday",
+  "category": "日常类",
+  "status": "可用",
+  "dependencies": {"python": "3.13", "packages": ["psutil", "pystray", "Pillow", "winotify"]},
+  "depends_skills": [],
+  "description": "Windows 托盘系统监控：commit 水位守护 + 白名单自动处置 + 本机面板"
+}
