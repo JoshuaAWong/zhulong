@@ -19,6 +19,9 @@ class FakeProc:
     def exe(self):
         return self._exe
 
+    def create_time(self):
+        return self.info["create_time"]
+
     def kill(self):
         self.killed = True
 
@@ -94,6 +97,19 @@ def main():
     p = DenyProc(6, "HYPHelper.exe", 16 * 2**30, old, good_exe)
     r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p]))
     assert r["status"] == "degraded:access_denied", r
+
+    # 7) 路径校验 fail-closed：exe() 返回 None → 不放行
+    p = FakeProc(7, "HYPHelper.exe", 16 * 2**30, old, None)
+    r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "skipped:path_mismatch" and not p.killed, r
+
+    # 8) create_time 竞态防护：kill 前 create_time 变化 → PID 已复用 → skip
+    class ReusedProc(FakeProc):
+        def create_time(self):
+            return self.info["create_time"] + 999
+    p = ReusedProc(8, "HYPHelper.exe", 16 * 2**30, old, good_exe)
+    r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "skipped:pid_reused" and not p.killed, r
     print("PASS")
 
 

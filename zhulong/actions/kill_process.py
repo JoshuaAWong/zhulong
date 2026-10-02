@@ -1,5 +1,5 @@
-"""白名单进程自动结束：七步安全链，任何一步不过即跳过/降级，绝不抛异常。
-1 重读水位 2 路径校验 3 存活时长 4 频次熔断 5 create_time 竞态校验 6 kill 7 异常降级"""
+"""白名单进程自动结束：安全链，任何一步不过即跳过/降级，绝不抛出未捕获异常。
+顺序：频次熔断 → 重读水位 → 存活时长 → 路径校验(fail-closed) → create_time 竞态防护 → kill → 记账"""
 import time
 
 import psutil
@@ -21,13 +21,14 @@ def run(process_name, cfg, state, psutil_mod=None):
     if rule is None:
         return {"status": "skipped:not_whitelisted"}
 
-    # 频次熔断：10 分钟内超限 → 降级为仅通知
+    # 频次熔断：10 分钟内超限 → 降级为仅通知（先于一切进程枚举）
     times = [t for t in state.get("kill_times", []) if now - t < 600]
     if len(times) >= rule.get("max_kills_per_10min", 2):
+        state["kill_times"] = times
         return {"status": "degraded:frequency_cap"}
 
-    # 1) 重读水位：取同名进程中 commit 最大者（Windows 上 vms=PagefileUsage=commit，回退用）
-    best, best_commit = None, -1.0
+    # 重读水位：取同名进程中 commit 最大者（Windows 上 vms=PagefileUsage=commit，回退用）
+    best, best_commit, create_time = None, -1.0, None
     for p in _find(psutil_mod.process_iter(["pid", "name", "create_time", "memory_info"]),
                    process_name):
         mi = p.info["memory_info"]
@@ -36,27 +37,36 @@ def run(process_name, cfg, state, psutil_mod=None):
             commit = mi.vms
         if commit > best_commit:
             best, best_commit = p, commit
+            create_time = p.info["create_time"]
     if best is None:
         return {"status": "skipped:process_gone"}
     if best_commit / GB < rule["max_commit_gb"]:
         return {"status": "skipped:commit_below_threshold"}
 
-    # 3) 存活时长（避开启动峰值）
-    create_time = best.info["create_time"]
-    if now - create_time < rule.get("min_age_s", 60):
+    # 存活时长（避开启动峰值）
+    if create_time is None or now - create_time < rule.get("min_age_s", 60):
         return {"status": "skipped:too_young"}
 
-    # 2) 路径校验（防同名假冒）
+    # 路径校验（fail-closed：exe 读不到一律不放行，防同名假冒）
     path_contains = rule.get("path_contains")
     if path_contains:
         try:
             exe = best.exe()
         except psutil_mod.AccessDenied:
             return {"status": "degraded:access_denied"}
-        if exe and path_contains.lower() not in exe.lower():
+        if not exe or path_contains.lower() not in exe.lower():
             return {"status": "skipped:path_mismatch"}
 
-    # 5) kill 前后 create_time 比对（防 PID 复用）+ 6) kill + 7) 降级
+    # create_time 竞态防护：kill 前重新读取，不一致 = PID 已被复用给别的进程
+    try:
+        fresh = best.create_time()
+    except psutil_mod.NoSuchProcess:
+        return {"status": "skipped:process_gone"}
+    except psutil_mod.AccessDenied:
+        return {"status": "degraded:access_denied"}
+    if fresh != create_time:
+        return {"status": "skipped:pid_reused"}
+
     try:
         best.kill()
     except psutil_mod.AccessDenied:
