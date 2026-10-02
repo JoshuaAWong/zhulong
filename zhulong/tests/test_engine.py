@@ -79,6 +79,27 @@ def main():
     assert fired[0]["muted"] is False
     assert store.get("muted_until") is not None, "静音应持久化到 kv"
 
+    # ---- Critical 回归：无迟滞规则触发后，条件不再成立时绝不幻影再触发 ----
+    eng5, _ = make_engine()
+    rk2 = by_name(RULES, "hyphelper_leak")[0]
+    assert len(eng5.evaluate([rk2], ctx(hhelper=16.0), 0.0)) == 1   # 触发+冷却600s
+    assert eng5.evaluate([rk2], ctx(hhelper=1.0), 5.0) == []        # 进程健康：不触发
+    assert eng5.evaluate([rk2], ctx(hhelper=0.0), 10.0) == []       # 进程消失：不触发
+    eng5.cooldown_until_by_name["hyphelper_leak"] = 0
+    assert eng5.evaluate([rk2], ctx(hhelper=1.0), 700.0) == []      # 冷却后仍健康：不触发
+
+    # ---- 迟滞语义回归：窗口期内（未触发）跌破进入阈值应重置窗口 ----
+    eng6, _ = make_engine()
+    rh6 = by_name(RULES, "commit_high")[0]
+    eng6.evaluate([rh6], ctx(percent=90), 0.0)
+    eng6.evaluate([rh6], ctx(percent=90), 30.0)
+    eng6.evaluate([rh6], ctx(percent=83), 60.0)     # 未触发阶段跌到 83 → 条件不成立 → 窗口重置
+    eng6.evaluate([rh6], ctx(percent=90), 90.0)     # 重新计窗
+    eng6.cooldown_until_by_name["commit_high"] = 0
+    assert eng6.evaluate([rh6], ctx(percent=90), 150.0) == []       # 新窗口 60s < 90s
+    eng6.cooldown_until_by_name["commit_high"] = 0
+    assert len(eng6.evaluate([rh6], ctx(percent=90), 180.0)) == 1   # 满 90s 触发
+
     # ---- MetricCtx ----
     c = ctx(percent=66, hhelper=3.5)
     assert c.get("memory.commit_percent") == 66
