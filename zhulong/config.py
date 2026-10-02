@@ -31,3 +31,6 @@ HIGH_WATER = {"enter": 85, "exit": 80, "for_seconds": 90}
 
 TOAST_APP_ID = "Zhulong.烛龙"
 PANEL_URL = f"http://{HOST}:{PORT}/"
+
+# 部署用：锁死 3.13 解释器（本机另有 3.14，禁止误用）
+PYTHONW = Path(r"C:\Users\Administrator\AppData\Local\Programs\Python\Python313\pythonw.exe")
