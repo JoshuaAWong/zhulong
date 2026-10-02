@@ -20,10 +20,15 @@
 <div class="cards" id="cards"></div>
 <h2>commit 24 小时曲线（5 分钟桶）</h2>
 <canvas id="chart" width="1100" height="260"></canvas>
+<h2>白名单进程 commit 24 小时曲线</h2>
+<canvas id="procChart" width="1100" height="200"></canvas>
 <h2>事件时间线</h2>
 <table id="events"></table>
 <script>
 const GRID = { color: "#333" };
+let commitChart = null;
+let procChart = null;
+const PROC_COLORS = ["#ff9800", "#03a9f4", "#e91e63", "#8bc34a", "#ab47bc", "#ffeb3b"];
 function card(title, value, unit) {
   return `<div class="card"><div style="color:#888;font-size:13px">${title}</div>
           <div class="big">${value}<span style="font-size:16px;color:#888"> ${unit}</span></div></div>`;
@@ -40,13 +45,30 @@ async function refresh() {
     Object.entries(cur).filter(([k]) => k.endsWith("_commit_gb"))
       .map(([k, v]) => card(k.replace("_commit_gb", ""), v, "GB")).join("");
   const pts = (await (await fetch("/api/history?collector=memory&key=commit_percent&hours=24")).json()).points;
-  new Chart(document.getElementById("chart"), {
+  if (commitChart) commitChart.destroy();
+  commitChart = new Chart(document.getElementById("chart"), {
     type: "line",
     data: { labels: pts.map(p => p[0].slice(11, 16)),
             datasets: [{ data: pts.map(p => p[1]), borderColor: color, tension: 0.2, pointRadius: 0 }] },
     options: { scales: { x: { grid: GRID, ticks: { color: "#888", maxTicksLimit: 12 } },
                           y: { grid: GRID, ticks: { color: "#888" }, suggestedMax: 100 } },
                plugins: { legend: { display: false } } }
+  });
+  const procKeys = Object.keys(cur).filter(k => k.endsWith("_commit_gb"));
+  const procSeries = [];
+  for (const k of procKeys)
+    procSeries.push((await (await fetch(`/api/history?collector=process&key=${k}&hours=24`)).json()).points);
+  const procDatasets = procSeries.map((p, i) => ({
+    label: procKeys[i].replace("_commit_gb", ""), data: p.map(x => x[1]),
+    borderColor: PROC_COLORS[i % PROC_COLORS.length], tension: 0.2, pointRadius: 0 }));
+  const procLabels = procSeries.length ? procSeries[0].map(p => p[0].slice(11, 16)) : [];
+  if (procChart) procChart.destroy();
+  procChart = new Chart(document.getElementById("procChart"), {
+    type: "line",
+    data: { labels: procLabels, datasets: procDatasets },
+    options: { scales: { x: { grid: GRID, ticks: { color: "#888", maxTicksLimit: 12 } },
+                          y: { grid: GRID, ticks: { color: "#888" }, suggestedMin: 0 } },
+               plugins: { legend: { labels: { color: "#ccc" } } } }
   });
   const evs = (await (await fetch("/api/events?limit=30")).json()).events;
   document.getElementById("events").innerHTML =

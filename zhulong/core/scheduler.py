@@ -24,7 +24,7 @@ def build_ctx(conn, cfg):
         key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
         row = storage.latest(conn, "process", key)
         if row and row[2] != "absent":
-            processes[w["name"]] = row[1]
+            processes[w["name"].lower()] = row[1]   # MetricCtx.process_commit_gb 按 name.lower() 查
     for c_key in (("memory", "commit_percent"), ("memory", "commit_used_gb"),
                   ("memory", "commit_limit_gb"), ("memory", "mem_percent")):
         row = storage.latest(conn, *c_key)
@@ -36,12 +36,14 @@ def build_ctx(conn, cfg):
 def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=True):
     ts = now_iso()
     rows = []
+    failures = 0
     for c in collectors:
         try:
             for key, value, label in c["collect"](cfg):
                 rows.append((ts, c["name"], key, float(value), label))
         except Exception:
-            pass   # 单采集器失败不影响本轮其他采集（事件级日志交给调用方线程兜底）
+            failures += 1   # 单采集器失败不影响本轮其他采集，但计数供托盘灰态呈现
+    state["collect_failures"] = failures
     if rows:
         storage.insert_metrics(conn, rows)
     write_heartbeat(cfg.STATE_DIR)
@@ -74,11 +76,20 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
     return triggers
 
 
-def loop(conn, cfg, collectors, rules, engine, actions, stop_event):
+def loop(conn, cfg, collectors, rules, engine, actions, stop_event, on_cycle=None):
     state = {}
     first = True
     while not stop_event.is_set():
-        run_cycle(conn, cfg, collectors, rules, engine, actions, state,
-                  evaluate=not first)
+        try:
+            triggers = run_cycle(conn, cfg, collectors, rules, engine, actions, state,
+                                 evaluate=not first)
+        except Exception:
+            state["collect_failures"] = state.get("collect_failures", 0) + 1
+            triggers = []
         first = False   # 首个周期跳过评估（休眠唤醒防护：冷启动视为一次唤醒）
+        if on_cycle is not None:
+            try:
+                on_cycle(triggers, state)
+            except Exception:
+                pass   # 回调（托盘刷新）异常不拖垮采集循环
         stop_event.wait(cfg.SAMPLE_INTERVAL)

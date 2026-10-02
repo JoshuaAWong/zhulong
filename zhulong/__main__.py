@@ -21,15 +21,12 @@ def _init_logging():
                                   maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, handlers=[handler],
                         format="%(asctime)s [%(threadName)s] %(levelname)s %(message)s")
-    # pythonw 下 stdout/stderr 是黑洞，重定向防意外 print 崩溃
-    log_stream = handler.stream
-    sys.stdout = sys.stdout or log_stream
-    sys.stderr = sys.stderr or log_stream
 
 
 def _acquire_single_instance():
-    ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\ZhulongSingleInstance")
-    return ctypes.windll.kernel32.GetLastError() != WIN32_ERROR_ALREADY_EXISTS
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW(None, False, "Global\\ZhulongSingleInstance")
+    return ctypes.get_last_error() != WIN32_ERROR_ALREADY_EXISTS
 
 
 def main():
@@ -95,24 +92,21 @@ def main():
     tray = Tray(on_pause=do_pause, on_exit=do_exit)
     tray_holder["tray"] = tray
 
-    def collect_and_update():
-        cycle_state = {}   # 跨周期保留：每日清理标记（每轮新建会让清理每 30s 空跑一次）
-        while not stop_event.is_set():
-            triggers = scheduler.run_cycle(conn, cfg=config, collectors=collectors,
-                                           rules=rules, engine=engine, actions=actions,
-                                           state=cycle_state, evaluate=True)
-            row = storage.latest(conn, "memory", "commit_percent")
-            used = storage.latest(conn, "memory", "commit_used_gb")
-            limit = storage.latest(conn, "memory", "commit_limit_gb")
-            tray.update(percent=row[1] if row else None,
-                        used_gb=used[1] if used else None,
-                        limit_gb=limit[1] if limit else None,
-                        healthy=True)
-            for t in triggers:
-                LOG.info("触发 %s actions=%s muted=%s", t["rule"], t["actions"], t["muted"])
-            stop_event.wait(config.SAMPLE_INTERVAL)
+    def on_cycle(triggers, state):
+        row = storage.latest(conn, "memory", "commit_percent")
+        used = storage.latest(conn, "memory", "commit_used_gb")
+        limit = storage.latest(conn, "memory", "commit_limit_gb")
+        healthy = state.get("collect_failures", 0) == 0
+        tray.update(percent=row[1] if row else None,
+                    used_gb=used[1] if used else None,
+                    limit_gb=limit[1] if limit else None,
+                    healthy=healthy)
+        for t in triggers:
+            LOG.info("触发 %s actions=%s muted=%s", t["rule"], t["actions"], t["muted"])
 
-    threading.Thread(target=collect_and_update, name="collector", daemon=True).start()
+    threading.Thread(target=scheduler.loop, name="collector",
+                     args=(conn, config, collectors, rules, engine, actions, stop_event, on_cycle),
+                     daemon=True).start()
     LOG.info("烛龙启动完成，面板 %s", config.PANEL_URL)
     tray.run()          # 主线程阻塞于托盘消息循环
     LOG.info("烛龙退出")

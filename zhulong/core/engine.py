@@ -57,13 +57,15 @@ class Engine:
                 continue
             if now_mono < self.cooldown_until_by_name.get(name, 0):
                 continue
-            self.cooldown_until_by_name[name] = now_mono + rule.get("cooldown_seconds", 0)
+            muted = now_mono < self.muted_until
+            if not muted:
+                self.cooldown_until_by_name[name] = now_mono + rule.get("cooldown_seconds", 0)
             if rule.get("reset_below"):
                 self.alarm_on[name] = True   # 触发即进入锁存态（仅迟滞规则）
             self.since[name] = None
             fired.append({"rule": name, "actions": rule["actions"],
                           "params": rule.get("params", {}),
-                          "muted": now_mono < self.muted_until})
+                          "muted": muted})
         return fired
 
 # 语义要点（终审与后续维护必读）：

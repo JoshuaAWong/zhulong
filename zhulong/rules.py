@@ -13,8 +13,10 @@ def _commit_high_reset(ctx):
 
 
 def _hyphelper(ctx):
+    rule = next((w for w in config.WATCH_PROCESSES
+                 if w["name"].lower() == "hyphelper.exe"), None)
     gb = ctx.process_commit_gb("HYPHelper.exe")
-    return gb is not None and gb > 15
+    return gb is not None and rule is not None and gb > rule["max_commit_gb"]
 
 
 RULES = [
@@ -26,7 +28,7 @@ RULES = [
         "actions": ["kill_process", "toast"],
         "params": {"process": "HYPHelper.exe",
                    "toast_title": "烛龙：已自动结束泄漏进程",
-                   "toast_body": "HYPHelper.exe 占用超过 15GB，已结束。重新打开 HoYoPlay 即可重置。"},
+                   "toast_body": "HYPHelper.exe 占用超过阈值，已执行自动处置，详情见面板事件。"},
     },
     {
         "name": "commit_high",
