@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙 · 系统监控</title>
+<script src="chart.umd.js"></script>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 24px; background: #111; color: #eee; }
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; }
+  .card { background: #1d1d1d; border-radius: 10px; padding: 16px 24px; min-width: 180px; }
+  .big { font-size: 42px; font-weight: 700; }
+  h2 { margin-top: 28px; font-size: 16px; color: #aaa; }
+  canvas { background: #1d1d1d; border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { padding: 4px 10px; border-bottom: 1px solid #333; text-align: left; }
+</style>
+</head>
+<body>
+<h1 style="font-size:22px">烛龙 · 系统监控</h1>
+<div class="cards" id="cards"></div>
+<h2>commit 24 小时曲线（5 分钟桶）</h2>
+<canvas id="chart" width="1100" height="260"></canvas>
+<h2>事件时间线</h2>
+<table id="events"></table>
+<script>
+const GRID = { color: "#333" };
+function card(title, value, unit) {
+  return `<div class="card"><div style="color:#888;font-size:13px">${title}</div>
+          <div class="big">${value}<span style="font-size:16px;color:#888"> ${unit}</span></div></div>`;
+}
+async function refresh() {
+  const cur = await (await fetch("/api/current")).json();
+  const pct = cur.commit_percent ?? 0;
+  const color = pct < 70 ? "#4caf50" : pct < 85 ? "#ffc107" : "#f44336";
+  document.getElementById("cards").innerHTML =
+    card("commit 水位", `<span style="color:${color}">${pct.toFixed(1)}</span>`, "%") +
+    card("commit 已用", (cur.commit_used_gb ?? 0).toFixed(1), "GB") +
+    card("commit 上限", (cur.commit_limit_gb ?? 0).toFixed(1), "GB") +
+    card("物理内存", (cur.mem_percent ?? 0).toFixed(0), "%") +
+    Object.entries(cur).filter(([k]) => k.endsWith("_commit_gb"))
+      .map(([k, v]) => card(k.replace("_commit_gb", ""), v, "GB")).join("");
+  const pts = (await (await fetch("/api/history?collector=memory&key=commit_percent&hours=24")).json()).points;
+  new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: { labels: pts.map(p => p[0].slice(11, 16)),
+            datasets: [{ data: pts.map(p => p[1]), borderColor: color, tension: 0.2, pointRadius: 0 }] },
+    options: { scales: { x: { grid: GRID, ticks: { color: "#888", maxTicksLimit: 12 } },
+                          y: { grid: GRID, ticks: { color: "#888" }, suggestedMax: 100 } },
+               plugins: { legend: { display: false } } }
+  });
+  const evs = (await (await fetch("/api/events?limit=30")).json()).events;
+  document.getElementById("events").innerHTML =
+    "<tr><th>时间</th><th>规则</th><th>动作</th><th>详情</th></tr>" +
+    evs.map(e => `<tr><td>${e[0]}</td><td>${e[1]}</td><td>${e[2]}</td><td>${(e[3] || "").slice(0, 120)}</td></tr>`).join("");
+}
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>
