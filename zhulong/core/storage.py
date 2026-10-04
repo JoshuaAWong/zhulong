@@ -59,9 +59,16 @@ def query_history(conn, collector, key, hours=24, bucket_s=300):
     return cur.fetchall()
 
 
-def query_events(conn, limit=50):
-    cur = conn.execute("SELECT ts, rule, action, detail FROM events ORDER BY ts DESC LIMIT ?", (limit,))
-    return cur.fetchall()
+def query_events(conn, limit=50, hours=None):
+    sql = "SELECT ts, rule, action, detail FROM events"
+    args = []
+    if hours is not None:   # 按最近 N 小时过滤（面板区间切换用）
+        cutoff_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - hours * 3600))
+        sql += " WHERE ts >= ?"
+        args.append(cutoff_iso)
+    sql += " ORDER BY ts DESC LIMIT ?"
+    args.append(limit)
+    return conn.execute(sql, args).fetchall()
 
 
 def cleanup(conn, keep_days=30):

@@ -31,9 +31,18 @@ def main():
             st, body = get("127.0.0.1", port, "/api/current")
             data = json.loads(body)
             assert st == 200 and data["commit_percent"] == 66.0, data
+            # _meta：路径与中文映射
+            meta = data["_meta"]
+            assert meta["program_path"] and "烛龙" in meta["program_path"], meta
+            assert meta["names"]["commit_percent"][0] == "提交内存水位", meta
             st, body = get("127.0.0.1", port, "/api/history?collector=memory&key=commit_percent&hours=24")
             assert st == 200 and "points" in json.loads(body)
+            # 区间三档：hours+bucket 参数透传（30 天档也应 200）
+            st, body = get("127.0.0.1", port, "/api/history?collector=memory&key=commit_percent&hours=720&bucket=7200")
+            assert st == 200 and "points" in json.loads(body)
             st, body = get("127.0.0.1", port, "/api/events?limit=10")
+            assert st == 200 and "events" in json.loads(body)
+            st, body = get("127.0.0.1", port, "/api/events?hours=1&limit=10")
             assert st == 200 and "events" in json.loads(body)
             st, _ = get("127.0.0.1", port, "/api/current", method="POST")
             assert st == 405, st   # 安全红线：写请求必须拒绝

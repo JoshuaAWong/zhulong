@@ -23,8 +23,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/":
                 return self._file("index.html")
-            if parsed.path == "/chart.umd.js":   # 白名单单文件，供 index.html 本地引用
-                return self._file("chart.umd.js")
+            if parsed.path in ("/chart.umd.js", "/panel.css", "/panel.js"):   # 字面白名单
+                return self._file(parsed.path.lstrip("/"))
             if parsed.path == "/favicon.ico":
                 return self._send(204, "text/plain", b"")
             if parsed.path == "/api/current":
@@ -33,23 +33,33 @@ class Handler(BaseHTTPRequestHandler):
                     row = storage.latest(self.storage_conn, c, k)
                     if row:
                         out[k] = row[1]
+                names = {}
+                for c, k in _CURRENT_KEYS:
+                    if k in config.DISPLAY_NAMES:
+                        names[k] = list(config.DISPLAY_NAMES[k])
                 for w in config.WATCH_PROCESSES:
                     key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
                     row = storage.latest(self.storage_conn, "process", key)
                     if row:
                         out[key] = row[1]
+                    names[key] = [w.get("display_name", w["name"]),
+                                  f"阈值 {w['max_commit_gb']}GB，超限自动结束（白名单进程）"]
+                out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names}
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":
                 pts = storage.query_history(self.storage_conn,
                                             q.get("collector", ["memory"])[0],
                                             q.get("key", ["commit_percent"])[0],
-                                            hours=int(q.get("hours", ["24"])[0]))
+                                            hours=int(q.get("hours", ["24"])[0]),
+                                            bucket_s=int(q.get("bucket", ["300"])[0]))
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps({"points": pts}, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/events":
+                hours_q = q.get("hours", [None])[0]
                 evts = storage.query_events(self.storage_conn,
-                                            limit=int(q.get("limit", ["50"])[0]))
+                                            limit=int(q.get("limit", ["50"])[0]),
+                                            hours=int(hours_q) if hours_q else None)
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps({"events": evts}, ensure_ascii=False).encode("utf-8"))
             self._send(404, "text/plain", b"not found")

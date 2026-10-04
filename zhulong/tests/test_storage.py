@@ -36,6 +36,13 @@ def main():
         evts = storage.query_events(conn, limit=10)
         assert evts[0][1] == "hyphelper_leak", evts
 
+        # 事件 hours 过滤：2 天前的事件在 hours=24 下不可见
+        storage.insert_event(conn, _iso(base - 2 * 86400), "old_rule", "toast", "")
+        evts24 = storage.query_events(conn, limit=10, hours=24)
+        assert all(e[1] != "old_rule" for e in evts24), evts24
+        evts_all = storage.query_events(conn, limit=10)
+        assert any(e[1] == "old_rule" for e in evts_all)
+
         # 清理：31 天前的行被 keep_days=30 删除
         storage.insert_metrics(conn, [(_iso(base - 31 * 86400), "memory", "commit_percent", 1.0, "")])
         storage.cleanup(conn, keep_days=30)

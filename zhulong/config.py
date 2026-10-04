@@ -19,6 +19,7 @@ HEARTBEAT_STALE_S = 120   # 心跳过期阈值（秒），看门狗用
 WATCH_PROCESSES = [
     {
         "name": "HYPHelper.exe",
+        "display_name": "米哈游启动器组件",   # 面板中文展示名
         "max_commit_gb": 15,        # commit 超此值判定泄漏
         "min_age_s": 60,            # 进程存活不足此时长不杀（避开启动峰值）
         "max_kills_per_10min": 2,   # 频次熔断，超限降级为仅通知
@@ -28,6 +29,14 @@ WATCH_PROCESSES = [
 
 # 高水位告警（commit_percent 取值 0-100）
 HIGH_WATER = {"enter": 85, "exit": 80, "for_seconds": 90}
+
+# 面板展示：指标中文名与含义说明（影响解读）
+DISPLAY_NAMES = {
+    "commit_percent": ("提交内存水位", "所有程序向系统预订的内存额度占用率。超 85% 游戏/桌面可能因内存分配失败闪退黑屏"),
+    "commit_used_gb": ("已用提交内存", "当前已承诺的内存总量（GB）"),
+    "commit_limit_gb": ("提交内存上限", "物理内存+页面文件的总额度（GB），逼近上限时系统会拒绝新的内存申请"),
+    "mem_percent":    ("物理内存占用", "真实内存条的使用率（GB 数据含页面文件的部分在 commit 体现）"),
+}
 
 TOAST_APP_ID = "Zhulong.烛龙"
 PANEL_URL = f"http://{HOST}:{PORT}/"
