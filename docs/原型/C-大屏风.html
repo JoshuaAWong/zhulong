@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 C · 大屏监控风</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; background: radial-gradient(ellipse at top, #151018 0%, #0a0a10 70%); color: #f0ecf4; min-height: 100vh; }
+  header { text-align: center; padding: 30px 0 6px; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: 6px; color: #9b8fb0; margin: 0; }
+  header .path { font-size: 11px; color: #5a5266; margin-top: 6px; }
+  .hero { text-align: center; padding: 18px 0 4px; }
+  .hero .num { font-size: 110px; font-weight: 800; line-height: 1; color: #ff5c5c; text-shadow: 0 0 60px rgba(255,92,92,.45); }
+  .hero .unit { font-size: 26px; color: #8b7f99; }
+  .hero .name { margin-top: 10px; font-size: 14px; color: #9b8fb0; }
+  .hero .name small { color: #5a5266; }
+  .hero .desc { margin-top: 8px; font-size: 12px; color: #6b6178; }
+  .badge-line { margin-top: 14px; }
+  .state { display: inline-block; padding: 5px 20px; border-radius: 999px; font-size: 13px; background: rgba(255,92,92,.14); color: #ff8a8a; border: 1px solid rgba(255,92,92,.35); }
+  .subgrid { display: flex; justify-content: center; gap: 40px; margin: 22px 0 8px; flex-wrap: wrap; }
+  .sub { text-align: center; }
+  .sub .l { font-size: 11px; color: #6b6178; }
+  .sub .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .chartwrap { max-width: 1200px; margin: 10px auto 0; padding: 0 30px; }
+  .chartbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .chartbar .t { font-size: 13px; color: #9b8fb0; }
+  .chartbar .pills span { font-size: 12px; color: #6b6178; padding: 4px 14px; border-radius: 999px; cursor: pointer; }
+  .chartbar .pills span.on { background: rgba(155,143,176,.16); color: #f0ecf4; }
+  .ribbon { display: flex; justify-content: center; gap: 28px; padding: 18px 0 26px; font-size: 12.5px; flex-wrap: wrap; }
+  .ribbon .item { display: flex; align-items: center; gap: 8px; color: #9b8fb0; }
+  .tag { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .tg { background: #ff5c5c; box-shadow: 0 0 8px rgba(255,92,92,.6); }
+  .tb { background: #5c9dff; box-shadow: 0 0 8px rgba(92,157,255,.6); }
+  .tgr { background: #6b6178; }
+  .insight { text-align: center; font-size: 12px; color: #6b6178; margin-top: 4px; }
+  .insight b { color: #d9d2e3; }
+  footer { text-align: center; font-size: 11px; color: #4a4356; padding-bottom: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>烛 龙</h1>
+  <div class="path">C:/Users/Administrator/.agents/skills/日常类/烛龙</div>
+</header>
+<div class="hero">
+  <div><span class="num">88.4</span><span class="unit"> %</span></div>
+  <div class="name">提交内存水位 <small>commit_percent</small></div>
+  <div class="desc">所有程序向系统预订的内存额度占用率 · 超 85% 游戏/桌面可能闪退黑屏</div>
+  <div class="badge-line"><span class="state">红区 · 危险 —— 建议排查内存大户</span></div>
+</div>
+<div class="subgrid">
+  <div class="sub"><div class="l">已用提交内存</div><div class="v">84.1 GB</div></div>
+  <div class="sub"><div class="l">提交内存上限</div><div class="v">95.2 GB</div></div>
+  <div class="sub"><div class="l">物理内存</div><div class="v">61%</div></div>
+  <div class="sub"><div class="l">米哈游启动器组件（HYPHelper.exe）</div><div class="v" style="color:#e3b341">12.3 GB</div></div>
+</div>
+<div class="chartwrap">
+  <div class="chartbar">
+    <span class="t">提交内存水位 · 24小时 · ◆ 事件标记</span>
+    <span class="pills"><span class="on">24小时</span><span>7天</span><span>30天</span></span>
+  </div>
+  <canvas id="chart" height="110"></canvas>
+  <div class="insight">区间最高 <b>91.2%（17:24）</b> · 伴随事件 <b>2 起</b> · 当前水位：<b style="color:#ff8a8a">红区 · 危险</b></div>
+</div>
+<div class="ribbon">
+  <div class="item"><span class="tag tg"></span>17:23 泄漏处置 · 自动结束 HYPHelper.exe（16.2GB）</div>
+  <div class="item"><span class="tag tb"></span>17:25 高水位告警 · 通知已发送</div>
+  <div class="item"><span class="tag tgr"></span>16:02 泄漏处置 · 已静音</div>
+</div>
+<footer>采集周期 30 秒 · 数据保留 30 天 · 面板只读（127.0.0.1）</footer>
+<script>
+const pts = []; let v = 45;
+for (let i = 0; i < 288; i++) {
+  const t = new Date(Date.now() - (288 - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 17.1 && hm < 17.6) v = 84 + Math.random() * 7;
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const ctx = document.getElementById("chart").getContext("2d");
+const grad = ctx.createLinearGradient(0, 0, 0, 240);
+grad.addColorStop(0, "rgba(255,92,92,.30)"); grad.addColorStop(1, "rgba(255,92,92,0)");
+new Chart(ctx, {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pts.map(p => p[1]), borderColor: "#ff5c5c", backgroundColor: grad, fill: true, tension: .3, pointRadius: 0, borderWidth: 2 },
+    { type: "scatter", data: [{ x: labels[labels.length - 3], y: 88 }, { x: labels[labels.length - 8], y: 86 }],
+      pointRadius: 7, pointStyle: "rectRot", pointBackgroundColor: "#ff5c5c", pointBorderColor: "#fff", pointBorderWidth: 1.5 }
+  ]},
+  options: { scales: { x: { grid: { color: "rgba(155,143,176,.10)" }, ticks: { color: "#6b6178", maxTicksLimit: 12 } },
+                        y: { grid: { color: "rgba(155,143,176,.10)" }, ticks: { color: "#6b6178" }, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 B · 密集数据面板风</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; background: #0a0e14; color: #d7dde3; font-size: 13px; }
+  .topbar { display: flex; align-items: center; gap: 20px; padding: 12px 24px; background: #11161f; border-bottom: 1px solid #1c2430; }
+  .logo { font-size: 16px; font-weight: 700; }
+  .kpi { display: flex; gap: 26px; margin-left: auto; }
+  .kpi div { text-align: right; }
+  .kpi .l { color: #5f6b7a; font-size: 11px; }
+  .kpi .v { font-size: 17px; font-weight: 700; }
+  .tabs { display: flex; gap: 2px; padding: 0 24px; background: #11161f; border-bottom: 1px solid #1c2430; }
+  .tab { padding: 9px 18px; color: #5f6b7a; cursor: pointer; border-bottom: 2px solid transparent; font-size: 13px; }
+  .tab.active { color: #e6edf3; border-bottom-color: #58a6ff; }
+  .range { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .range span { padding: 3px 10px; border-radius: 4px; cursor: pointer; color: #5f6b7a; font-size: 12px; }
+  .range span.active { background: #1c2430; color: #e6edf3; }
+  main { padding: 16px 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .box { background: #11161f; border: 1px solid #1c2430; border-radius: 8px; padding: 14px; }
+  .box h4 { margin: 0 0 10px; font-size: 12px; color: #5f6b7a; font-weight: 600; letter-spacing: .5px; }
+  .metric-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .m { background: #0d1117; border-radius: 6px; padding: 10px 12px; }
+  .m .n { font-size: 11px; color: #5f6b7a; }
+  .m .n small { color: #46525f; }
+  .m .val { font-size: 20px; font-weight: 700; margin: 4px 0; }
+  .m .d { font-size: 10.5px; color: #46525f; line-height: 1.4; }
+  .red { color: #ff6b5e; } .yellow { color: #e3b341; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  td, th { padding: 6px 10px; border-bottom: 1px solid #1c2430; text-align: left; }
+  th { color: #5f6b7a; font-weight: 600; font-size: 11px; }
+  .tag { padding: 1px 8px; border-radius: 4px; font-size: 11px; }
+  .t-red { background: #3d2226; color: #ff6b5e; } .t-blue { background: #1a2c44; color: #58a6ff; } .t-gray { background: #202830; color: #8b949e; }
+  .pathline { color: #46525f; font-size: 11px; padding: 10px 24px 16px; }
+  .full { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">烛龙</div>
+  <div class="kpi">
+    <div><div class="l">提交内存水位</div><div class="v red">88.4%</div></div>
+    <div><div class="l">已用/上限</div><div class="v">84.1 / 95.2 GB</div></div>
+    <div><div class="l">物理内存</div><div class="v">61%</div></div>
+    <div><div class="l">今日事件</div><div class="v yellow">3</div></div>
+  </div>
+</div>
+<div class="tabs">
+  <div class="tab active">总览</div><div class="tab">内存</div><div class="tab">进程</div><div class="tab">事件</div>
+  <div class="range"><span>24小时</span><span class="active">7天</span><span>30天</span></div>
+</div>
+<main>
+  <div class="grid">
+    <div class="box">
+      <h4>指标明细（7天视图）</h4>
+      <div class="metric-row">
+        <div class="m"><div class="n">提交内存水位 <small>commit_percent</small></div><div class="val red">88.4%</div><div class="d">超 85% 游戏/桌面可能闪退黑屏</div></div>
+        <div class="m"><div class="n">已用提交内存 <small>commit_used_gb</small></div><div class="val">84.1 GB</div><div class="d">当前已承诺内存总量</div></div>
+        <div class="m"><div class="n">提交内存上限 <small>commit_limit_gb</small></div><div class="val">95.2 GB</div><div class="d">物理+页面文件总额度</div></div>
+        <div class="m"><div class="n">物理内存占用 <small>mem_percent</small></div><div class="val">61%</div><div class="d">真实内存条使用率</div></div>
+      </div>
+    </div>
+    <div class="box">
+      <h4>白名单进程监控</h4>
+      <table>
+        <tr><th>进程（源文件名）</th><th>中文名</th><th>当前</th><th>阈值</th><th>状态</th></tr>
+        <tr><td>HYPHelper.exe</td><td>米哈游启动器组件</td><td class="yellow">12.3 GB</td><td>15 GB</td><td><span class="tag t-gray">观察中</span></td></tr>
+      </table>
+      <h4 style="margin-top:14px">进程 commit 曲线</h4>
+      <canvas id="proc" height="80"></canvas>
+    </div>
+    <div class="box full">
+      <h4>提交内存水位 · 7 天（30分钟桶）· ◆ 为事件标记</h4>
+      <canvas id="chart" height="100"></canvas>
+      <div style="font-size:12px;color:#5f6b7a;margin-top:8px">区间最高 <b style="color:#d7dde3">91.2%（10/02 17:24）</b> · 伴随事件 2 起（自动结束 1 / 通知 1） · 当前水位：<b class="red">红区 · 危险</b></div>
+    </div>
+    <div class="box full">
+      <h4>事件时间线</h4>
+      <table>
+        <tr><th>时间</th><th>规则</th><th>动作</th><th>详情</th></tr>
+        <tr><td>10/02 17:25:30</td><td>高水位告警</td><td><span class="tag t-blue">通知</span></td><td>commit 超过 85% 持续 90 秒</td></tr>
+        <tr><td>10/02 17:23:48</td><td>泄漏处置</td><td><span class="tag t-red">自动结束</span></td><td>HYPHelper.exe pid=44712 commit=16.2GB</td></tr>
+        <tr><td>10/02 16:02:11</td><td>泄漏处置</td><td><span class="tag t-gray">已静音</span></td><td>动作已静音（暂停期内触发）</td></tr>
+      </table>
+    </div>
+  </div>
+</main>
+<div class="pathline">程序路径 C:/Users/Administrator/.agents/skills/日常类/烛龙 · 采集周期 30s · 保留 30 天 · 面板只读（127.0.0.1）</div>
+<script>
+function mockPts(n, stepMin, spike) {
+  const pts = []; let v = 45;
+  for (let i = 0; i < n; i++) {
+    const t = new Date(Date.now() - (n - i) * stepMin * 60000);
+    if (spike && i === Math.floor(n * 0.62)) v = 90;
+    else { v += (Math.random() - 0.5) * 3; v = Math.max(35, Math.min(92, v)); }
+    pts.push([t, +v.toFixed(1)]);
+  }
+  return pts;
+}
+const pts = mockPts(336, 30, true);
+const labels = pts.map(p => p[0].toISOString().slice(5, 16).replace("T", " "));
+const evIdx = [Math.floor(336 * 0.62)];
+new Chart(document.getElementById("chart"), {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pts.map(p => p[1]), borderColor: "#58a6ff", tension: .2, pointRadius: 0, borderWidth: 1.5 },
+    { type: "scatter", data: evIdx.map(i => ({ x: labels[i], y: pts[i][1] })), pointRadius: 6, pointStyle: "rectRot", pointBackgroundColor: "#ff6b5e", pointBorderColor: "#fff", pointBorderWidth: 1.5 }
+  ]},
+  options: { scales: { x: { grid: { color: "#1c2430" }, ticks: { color: "#5f6b7a", maxTicksLimit: 14 } },
+                        y: { grid: { color: "#1c2430" }, ticks: { color: "#5f6b7a" }, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+const proc = mockPts(100, 5, false);
+new Chart(document.getElementById("proc"), {
+  type: "line",
+  data: { labels: proc.map(p => p[0].toTimeString().slice(0, 5)),
+          datasets: [{ label: "HYPHelper（米哈游启动器组件）", data: proc.map(p => Math.max(2, p[1] / 6)), borderColor: "#e3b341", tension: .2, pointRadius: 0, borderWidth: 1.5 }] },
+  options: { scales: { x: { display: false }, y: { grid: { color: "#1c2430" }, ticks: { color: "#5f6b7a" }, suggestedMin: 0 } },
+             plugins: { legend: { labels: { color: "#8b949e", boxWidth: 12 } } } }
+});
+</script>
+</body>
+</html>
