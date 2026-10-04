@@ -11,7 +11,9 @@ STATIC = Path(__file__).parent / "static"
 _MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8"}
 _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
-                 ("memory", "commit_limit_gb"), ("memory", "mem_percent")]
+                 ("memory", "commit_limit_gb"), ("memory", "mem_percent"),
+                 ("memory", "mem_used_gb"), ("memory", "mem_total_gb"),
+                 ("memory", "pagefile_used_gb"), ("memory", "pagefile_total_gb")]
 
 
 class Handler(BaseHTTPRequestHandler):

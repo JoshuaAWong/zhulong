@@ -1,8 +1,17 @@
 from zhulong.collectors import memory, process
 
+GB = 1024 ** 3
+
 
 class FakeVM:
     percent = 42.0
+    used = 13.4 * GB
+    total = 32 * GB
+
+
+class FakePagefile:
+    used = 2 * GB
+    total = 64 * GB
 
 
 class FakeProc:
@@ -11,14 +20,17 @@ class FakeProc:
 
 
 def main():
-    # memory：注入 fake commit_stats（(used_bytes, limit_bytes)）
-    fake_stats = lambda: (50 * 2**30, 100 * 2**30)
-    rows = memory.collect(None, commit_stats=fake_stats, vm=FakeVM())
+    # memory：注入 fake（commit_stats/vm/pagefile）
+    fake_stats = lambda: (50 * GB, 100 * GB)
+    rows = memory.collect(None, commit_stats=fake_stats, vm=FakeVM(), pagefile=FakePagefile())
     keys = {k for k, v, l in rows}
-    assert keys == {"commit_used_gb", "commit_limit_gb", "commit_percent", "mem_percent"}, keys
+    assert keys == {"commit_used_gb", "commit_limit_gb", "commit_percent", "mem_percent",
+                    "mem_used_gb", "mem_total_gb", "pagefile_used_gb", "pagefile_total_gb"}, keys
     d = {k: v for k, v, l in rows}
     assert abs(d["commit_limit_gb"] - 100.0) < 0.01
     assert abs(d["commit_percent"] - 50.0) < 0.01
+    assert abs(d["mem_used_gb"] - 13.4) < 0.01
+    assert abs(d["pagefile_used_gb"] - 2.0) < 0.01
     # 真实 _commit_stats 形态校验（调用真实 GetPerformanceInfo，值域合理即可）
     used, limit = memory._commit_stats()
     assert 0 < used < limit, (used, limit)

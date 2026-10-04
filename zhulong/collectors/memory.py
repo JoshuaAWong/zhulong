@@ -31,14 +31,19 @@ def _commit_stats():
     return pi.CommitTotal * pi.PageSize, pi.CommitLimit * pi.PageSize
 
 
-def collect(cfg, commit_stats=None, vm=None):
+def collect(cfg, commit_stats=None, vm=None, pagefile=None):
     used, limit = (commit_stats or _commit_stats)()
     v = vm or psutil.virtual_memory()
+    pf = pagefile or psutil.swap_memory()   # 新版 psutil：此处即页面文件用量
     return [
         ("commit_used_gb", round(used / GB, 2), ""),
         ("commit_limit_gb", round(limit / GB, 2), ""),
         ("commit_percent", round(used / limit * 100, 1), ""),
         ("mem_percent", round(v.percent, 1), ""),
+        ("mem_used_gb", round(v.used / GB, 2), ""),
+        ("mem_total_gb", round(v.total / GB, 2), ""),
+        ("pagefile_used_gb", round(pf.used / GB, 2), ""),
+        ("pagefile_total_gb", round(pf.total / GB, 2), ""),
     ]
 
 
