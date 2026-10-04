@@ -48,6 +48,11 @@ def main():
             assert st == 405, st   # 安全红线：写请求必须拒绝
             st, _ = get("127.0.0.1", port, "/favicon.ico")
             assert st == 204
+            # 静态拆分文件：字面白名单路由 + MIME 硬编码
+            st, body = get("127.0.0.1", port, "/panel.css")
+            assert st == 200, st
+            st, body = get("127.0.0.1", port, "/panel.js")
+            assert st == 200 and b"refresh" in body, st
         finally:
             srv.shutdown()
         conn.close()
