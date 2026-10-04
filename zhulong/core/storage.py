@@ -51,8 +51,9 @@ def query_history(conn, collector, key, hours=24, bucket_s=300):
     cutoff = time.time() - hours * 3600
     cutoff_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(cutoff))
     # 5 分钟桶：epoch/300 取整（bucket_s 预留给未来调整粒度）
+    # 时区注意：ts 存的是本地时间，必须加 'utc' 修饰告诉 SQLite 按本地时间解析（否则当 UTC 解析，桶标签会快 8 小时）
     cur = conn.execute(
-        "SELECT datetime((CAST(strftime('%s', ts) AS INTEGER) / ?) * ?, 'unixepoch', 'localtime') AS bucket,"
+        "SELECT datetime((CAST(strftime('%s', ts, 'utc') AS INTEGER) / ?) * ?, 'unixepoch', 'localtime') AS bucket,"
         " AVG(value) FROM metrics WHERE collector=? AND key=? AND ts>=? "
         "GROUP BY bucket ORDER BY bucket",
         (bucket_s, bucket_s, collector, key, cutoff_iso))
