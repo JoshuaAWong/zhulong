@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 D2 · 昼夜双态</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  /* ── 主题变量 ── */
+  :root[data-theme="dark"] {
+    --bg: radial-gradient(ellipse at 50% -10%, #1a120c 0%, #0b0906 55%);
+    --ink: #ece4d8; --ink2: #c9bda8; --mut: #8a7a63; --dim: #5c5348; --faint: #4a4238;
+    --acc: #ff9f43; --acc2: #ffb968; --danger: #ff5c5c; --ok: #9cc79c; --info: #5c9dff;
+    --panel: rgba(255,255,255,.025); --line: rgba(255,159,67,.12); --line2: rgba(255,159,67,.07);
+    --glow: rgba(255,159,67,.35); --grid: rgba(255,159,67,.07); --tick: #6e6353;
+    --seal-bg: #a83232; --seal-ink: #f5e9e0;
+  }
+  :root[data-theme="light"] {
+    --bg: radial-gradient(ellipse at 50% -10%, #f7f1e3 0%, #efe7d5 60%);
+    --ink: #2e2820; --ink2: #4a4034; --mut: #7a6c56; --dim: #9a8b72; --faint: #b3a68d;
+    --acc: #b8651a; --acc2: #c87414; --danger: #c0392b; --ok: #3e7d44; --info: #2f6fb2;
+    --panel: rgba(255,252,244,.75); --line: rgba(120,90,40,.22); --line2: rgba(120,90,40,.10);
+    --glow: rgba(184,101,26,.18); --grid: rgba(90,70,40,.10); --tick: #8a7a63;
+    --seal-bg: #b03a2e; --seal-ink: #fbf3e9;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh; }
+  /* ── 页头 ── */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px 14px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 52px; height: 52px; color: var(--acc); flex-shrink: 0; }
+  .brand .word { font-size: 22px; font-weight: 800; letter-spacing: 10px; color: var(--acc); text-shadow: 0 0 24px var(--glow); }
+  .brand .sub { font-size: 12px; color: var(--mut); letter-spacing: 2px; }
+  .path { font-size: 11px; color: var(--dim); margin-top: 6px; letter-spacing: .5px; }
+  .head-right { display: flex; align-items: center; gap: 14px; }
+  .pills { display: flex; gap: 6px; }
+  .pill { padding: 6px 16px; border-radius: 999px; font-size: 12.5px; cursor: pointer; background: transparent; border: 1px solid var(--line); color: var(--mut); }
+  .pill.on { background: var(--panel); border-color: var(--acc); color: var(--acc2); }
+  .theme-btn { display: flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--mut); font-size: 12.5px; cursor: pointer; }
+  .theme-btn:hover { color: var(--acc2); border-color: var(--acc); }
+  .theme-btn svg { width: 20px; height: 20px; color: var(--acc); }
+  main { max-width: 1240px; margin: 0 auto; padding: 14px 32px 28px; }
+  /* ── 火焰分隔线 ── */
+  .flame-div { display: flex; align-items: center; gap: 10px; margin: 12px 0 2px; color: var(--acc); opacity: .8; }
+  .flame-div .brush { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); }
+  /* ── 主指标 ── */
+  .hero { display: flex; align-items: center; gap: 34px; padding: 10px 0 6px; }
+  .hero .num { font-size: 96px; font-weight: 800; line-height: 1; color: var(--acc2); text-shadow: 0 0 48px var(--glow); }
+  .hero .num small { font-size: 22px; color: var(--mut); font-weight: 600; }
+  .hero .meta .cn { font-size: 15px; color: var(--ink2); }
+  .hero .meta .en { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .hero .meta .desc { font-size: 12px; color: var(--mut); margin-top: 8px; max-width: 420px; line-height: 1.6; }
+  .subcards { display: flex; gap: 14px; margin: 14px 0 4px; flex-wrap: wrap; }
+  .subcard { background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 10px 18px; min-width: 150px; }
+  .subcard .l { font-size: 11px; color: var(--mut); }
+  .subcard .l small { color: var(--dim); }
+  .subcard .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  /* ── 重点提醒 ── */
+  .alert { border-radius: 12px; padding: 14px 20px; margin-top: 14px; background: rgba(192,57,43,.08); border: 1px solid var(--danger); }
+  .alert .head { display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 700; color: var(--danger); }
+  .alert .head .led { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .alert .advice { margin-top: 10px; font-size: 12.5px; color: var(--ink2); line-height: 1.8; }
+  .alert .advice b { color: var(--acc2); }
+  .handled { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--ok); }
+  .handled .led { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  /* ── 图区 ── */
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 16px; }
+  .box { background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; padding: 14px 16px; position: relative; }
+  .box h4 { margin: 0 0 10px; font-size: 12px; color: var(--mut); font-weight: 600; letter-spacing: .5px; }
+  .box h4 .mk { font-weight: 400; color: var(--dim); }
+  .box.main { grid-row: span 2; }
+  .box .corner { position: absolute; width: 18px; height: 18px; border: 2px solid var(--acc); opacity: .35; pointer-events: none; }
+  .corner.tl { top: 6px; left: 6px; border-right: none; border-bottom: none; border-radius: 6px 0 0 0; }
+  .corner.br { bottom: 6px; right: 6px; border-left: none; border-top: none; border-radius: 0 0 6px 0; }
+  .insight { font-size: 12px; color: var(--mut); margin-top: 8px; }
+  .insight b { color: var(--ink); }
+  .legend-note { display: flex; gap: 16px; font-size: 11px; color: var(--mut); margin-top: 6px; flex-wrap: wrap; }
+  .legend-note i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; }
+  /* ── 时间线 ── */
+  .timeline { margin-top: 16px; }
+  .ev { display: flex; gap: 14px; padding: 11px 4px; border-bottom: 1px solid var(--line2); font-size: 12.5px; }
+  .ev .t { color: var(--mut); width: 132px; flex-shrink: 0; }
+  .ev .rule { width: 110px; flex-shrink: 0; color: var(--ink2); }
+  .ev .st { width: 82px; flex-shrink: 0; }
+  .st-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; }
+  .done { background: rgba(62,125,68,.14); color: var(--ok); }
+  .pend { background: rgba(192,57,43,.12); color: var(--danger); border: 1px solid var(--danger); }
+  .muted-b { background: rgba(122,108,86,.14); color: var(--mut); }
+  .ev .detail { color: var(--ink2); flex: 1; }
+  .ev .detail .tip { display: block; color: var(--dim); font-size: 11px; margin-top: 3px; }
+  /* ── 页脚与印章 ── */
+  footer { display: flex; align-items: center; justify-content: center; gap: 18px; font-size: 11px; color: var(--faint); padding: 20px 0 26px; }
+  .seal { width: 34px; height: 34px; background: var(--seal-bg); color: var(--seal-ink); border-radius: 6px;
+          display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700;
+          box-shadow: 0 0 0 2px rgba(176,58,46,.25), inset 0 0 6px rgba(0,0,0,.25); transform: rotate(-4deg); opacity: .9; }
+</style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:14px">
+    <!-- 烛龙 logo：龙身圆环 + 龙首 + 烛火（手绘双描边） -->
+    <svg class="logo" viewBox="0 0 64 64" aria-label="烛龙">
+      <path d="M32 8 C48 8 56 20 56 33 C56 47 46 56 32 56 C18 56 8 47 8 33 C8 20 16 10 28 8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+      <path d="M33 12 C45 13 52 22 52 33 C52 44 44 52 33 52.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".45" stroke-linecap="round"/>
+      <path d="M24 10 C21 6 25 2.5 29.5 4.5 C33 6 34 9.5 31.5 11.5" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+      <circle cx="27" cy="7.3" r="1.4" fill="currentColor"/>
+      <path d="M32 21 C35.5 25.5 37.5 28.5 37.5 33 C37.5 37.5 35.5 40.5 32 40.5 C28.5 40.5 26.5 37.5 26.5 33 C26.5 28.5 28.5 25.5 32 21 Z" fill="currentColor" opacity=".9"/>
+      <path d="M32 27.5 C33.8 29.8 34.8 31.5 34.8 33.6 C34.8 35.9 33.8 37.4 32 37.4 C30.2 37.4 29.2 35.9 29.2 33.6 C29.2 31.5 30.2 29.8 32 27.5 Z" fill="var(--ink)" opacity=".55"/>
+    </svg>
+    <div>
+      <div class="brand"><span class="word">烛 龙</span><span class="sub">系统监控</span></div>
+      <div class="path">C:/Users/Administrator/.agents/skills/烛龙</div>
+    </div>
+  </div>
+  <div class="head-right">
+    <div class="pills"><div class="pill on">24小时</div><div class="pill">7天</div><div class="pill">30天</div></div>
+    <button class="theme-btn" id="themeBtn">
+      <!-- 睁眼为昼 / 闭眼为夜 -->
+      <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:none">
+        <path d="M2.5 12 C6 6.5 18 6.5 21.5 12 C18 17.5 6 17.5 2.5 12 Z"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+      </svg>
+      <svg id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M2.5 12 C6 16 18 16 21.5 12"/><path d="M6 14.5 L4.8 16.2 M12 15.5 L12 17.8 M18 14.5 L19.2 16.2"/>
+      </svg>
+      <span id="themeLabel">夜</span>
+    </button>
+  </div>
+</header>
+<main>
+  <div class="hero">
+    <div class="num">45.8<small> %</small></div>
+    <div class="meta">
+      <div class="cn">提交内存水位</div>
+      <div class="en">commit_percent</div>
+      <div class="desc">所有程序向系统预订的内存额度占用率。超 85% 游戏/桌面可能因内存分配失败闪退黑屏</div>
+    </div>
+  </div>
+  <div class="subcards">
+    <div class="subcard"><div class="l">已用提交内存 <small>commit_used_gb</small></div><div class="v">42.7 GB</div></div>
+    <div class="subcard"><div class="l">提交内存上限 <small>commit_limit_gb</small></div><div class="v">93.2 GB</div></div>
+    <div class="subcard"><div class="l">物理内存占用 <small>mem_percent</small></div><div class="v">56%</div></div>
+    <div class="subcard"><div class="l">米哈游启动器组件 <small>HYPHelper.exe</small></div><div class="v">0.0 GB</div></div>
+  </div>
+
+  <div class="flame-div">
+    <div class="brush"></div>
+    <svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor"><path d="M7 0 C9.5 4 12 6.5 12 10.5 C12 14.5 9.8 17 7 17 C4.2 17 2 14.5 2 10.5 C2 6.5 4.5 4 7 0 Z"/></svg>
+    <div class="brush"></div>
+  </div>
+
+  <div class="alert">
+    <div class="head"><span class="led"></span>待处理 1 起 · 需要人工介入</div>
+    <div class="advice">
+      <b>17:42 泄漏处置降级</b> —— HYPHelper.exe 占用 16.2GB 触发泄漏判定，但 10 分钟内已自动处置 2 次（频次熔断保护），本次未自动结束。<br>
+      <b>推荐处理思路</b>：① 任务管理器手动结束 HYPHelper.exe（重新打开 HoYoPlay 即重置）② 若反复泄漏，升级 HoYoPlay 启动器版本 ③ 详情见事件时间线
+    </div>
+  </div>
+  <div class="handled"><span class="led"></span>今日其余 2 起处置已全部自动完成（自动结束 1 · 通知 1）</div>
+
+  <div class="charts">
+    <div class="box main">
+      <span class="corner tl"></span><span class="corner br"></span>
+      <h4>提交内存水位 · 24小时（5分钟桶） <span class="mk">◆ 触发点 ○ 提醒点 ● 处理点 ▲ 待处理</span></h4>
+      <canvas id="main" height="140"></canvas>
+      <div class="legend-note">
+        <span><i style="background:var(--acc2)"></i>触发点（条件成立）</span>
+        <span><i style="background:var(--info)"></i>提醒点（已通知）</span>
+        <span><i style="background:var(--ok)"></i>处理点（已自动处置）</span>
+        <span><i style="background:var(--danger)"></i>待处理（降级，需人工）</span>
+      </div>
+      <div class="insight">区间最高 <b>91.2%（17:24）</b> · 事件 4 起：自动处置 1 / 通知 1 / 静音 1 / 降级 1 · 当前水位：<b style="color:var(--ok)">绿区 · 健康</b></div>
+    </div>
+    <div class="box">
+      <span class="corner tl"></span>
+      <h4>已用 / 上限（GB）</h4>
+      <canvas id="dim1" height="100"></canvas>
+    </div>
+    <div class="box">
+      <span class="corner tl"></span>
+      <h4>物理内存占用（%）</h4>
+      <canvas id="dim2" height="100"></canvas>
+    </div>
+  </div>
+
+  <div class="box timeline">
+    <span class="corner tl"></span><span class="corner br"></span>
+    <h4>事件时间线 · 回溯</h4>
+    <div class="ev"><span class="t">10/02 17:42:11</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge pend">待处理</span></span>
+      <span class="detail">频次熔断：该进程 10 分钟内已自动处置 2 次<span class="tip">推荐：手动结束 HYPHelper.exe，或升级 HoYoPlay 版本</span></span></div>
+    <div class="ev"><span class="t">10/02 17:25:30</span><span class="rule">高水位告警</span><span class="st"><span class="st-badge done">已处理</span></span>
+      <span class="detail">通知已发送：commit 超过 85% 持续 90 秒</span></div>
+    <div class="ev"><span class="t">10/02 17:23:48</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge done">已处理</span></span>
+      <span class="detail">已自动结束 HYPHelper.exe（pid=44712，commit=16.2GB）</span></div>
+    <div class="ev"><span class="t">10/02 16:02:11</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge muted-b">已静音</span></span>
+      <span class="detail">暂停期内触发，动作已静音（采集照常记录）</span></div>
+  </div>
+</main>
+<footer>
+  <span>采集周期 30 秒 · 数据保留 30 天 · 面板只读（127.0.0.1）· 察于幽冥 · 睁眼为昼 闭眼为夜</span>
+  <div class="seal">烛</div>
+</footer>
+<script>
+const THEMES = {
+  dark:  { grid: "rgba(255,159,67,.07)", tick: "#6e6353", line: "#ff9f43", dim1: "#b98c5f" },
+  light: { grid: "rgba(90,70,40,.10)", tick: "#8a7a63", line: "#c87414", dim1: "#a05a2c" }
+};
+let charts = [];
+const N = 288, pts = []; let v = 45;
+for (let i = 0; i < N; i++) {
+  const t = new Date(Date.now() - (N - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 16.9 && hm < 17.3) v = 86 + Math.random() * 5;
+  else if (hm > 17.3 && hm < 17.45) v = 62 + Math.random() * 6;
+  else if (hm > 17.45 && hm < 17.75) v = 84 + Math.random() * 6;
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const pct = pts.map(p => p[1]);
+function at(hm) { let b = 0, bd = 1e9; pts.forEach((p, i) => { const d = Math.abs(p[0].getHours() + p[0].getMinutes() / 60 - hm); if (d < bd) { bd = d; b = i; } }); return b; }
+const CS = getComputedStyle(document.documentElement);
+const EVENT_MARKS = [
+  { i: at(16.93), key: "--acc2",   title: "◆ 触发点 · 17:24",  detail: "泄漏判定成立：HYPHelper.exe 占用 16.2GB > 阈值 15GB" },
+  { i: at(17.25), key: "--info",   title: "○ 提醒点 · 17:25",  detail: "高水位告警：commit 超 85% 持续 90 秒，已发送通知" },
+  { i: at(17.40), key: "--ok",     title: "● 处理点 · 17:23",  detail: "已自动处置：结束 HYPHelper.exe（pid=44712）" },
+  { i: at(17.70), key: "--danger", title: "▲ 待处理 · 17:42",  detail: "降级：频次熔断未自动结束。推荐手动结束该进程或升级 HoYoPlay" },
+];
+function marks() {
+  return EVENT_MARKS.map(m => ({ ...m, c: CS.getPropertyValue(m.key).trim() }));
+}
+function build() {
+  charts.forEach(c => c.destroy()); charts = [];
+  const th = THEMES[document.documentElement.dataset.theme];
+  const GRID = { color: th.grid }, TICK = { color: th.tick };
+  const ctx = document.getElementById("main").getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 0, 300);
+  grad.addColorStop(0, th.line + "45"); grad.addColorStop(1, th.line + "00");
+  const mk = marks();
+  charts.push(new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets: [
+      { data: pct, borderColor: th.line, backgroundColor: grad, fill: true, tension: .3, pointRadius: 0, borderWidth: 2 },
+      { type: "scatter", data: mk.map(m => ({ x: labels[m.i], y: pct[m.i] })), pointRadius: 7,
+        pointBackgroundColor: mk.map(m => m.c), pointBorderColor: "#00000000", pointStyle: "rectRot" }
+    ]},
+    options: { scales: { x: { grid: GRID, ticks: { ...TICK, maxTicksLimit: 12 } },
+                          y: { grid: GRID, ticks: TICK, suggestedMax: 100 } },
+               plugins: { legend: { display: false },
+                          tooltip: { filter: it => it.datasetIndex === 1,
+                                     callbacks: { title: items => items.length ? mk[items[0].dataIndex].title : "",
+                                                  label: it => mk[it.dataIndex].detail } } } }
+  }));
+  charts.push(new Chart(document.getElementById("dim1"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "已用", data: pct.map(p => +(p * 0.47).toFixed(1)), borderColor: th.line, tension: .3, pointRadius: 0, borderWidth: 1.5 },
+      { label: "上限", data: pct.map(() => 93.2), borderColor: th.tick, borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+    ]},
+    options: { scales: { x: { display: false }, y: { grid: GRID, ticks: TICK } },
+               plugins: { legend: { labels: { color: th.tick, boxWidth: 10 } } } }
+  }));
+  charts.push(new Chart(document.getElementById("dim2"), {
+    type: "line",
+    data: { labels, datasets: [{ data: pct.map(p => +(p * 0.62 + 18).toFixed(1)), borderColor: th.dim1, tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
+    options: { scales: { x: { display: false }, y: { grid: GRID, ticks: TICK, suggestedMax: 100 } },
+               plugins: { legend: { display: false } } }
+  }));
+}
+build();
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const el = document.documentElement;
+  const toLight = el.dataset.theme === "dark";
+  el.dataset.theme = toLight ? "light" : "dark";
+  document.getElementById("eyeOpen").style.display = toLight ? "" : "none";
+  document.getElementById("eyeClosed").style.display = toLight ? "none" : "";
+  document.getElementById("themeLabel").textContent = toLight ? "昼" : "夜";
+  build();
+});
+</script>
+</body>
+</html>

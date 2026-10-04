@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 D · 烛龙风</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0;
+         background: radial-gradient(ellipse at 50% -10%, #1a120c 0%, #0b0906 55%);
+         color: #ece4d8; min-height: 100vh; }
+  /* ── 页头 ── */
+  header { display: flex; align-items: center; justify-content: space-between;
+           padding: 20px 32px 14px; border-bottom: 1px solid rgba(255,159,67,.12); }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .brand .word { font-size: 22px; font-weight: 800; letter-spacing: 10px;
+                 color: #ff9f43; text-shadow: 0 0 24px rgba(255,159,67,.45); }
+  .brand .sub { font-size: 12px; color: #8a7a63; letter-spacing: 2px; }
+  .path { font-size: 11px; color: #5c5348; margin-top: 6px; letter-spacing: .5px; }
+  .pills { display: flex; gap: 6px; }
+  .pill { padding: 6px 16px; border-radius: 999px; font-size: 12.5px; cursor: pointer;
+          background: rgba(255,255,255,.03); border: 1px solid rgba(255,159,67,.18); color: #8a7a63; }
+  .pill.on { background: rgba(255,159,67,.16); border-color: rgba(255,159,67,.55); color: #ffb968; }
+  main { max-width: 1240px; margin: 0 auto; padding: 18px 32px 28px; }
+  /* ── 主指标区 ── */
+  .hero { display: flex; align-items: center; gap: 34px; padding: 10px 0 6px; }
+  .hero .num { font-size: 96px; font-weight: 800; line-height: 1;
+               color: #ffb968; text-shadow: 0 0 48px rgba(255,159,67,.35); }
+  .hero .num small { font-size: 22px; color: #8a7a63; font-weight: 600; }
+  .hero .meta .cn { font-size: 15px; color: #c9bda8; }
+  .hero .meta .en { font-size: 11px; color: #5c5348; margin-top: 2px; }
+  .hero .meta .desc { font-size: 12px; color: #8a7a63; margin-top: 8px; max-width: 420px; line-height: 1.6; }
+  .subcards { display: flex; gap: 14px; margin: 14px 0 4px; flex-wrap: wrap; }
+  .subcard { background: rgba(255,255,255,.025); border: 1px solid rgba(255,159,67,.10);
+             border-radius: 10px; padding: 10px 18px; min-width: 150px; }
+  .subcard .l { font-size: 11px; color: #8a7a63; }
+  .subcard .l small { color: #5c5348; }
+  .subcard .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  /* ── 重点提醒区 ── */
+  .alert { border-radius: 12px; padding: 14px 20px; margin-top: 14px;
+           background: rgba(255,92,92,.08); border: 1px solid rgba(255,92,92,.35); }
+  .alert .head { display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 700; color: #ff8a8a; }
+  .alert .head .led { width: 9px; height: 9px; border-radius: 50%; background: #ff5c5c;
+                      box-shadow: 0 0 10px rgba(255,92,92,.8); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .alert .advice { margin-top: 10px; font-size: 12.5px; color: #d9c9bb; line-height: 1.8; }
+  .alert .advice b { color: #ffb968; }
+  .handled { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: #7ea87e; }
+  .handled .led { width: 8px; height: 8px; border-radius: 50%; background: #7ea87e; }
+  /* ── 多维图区 ── */
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 16px; }
+  .box { background: rgba(255,255,255,.025); border: 1px solid rgba(255,159,67,.10);
+         border-radius: 12px; padding: 14px 16px; }
+  .box h4 { margin: 0 0 10px; font-size: 12px; color: #8a7a63; font-weight: 600; letter-spacing: .5px; }
+  .box h4 .mk { font-weight: 400; color: #5c5348; }
+  .box.main { grid-row: span 2; }
+  .insight { font-size: 12px; color: #8a7a63; margin-top: 8px; }
+  .insight b { color: #ece4d8; }
+  .legend-note { display: flex; gap: 16px; font-size: 11px; color: #8a7a63; margin-top: 6px; flex-wrap: wrap; }
+  .legend-note i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; }
+  /* ── 事件时间线 ── */
+  .timeline { margin-top: 16px; }
+  .ev { display: flex; gap: 14px; padding: 11px 4px; border-bottom: 1px solid rgba(255,159,67,.07); font-size: 12.5px; }
+  .ev .t { color: #8a7a63; width: 132px; flex-shrink: 0; }
+  .ev .rule { width: 110px; flex-shrink: 0; color: #c9bda8; }
+  .ev .st { width: 82px; flex-shrink: 0; }
+  .st-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; }
+  .done { background: rgba(126,168,126,.14); color: #9cc79c; }
+  .pend { background: rgba(255,92,92,.14); color: #ff8a8a; border: 1px solid rgba(255,92,92,.4); }
+  .muted-b { background: rgba(138,122,99,.14); color: #8a7a63; }
+  .ev .detail { color: #a3937f; flex: 1; }
+  .ev .detail .tip { display: block; color: #6e6353; font-size: 11px; margin-top: 3px; }
+  footer { text-align: center; font-size: 11px; color: #4a4238; padding: 18px 0 22px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand"><span class="word">烛 龙</span><span class="sub">系统监控</span></div>
+    <div class="path">C:/Users/Administrator/.agents/skills/烛龙</div>
+  </div>
+  <div class="pills"><div class="pill on">24小时</div><div class="pill">7天</div><div class="pill">30天</div></div>
+</header>
+<main>
+  <!-- 主指标 -->
+  <div class="hero">
+    <div class="num">45.8<small> %</small></div>
+    <div class="meta">
+      <div class="cn">提交内存水位</div>
+      <div class="en">commit_percent</div>
+      <div class="desc">所有程序向系统预订的内存额度占用率。超 85% 游戏/桌面可能因内存分配失败闪退黑屏</div>
+    </div>
+  </div>
+  <div class="subcards">
+    <div class="subcard"><div class="l">已用提交内存 <small>commit_used_gb</small></div><div class="v">42.7 GB</div></div>
+    <div class="subcard"><div class="l">提交内存上限 <small>commit_limit_gb</small></div><div class="v">93.2 GB</div></div>
+    <div class="subcard"><div class="l">物理内存占用 <small>mem_percent</small></div><div class="v">56%</div></div>
+    <div class="subcard"><div class="l">米哈游启动器组件 <small>HYPHelper.exe</small></div><div class="v">0.0 GB</div></div>
+  </div>
+
+  <!-- 重点提醒区 -->
+  <div class="alert">
+    <div class="head"><span class="led"></span>待处理 1 起 · 需要人工介入</div>
+    <div class="advice">
+      <b>17:42 泄漏处置降级</b> —— HYPHelper.exe 占用 16.2GB 触发泄漏判定，但 10 分钟内已自动处置 2 次（频次熔断保护），本次未自动结束。<br>
+      <b>推荐处理思路</b>：① 任务管理器手动结束 HYPHelper.exe（重新打开 HoYoPlay 即重置）② 若反复泄漏，升级 HoYoPlay 启动器版本 ③ 详情见事件时间线
+    </div>
+  </div>
+  <div class="handled"><span class="led"></span>今日其余 2 起处置已全部自动完成（自动结束 1 · 通知 1）</div>
+
+  <!-- 多维图 -->
+  <div class="charts">
+    <div class="box main">
+      <h4>提交内存水位 · 24小时（5分钟桶） <span class="mk">◆ 触发点 ○ 提醒点 ● 处理点 ▲ 待处理</span></h4>
+      <canvas id="main" height="140"></canvas>
+      <div class="legend-note">
+        <span><i style="background:#ffb968"></i>触发点（条件成立）</span>
+        <span><i style="background:#5c9dff"></i>提醒点（已通知）</span>
+        <span><i style="background:#9cc79c"></i>处理点（已自动处置）</span>
+        <span><i style="background:#ff5c5c"></i>待处理（降级，需人工）</span>
+      </div>
+      <div class="insight">区间最高 <b>91.2%（17:24）</b> · 事件 4 起：自动处置 1 / 通知 1 / 静音 1 / 降级 1 · 当前水位：<b style="color:#9cc79c">绿区 · 健康</b></div>
+    </div>
+    <div class="box">
+      <h4>已用 / 上限（GB）</h4>
+      <canvas id="dim1" height="100"></canvas>
+    </div>
+    <div class="box">
+      <h4>物理内存占用（%）</h4>
+      <canvas id="dim2" height="100"></canvas>
+    </div>
+  </div>
+
+  <!-- 事件时间线 -->
+  <div class="box timeline">
+    <h4>事件时间线 · 回溯</h4>
+    <div class="ev"><span class="t">10/02 17:42:11</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge pend">待处理</span></span>
+      <span class="detail">频次熔断：该进程 10 分钟内已自动处置 2 次<span class="tip">推荐：手动结束 HYPHelper.exe，或升级 HoYoPlay 版本</span></span></div>
+    <div class="ev"><span class="t">10/02 17:25:30</span><span class="rule">高水位告警</span><span class="st"><span class="st-badge done">已处理</span></span>
+      <span class="detail">通知已发送：commit 超过 85% 持续 90 秒</span></div>
+    <div class="ev"><span class="t">10/02 17:23:48</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge done">已处理</span></span>
+      <span class="detail">已自动结束 HYPHelper.exe（pid=44712，commit=16.2GB）</span></div>
+    <div class="ev"><span class="t">10/02 16:02:11</span><span class="rule">泄漏处置</span><span class="st"><span class="st-badge muted-b">已静音</span></span>
+      <span class="detail">暂停期内触发，动作已静音（采集照常记录）</span></div>
+  </div>
+</main>
+<footer>采集周期 30 秒 · 数据保留 30 天 · 面板只读（127.0.0.1）· 烛龙 察于幽冥</footer>
+<script>
+const N = 288;
+const pts = []; let v = 45;
+for (let i = 0; i < N; i++) {
+  const t = new Date(Date.now() - (N - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 16.9 && hm < 17.3) v = 86 + Math.random() * 5;
+  else if (hm > 17.3 && hm < 17.45) v = 62 + Math.random() * 6;   // 处置后回落
+  else if (hm > 17.45 && hm < 17.75) v = 84 + Math.random() * 6; // 再次爬升（待处理段）
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const pct = pts.map(p => p[1]);
+function at(hm) { // 小时小数 → 最近索引
+  let best = 0, bd = 1e9;
+  pts.forEach((p, i) => { const d = Math.abs(p[0].getHours() + p[0].getMinutes() / 60 - hm); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+const marks = [
+  { i: at(16.93), y: pct[at(16.93)], c: "#ffb968", s: 7 },  // 触发点
+  { i: at(17.25), y: pct[at(17.25)], c: "#5c9dff", s: 7 },  // 提醒点
+  { i: at(17.40), y: pct[at(17.40)], c: "#9cc79c", s: 8 },  // 处理点
+  { i: at(17.70), y: pct[at(17.70)], c: "#ff5c5c", s: 8 },  // 待处理
+];
+const ctx = document.getElementById("main").getContext("2d");
+const grad = ctx.createLinearGradient(0, 0, 0, 300);
+grad.addColorStop(0, "rgba(255,159,67,.28)"); grad.addColorStop(1, "rgba(255,159,67,0)");
+const GRID = { color: "rgba(255,159,67,.07)" }, TICK = { color: "#6e6353" };
+new Chart(ctx, {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pct, borderColor: "#ff9f43", backgroundColor: grad, fill: true, tension: .3, pointRadius: 0, borderWidth: 2 },
+    { type: "scatter", data: marks.map(m => ({ x: labels[m.i], y: m.y })), pointRadius: marks.map(m => m.s),
+      pointBackgroundColor: marks.map(m => m.c), pointBorderColor: "#0b0906", pointBorderWidth: 1.5, pointStyle: "rectRot" }
+  ]},
+  options: { scales: { x: { grid: GRID, ticks: { ...TICK, maxTicksLimit: 12 } },
+                        y: { grid: GRID, ticks: TICK, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+new Chart(document.getElementById("dim1"), {
+  type: "line",
+  data: { labels, datasets: [
+    { label: "已用", data: pct.map(p => +(p * 0.47).toFixed(1)), borderColor: "#ff9f43", tension: .3, pointRadius: 0, borderWidth: 1.5 },
+    { label: "上限", data: pct.map(() => 93.2), borderColor: "#5c5348", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+  ]},
+  options: { scales: { x: { display: false }, y: { grid: GRID, ticks: TICK } },
+             plugins: { legend: { labels: { color: "#8a7a63", boxWidth: 10 } } } }
+});
+new Chart(document.getElementById("dim2"), {
+  type: "line",
+  data: { labels, datasets: [{ data: pct.map(p => +(p * 0.62 + 18).toFixed(1)), borderColor: "#b98c5f", tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
+  options: { scales: { x: { display: false }, y: { grid: GRID, ticks: TICK, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+</script>
+</body>
+</html>
