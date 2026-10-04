@@ -1,11 +1,6 @@
 from zhulong.collectors import memory, process
 
 
-class FakeSwap:
-    def __init__(self, total, used):
-        self.total, self.used, self.percent = total, used, used / total * 100
-
-
 class FakeVM:
     percent = 42.0
 
@@ -16,13 +11,17 @@ class FakeProc:
 
 
 def main():
-    # memory：注入 fake psutil
-    rows = memory.collect(None, swap=FakeSwap(100 * 2**30, 50 * 2**30), vm=FakeVM())
+    # memory：注入 fake commit_stats（(used_bytes, limit_bytes)）
+    fake_stats = lambda: (50 * 2**30, 100 * 2**30)
+    rows = memory.collect(None, commit_stats=fake_stats, vm=FakeVM())
     keys = {k for k, v, l in rows}
     assert keys == {"commit_used_gb", "commit_limit_gb", "commit_percent", "mem_percent"}, keys
     d = {k: v for k, v, l in rows}
     assert abs(d["commit_limit_gb"] - 100.0) < 0.01
     assert abs(d["commit_percent"] - 50.0) < 0.01
+    # 真实 _commit_stats 形态校验（调用真实 GetPerformanceInfo，值域合理即可）
+    used, limit = memory._commit_stats()
+    assert 0 < used < limit, (used, limit)
 
     # process：注入 fake process_iter
     fake_iter = lambda: [FakeProc(111, "HYPHelper.exe", 16 * 2**30),
