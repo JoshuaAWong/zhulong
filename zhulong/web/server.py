@@ -13,7 +13,9 @@ _MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("memory", "commit_limit_gb"), ("memory", "mem_percent"),
                  ("memory", "mem_used_gb"), ("memory", "mem_total_gb"),
-                 ("memory", "pagefile_used_gb"), ("memory", "pagefile_total_gb")]
+                 ("memory", "pagefile_used_gb"), ("memory", "pagefile_total_gb"),
+                 ("cpu", "cpu_percent"), ("cpu", "cpu_max_core"), ("cpu", "cpu_top_pct"),
+                 ("diskio", "io_read_mb_s"), ("diskio", "io_write_mb_s"), ("diskio", "io_top_mb")]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -31,10 +33,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(204, "text/plain", b"")
             if parsed.path == "/api/current":
                 out = {}
+                labels = {}
                 for c, k in _CURRENT_KEYS:
                     row = storage.latest(self.storage_conn, c, k)
                     if row:
                         out[k] = row[1]
+                        if row[2]:
+                            labels[k] = row[2]   # 进程名/最忙的盘等标签
                 names = {}
                 for c, k in _CURRENT_KEYS:
                     if k in config.DISPLAY_NAMES:
@@ -46,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
                         out[key] = row[1]
                     names[key] = [w.get("display_name", w["name"]),
                                   f"阈值 {w['max_commit_gb']}GB，超限自动结束（白名单进程）"]
-                out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names}
+                out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names, "labels": labels}
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":

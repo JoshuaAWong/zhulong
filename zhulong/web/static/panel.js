@@ -25,7 +25,35 @@ const ADVICE = {
 };
 
 let state = { range: "24h", charts: [] };
-let META = { names: {}, program_path: "" };
+let META = { names: {}, program_path: "", labels: {} };
+
+/* 十字线定位（内联插件，零依赖）+ 全图悬停联动 */
+const crosshairPlugin = {
+  id: "crosshair",
+  afterDraw(chart) {
+    const act = chart.getActiveElements();
+    if (!act.length || !chart.chartArea) return;
+    const x = act[0].element.x, y = act[0].element.y;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.strokeStyle = th().mut;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(chartArea.left, y); ctx.lineTo(chartArea.right, y); ctx.stroke();
+    ctx.restore();
+  }
+};
+function syncOthers(srcChart, actEls) {
+  const idx = actEls.length ? actEls[0].index : null;
+  for (const c of state.charts) {
+    if (c === srcChart) continue;
+    const els = idx === null ? [] : [{ datasetIndex: 0, index: Math.min(idx, c.data.labels.length - 1) }];
+    c.setActiveElements(els);
+    if (c.tooltip) c.tooltip.setActiveElements(els, { x: 0, y: 0 });
+    c.update("none");
+  }
+}
 
 async function jget(url) { return (await fetch(url)).json(); }
 function th() { return THEMES[document.documentElement.dataset.theme]; }
@@ -57,6 +85,13 @@ function renderCurrent(cur) {
   add("mem_percent", (cur.mem_percent ?? 0).toFixed(0), "%");
   add("pagefile_used_gb", (cur.pagefile_used_gb ?? 0).toFixed(1), "GB");
   add("pagefile_total_gb", (cur.pagefile_total_gb ?? 0).toFixed(1), "GB");
+  add("cpu_percent", (cur.cpu_percent ?? 0).toFixed(0), "%");
+  add("cpu_max_core", (cur.cpu_max_core ?? 0).toFixed(0), "%");
+  const L = META.labels || {};
+  cards.push(`<div class="subcard"><div class="l">${zh("cpu_top_pct")} <small>cpu_top_pct</small></div>
+    <div class="v">${L.cpu_top_pct || "–"}</div><div class="d">${(cur.cpu_top_pct ?? 0).toFixed(1)}% · ${zhDesc("cpu_top_pct")}</div></div>`);
+  cards.push(`<div class="subcard"><div class="l">${zh("io_top_mb")} <small>io_top_mb</small></div>
+    <div class="v">${L.io_top_mb || "–"}</div><div class="d">累计 ${(cur.io_top_mb ?? 0).toFixed(0)}MB · ${zhDesc("io_top_mb")}</div></div>`);
   for (const k of Object.keys(cur).filter(k => k.endsWith("_commit_gb"))) {
     cards.push(`<div class="subcard"><div class="l">${zh(k)} <small>${k.replace("_commit_gb", "")}.exe</small></div>
       <div class="v">${(cur[k] ?? 0).toFixed(1)} GB</div><div class="d">${zhDesc(k)}</div></div>`);
@@ -134,6 +169,8 @@ function renderAlert(events) {
 function baseOpts(t, extra) {
   return Object.assign({
     responsive: true, maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    onHover: (evt, actEls, chart) => syncOthers(chart, actEls),
     scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
               y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
     plugins: { legend: { display: false } }
@@ -160,11 +197,11 @@ function buildMain(labels, values, events) {
     scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
               y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
     plugins: { legend: { display: false },
-               tooltip: { filter: it => markers.length ? it.datasetIndex === 3 : it.datasetIndex === 0,
-                          callbacks: { title: items => items.length ? markers[items[0].dataIndex].title : "",
-                                       label: it => markers[it.dataIndex].detail } } }
+               tooltip: { filter: it => it.datasetIndex === 0 || (markers.length && it.datasetIndex === 3),
+                          callbacks: { title: items => items[0].datasetIndex === 3 && markers.length ? markers[items[0].dataIndex].title : items[0].label,
+                                       label: it => it.datasetIndex === 3 && markers.length ? markers[it.dataIndex].detail : `${(it.parsed.y).toFixed(1)}%` } } }
   });
-  state.charts.push(new Chart(ctx, { type: "line", data: { labels, datasets }, options: opts }));
+  state.charts.push(new Chart(ctx, { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshairPlugin] }));
   $("legendNote").hidden = markers.length === 0;
 }
 function buildDim1(labels, used, limit) {
@@ -176,7 +213,8 @@ function buildDim1(labels, used, limit) {
       { label: "上限", data: limit, borderColor: t.limit, borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
     ]},
     options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } })
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    plugins: [crosshairPlugin]
   }));
 }
 function buildDim2(labels, mem) {
@@ -184,7 +222,34 @@ function buildDim2(labels, mem) {
   state.charts.push(new Chart($("dim2"), {
     type: "line",
     data: { labels, datasets: [{ data: mem, borderColor: t.dimA, tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
-    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } })
+    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } }),
+    plugins: [crosshairPlugin]
+  }));
+}
+function buildDim3(labels, total, maxCore) {
+  const t = th();
+  state.charts.push(new Chart($("dim3"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "总占用", data: total, borderColor: t.proc[1], tension: .3, pointRadius: 0, borderWidth: 1.5 },
+      { label: "单核峰值", data: maxCore, borderColor: t.danger, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.5 }
+    ]},
+    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    plugins: [crosshairPlugin]
+  }));
+}
+function buildDim4(labels, read, write) {
+  const t = th();
+  state.charts.push(new Chart($("dim4"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "读取", data: read, borderColor: t.info, tension: .3, pointRadius: 0, borderWidth: 1.5 },
+      { label: "写入", data: write, borderColor: t.proc[2], tension: .3, pointRadius: 0, borderWidth: 1.5 }
+    ]},
+    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    plugins: [crosshairPlugin]
   }));
 }
 async function buildProc(labels, cur, r) {
@@ -203,7 +268,8 @@ async function buildProc(labels, cur, r) {
     data: { labels, datasets },
     options: baseOpts(t, { scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
                                      y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } })
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    plugins: [crosshairPlugin]
   }));
 }
 function renderInsight(points, events, curPct) {
@@ -226,11 +292,15 @@ async function refresh() {
   renderCurrent(cur);
   const r = RANGES[state.range];
   $("mainTitle").innerHTML = `提交内存水位 · ${r.title} <span class="mk">（虚线：70% 黄区 / 85% 红区阈值）</span>`;
-  const [commitPts, usedPts, limitPts, memPts, eventsResp] = await Promise.all([
+  const [commitPts, usedPts, limitPts, memPts, cpuPts, cpuMaxPts, ioRPts, ioWPts, eventsResp] = await Promise.all([
     jget(`/api/history?collector=memory&key=commit_percent&hours=${r.hours}&bucket=${r.bucket}`),
     jget(`/api/history?collector=memory&key=commit_used_gb&hours=${r.hours}&bucket=${r.bucket}`),
     jget(`/api/history?collector=memory&key=commit_limit_gb&hours=${r.hours}&bucket=${r.bucket}`),
     jget(`/api/history?collector=memory&key=mem_percent&hours=${r.hours}&bucket=${r.bucket}`),
+    jget(`/api/history?collector=cpu&key=cpu_percent&hours=${r.hours}&bucket=${r.bucket}`),
+    jget(`/api/history?collector=cpu&key=cpu_max_core&hours=${r.hours}&bucket=${r.bucket}`),
+    jget(`/api/history?collector=diskio&key=io_read_mb_s&hours=${r.hours}&bucket=${r.bucket}`),
+    jget(`/api/history?collector=diskio&key=io_write_mb_s&hours=${r.hours}&bucket=${r.bucket}`),
     jget(`/api/events?hours=${r.hours}&limit=200`)
   ]);
   const labels = commitPts.points.map(p => r.label(p[0]));
@@ -238,6 +308,8 @@ async function refresh() {
   buildMain(labels, commitPts.points.map(p => p[1]), eventsResp.events);
   buildDim1(labels, usedPts.points.map(p => p[1]), limitPts.points.map(p => p[1]));
   buildDim2(labels, memPts.points.map(p => p[1]));
+  buildDim3(labels, cpuPts.points.map(p => p[1]), cpuMaxPts.points.map(p => p[1]));
+  buildDim4(labels, ioRPts.points.map(p => p[1]), ioWPts.points.map(p => p[1]));
   await buildProc(labels, cur, r);
   renderTimeline(eventsResp.events);
   renderAlert(eventsResp.events);

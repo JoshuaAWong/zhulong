@@ -42,6 +42,22 @@ def main():
     d = {k: (v, l) for k, v, l in rows}
     assert abs(d["HYPHelper_commit_gb"][0] - 16.0) < 0.01 and d["HYPHelper_commit_gb"][1] == "111", d
     assert "notepad_commit_gb" not in d or d["notepad_commit_gb"][1] == "absent"
+    # cpu：注入 fake（CPU_TOP_INTERVAL=1 使大户每轮必出）
+    from zhulong.collectors import cpu, diskio
+
+    class CC: CPU_TOP_INTERVAL = 1
+    rows = cpu.collect(CC, cpu_percent=33.3, percpu=[10.0, 90.0, 20.0], top_fn=lambda c: ("evil.exe", 88.0))
+    d = {k: (v, l) for k, v, l in rows}
+    assert d["cpu_percent"][0] == 33.3 and d["cpu_max_core"][0] == 90.0, d
+    assert d["cpu_top_pct"] == (88.0, "evil.exe"), d
+
+    # diskio：注入 fake
+    rows = diskio.collect(CC, rates_fn=lambda: (12.5, 3.5, "E"), removable_fn=lambda: "E",
+                          top_fn=lambda c: ("scanner.exe", 500.0))
+    d = {k: (v, l) for k, v, l in rows}
+    assert d["io_read_mb_s"] == (12.5, "E") and d["io_write_mb_s"] == (3.5, "E"), d
+    assert d["io_remount"] == (1.0, "E"), d
+    assert d["io_top_mb"] == (500.0, "scanner.exe"), d
     print("PASS")
 
 

@@ -56,7 +56,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 14px 28px 26px; }
 .handled { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ok); }
 .handled .led { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 /* 图区 */
-.charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 16px; }
+.charts { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; margin-top: 16px; }
 .box { background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; padding: 14px 16px; position: relative; min-width: 0; }
 .box h4 { margin: 0 0 10px; font-size: 12px; color: var(--mut); font-weight: 600; letter-spacing: .5px; }
 .box h4 .mk { font-weight: 400; color: var(--dim); }
