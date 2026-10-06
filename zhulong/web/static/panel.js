@@ -24,7 +24,7 @@ const ADVICE = {
   "access_denied": "权限不足未能自动结束。推荐：以管理员身份打开任务管理器手动结束该进程。"
 };
 
-let state = { range: "24h", charts: [] };
+let state = { range: "24h", charts: {}, needRebuild: true, _lastSyncIdx: null, _syncRaf: null };
 let META = { names: {}, program_path: "", labels: {} };
 
 /* 十字线定位（内联插件，零依赖）+ 全图悬停联动 */
@@ -44,15 +44,22 @@ const crosshairPlugin = {
     ctx.restore();
   }
 };
+/* A1 联动节流：仅索引变化才同步 + rAF 合帧（mousemove 不再每帧刷五图） */
 function syncOthers(srcChart, actEls) {
   const idx = actEls.length ? actEls[0].index : null;
-  for (const c of state.charts) {
-    if (c === srcChart) continue;
-    const els = idx === null ? [] : [{ datasetIndex: 0, index: Math.min(idx, c.data.labels.length - 1) }];
-    c.setActiveElements(els);
-    if (c.tooltip) c.tooltip.setActiveElements(els, { x: 0, y: 0 });
-    c.update("none");
-  }
+  if (idx === state._lastSyncIdx) return;
+  state._lastSyncIdx = idx;
+  if (state._syncRaf) return;
+  state._syncRaf = requestAnimationFrame(() => {
+    state._syncRaf = null;
+    for (const c of Object.values(state.charts)) {
+      if (c === srcChart) continue;
+      const els = idx === null ? [] : [{ datasetIndex: 0, index: Math.min(idx, c.data.labels.length - 1) }];
+      c.setActiveElements(els);
+      if (c.tooltip) c.tooltip.setActiveElements(els, { x: 0, y: 0 });
+      c.update("none");
+    }
+  });
 }
 
 async function jget(url) { return (await fetch(url)).json(); }
@@ -64,7 +71,19 @@ function zoneOf(pct) {
   if (pct < 85) return ["黄区 · 注意", "var(--acc2)"];
   return ["红区 · 危险", "var(--danger)"];
 }
-function destroyCharts() { state.charts.forEach(c => c.destroy()); state.charts = []; }
+
+/* A2 刷新轻量化：就地更新数据，仅结构变化/主题/区间切换才重建 */
+function upsert(key, canvasId, config) {
+  const existing = state.charts[key];
+  if (existing && !state.needRebuild) {
+    existing.data = config.data;
+    existing.update("none");
+    return existing;
+  }
+  if (existing) existing.destroy();
+  state.charts[key] = new Chart($(canvasId), config);
+  return state.charts[key];
+}
 
 /* ── 当前值渲染 ── */
 function renderCurrent(cur) {
@@ -214,12 +233,12 @@ function buildMain(labels, values, events) {
                           callbacks: { title: items => items[0].datasetIndex === 3 && markers.length ? markers[items[0].dataIndex].title : items[0].label,
                                        label: it => it.datasetIndex === 3 && markers.length ? markers[it.dataIndex].detail : `${(it.parsed.y).toFixed(1)}%` } } }
   }), "%");
-  state.charts.push(new Chart(ctx, { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshairPlugin] }));
+  upsert("main", "mainChart", { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshairPlugin] });
   $("legendNote").hidden = markers.length === 0;
 }
 function buildDim1(labels, used, limit) {
   const t = th();
-  state.charts.push(new Chart($("dim1"), {
+  upsert("dim1", "dim1", {
     type: "line",
     data: { labels, datasets: [
       { label: "已用", data: used, borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.5 },
@@ -228,20 +247,20 @@ function buildDim1(labels, used, limit) {
     options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
                            plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
     plugins: [crosshairPlugin]
-  }));
+  });
 }
 function buildDim2(labels, mem) {
   const t = th();
-  state.charts.push(new Chart($("dim2"), {
+  upsert("dim2", "dim2", {
     type: "line",
     data: { labels, datasets: [{ data: mem, borderColor: t.dimA, tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
     options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } }), "%"),
     plugins: [crosshairPlugin]
-  }));
+  });
 }
 function buildDim3(labels, total, maxCore) {
   const t = th();
-  state.charts.push(new Chart($("dim3"), {
+  upsert("dim3", "dim3", {
     type: "line",
     data: { labels, datasets: [
       { label: "总占用", data: total, borderColor: t.proc[1], tension: .3, pointRadius: 0, borderWidth: 1.5 },
@@ -250,11 +269,11 @@ function buildDim3(labels, total, maxCore) {
     options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
                            plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), "%"),
     plugins: [crosshairPlugin]
-  }));
+  });
 }
 function buildDim4(labels, read, write) {
   const t = th();
-  state.charts.push(new Chart($("dim4"), {
+  upsert("dim4", "dim4", {
     type: "line",
     data: { labels, datasets: [
       { label: "读取", data: read, borderColor: t.info, tension: .3, pointRadius: 0, borderWidth: 1.5 },
@@ -263,7 +282,7 @@ function buildDim4(labels, read, write) {
     options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
                            plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " MB/s"),
     plugins: [crosshairPlugin]
-  }));
+  });
 }
 async function buildProc(labels, cur, r) {
   const t = th();
@@ -276,14 +295,14 @@ async function buildProc(labels, cur, r) {
     datasets.push({ label: zh(keys[i]), data: labels.map(l => byLabel[l] ?? null),
                     borderColor: t.proc[i % t.proc.length], tension: .25, pointRadius: 0, borderWidth: 1.5, spanGaps: true });
   }
-  state.charts.push(new Chart($("procChart"), {
+  upsert("procChart", "procChart", {
     type: "line",
     data: { labels, datasets },
     options: withUnit(baseOpts(t, { scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
                                      y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
                            plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
     plugins: [crosshairPlugin]
-  }));
+  });
 }
 function renderInsight(points, events, curPct) {
   let maxV = 0, maxT = "";
@@ -317,7 +336,6 @@ async function refresh() {
     jget(`/api/events?hours=${r.hours}&limit=200`)
   ]);
   const labels = commitPts.points.map(p => r.label(p[0]));
-  destroyCharts();
   buildMain(labels, commitPts.points.map(p => p[1]), eventsResp.events);
   buildDim1(labels, usedPts.points.map(p => p[1]), limitPts.points.map(p => p[1]));
   buildDim2(labels, memPts.points.map(p => p[1]));
@@ -327,6 +345,7 @@ async function refresh() {
   renderTimeline(eventsResp.events);
   renderAlert(eventsResp.events);
   renderInsight(commitPts.points, eventsResp.events, cur.commit_percent ?? 0);
+  state.needRebuild = false;
 }
 
 /* ── 主题与区间 ── */
@@ -339,6 +358,7 @@ function applyTheme(mode) {
 }
 $("themeBtn").addEventListener("click", async () => {
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  state.needRebuild = true;
   await refresh();
 });
 $("rangePills").addEventListener("click", async e => {
@@ -347,6 +367,7 @@ $("rangePills").addEventListener("click", async e => {
   document.querySelectorAll("#rangePills .pill").forEach(p => p.classList.remove("on"));
   pill.classList.add("on");
   state.range = pill.dataset.range;
+  state.needRebuild = true;
   await refresh();
 });
 
