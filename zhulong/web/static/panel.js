@@ -82,16 +82,16 @@ function renderCurrent(cur) {
   add("commit_limit_gb", (cur.commit_limit_gb ?? 0).toFixed(1), "GB");
   add("mem_used_gb", (cur.mem_used_gb ?? 0).toFixed(1), "GB");
   add("mem_total_gb", (cur.mem_total_gb ?? 0).toFixed(1), "GB");
-  add("mem_percent", (cur.mem_percent ?? 0).toFixed(0), "%");
+  add("mem_percent", (cur.mem_percent ?? 0).toFixed(1), "%");
   add("pagefile_used_gb", (cur.pagefile_used_gb ?? 0).toFixed(1), "GB");
   add("pagefile_total_gb", (cur.pagefile_total_gb ?? 0).toFixed(1), "GB");
-  add("cpu_percent", (cur.cpu_percent ?? 0).toFixed(0), "%");
-  add("cpu_max_core", (cur.cpu_max_core ?? 0).toFixed(0), "%");
+  add("cpu_percent", (cur.cpu_percent ?? 0).toFixed(1), "%");
+  add("cpu_max_core", (cur.cpu_max_core ?? 0).toFixed(1), "%");
   const L = META.labels || {};
   cards.push(`<div class="subcard"><div class="l">${zh("cpu_top_pct")} <small>cpu_top_pct</small></div>
     <div class="v">${L.cpu_top_pct || "–"}</div><div class="d">${(cur.cpu_top_pct ?? 0).toFixed(1)}% · ${zhDesc("cpu_top_pct")}</div></div>`);
   cards.push(`<div class="subcard"><div class="l">${zh("io_top_mb")} <small>io_top_mb</small></div>
-    <div class="v">${L.io_top_mb || "–"}</div><div class="d">累计 ${(cur.io_top_mb ?? 0).toFixed(0)}MB · ${zhDesc("io_top_mb")}</div></div>`);
+    <div class="v">${L.io_top_mb || "–"}</div><div class="d">累计 ${(cur.io_top_mb ?? 0).toFixed(1)}MB · ${zhDesc("io_top_mb")}</div></div>`);
   for (const k of Object.keys(cur).filter(k => k.endsWith("_commit_gb"))) {
     cards.push(`<div class="subcard"><div class="l">${zh(k)} <small>${k.replace("_commit_gb", "")}.exe</small></div>
       <div class="v">${(cur[k] ?? 0).toFixed(1)} GB</div><div class="d">${zhDesc(k)}</div></div>`);
@@ -176,6 +176,19 @@ function baseOpts(t, extra) {
     plugins: { legend: { display: false } }
   }, extra || {});
 }
+/* 单位与精度：所有图统一一位小数，刻度与悬浮均带单位 */
+function withUnit(opts, unit) {
+  const yTicks = opts.scales.y.ticks;
+  yTicks.callback = v => (+v).toFixed(v % 1 === 0 ? 0 : 1) + unit;
+  const prevLabel = opts.plugins && opts.plugins.tooltip && opts.plugins.tooltip.callbacks && opts.plugins.tooltip.callbacks.label;
+  opts.plugins.tooltip = opts.plugins.tooltip || {};
+  opts.plugins.tooltip.callbacks = opts.plugins.tooltip.callbacks || {};
+  if (!prevLabel) {
+    opts.plugins.tooltip.callbacks.label = it =>
+      (it.dataset.label ? it.dataset.label + " " : "") + it.parsed.y.toFixed(1) + unit;
+  }
+  return opts;
+}
 function buildMain(labels, values, events) {
   const t = th();
   const ctx = $("mainChart").getContext("2d");
@@ -193,14 +206,14 @@ function buildMain(labels, values, events) {
     pointRadius: 7, pointStyle: "rectRot",
     pointBackgroundColor: markers.map(mkColor), pointBorderColor: "#00000000"
   });
-  const opts = baseOpts(t, {
+  const opts = withUnit(baseOpts(t, {
     scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
               y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
     plugins: { legend: { display: false },
                tooltip: { filter: it => it.datasetIndex === 0 || (markers.length && it.datasetIndex === 3),
                           callbacks: { title: items => items[0].datasetIndex === 3 && markers.length ? markers[items[0].dataIndex].title : items[0].label,
                                        label: it => it.datasetIndex === 3 && markers.length ? markers[it.dataIndex].detail : `${(it.parsed.y).toFixed(1)}%` } } }
-  });
+  }), "%");
   state.charts.push(new Chart(ctx, { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshairPlugin] }));
   $("legendNote").hidden = markers.length === 0;
 }
@@ -212,8 +225,8 @@ function buildDim1(labels, used, limit) {
       { label: "已用", data: used, borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.5 },
       { label: "上限", data: limit, borderColor: t.limit, borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
     ]},
-    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
     plugins: [crosshairPlugin]
   }));
 }
@@ -222,7 +235,7 @@ function buildDim2(labels, mem) {
   state.charts.push(new Chart($("dim2"), {
     type: "line",
     data: { labels, datasets: [{ data: mem, borderColor: t.dimA, tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
-    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } }),
+    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } }), "%"),
     plugins: [crosshairPlugin]
   }));
 }
@@ -234,8 +247,8 @@ function buildDim3(labels, total, maxCore) {
       { label: "总占用", data: total, borderColor: t.proc[1], tension: .3, pointRadius: 0, borderWidth: 1.5 },
       { label: "单核峰值", data: maxCore, borderColor: t.danger, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.5 }
     ]},
-    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), "%"),
     plugins: [crosshairPlugin]
   }));
 }
@@ -247,8 +260,8 @@ function buildDim4(labels, read, write) {
       { label: "读取", data: read, borderColor: t.info, tension: .3, pointRadius: 0, borderWidth: 1.5 },
       { label: "写入", data: write, borderColor: t.proc[2], tension: .3, pointRadius: 0, borderWidth: 1.5 }
     ]},
-    options: baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " MB/s"),
     plugins: [crosshairPlugin]
   }));
 }
@@ -266,9 +279,9 @@ async function buildProc(labels, cur, r) {
   state.charts.push(new Chart($("procChart"), {
     type: "line",
     data: { labels, datasets },
-    options: baseOpts(t, { scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
+    options: withUnit(baseOpts(t, { scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
                                      y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }),
+                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
     plugins: [crosshairPlugin]
   }));
 }
