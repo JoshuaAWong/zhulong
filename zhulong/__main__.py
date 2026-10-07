@@ -89,7 +89,28 @@ def main():
         if t is not None:
             t.stop()
 
-    tray = Tray(on_pause=do_pause, on_exit=do_exit)
+    def do_throttle_toggle():
+        from zhulong import throttle as _th   # noqa: F401（保持导入一致性）
+        cur = storage.kv_get(conn, "throttle_enabled") or "1"
+        storage.kv_set(conn, "throttle_enabled", "0" if cur == "1" else "1")
+        LOG.info("限流开关切换为 %s", "关" if cur == "1" else "开")
+
+    def do_throttle_reset():
+        from zhulong import throttle
+        ov = config.DATA_DIR / "throttle_override.json"
+        if ov.exists():
+            ov.unlink()
+        n = throttle.restore(conn)
+        LOG.info("限流恢复默认规则，还原 %d 个进程", n)
+
+    def do_open_config():
+        import os
+        os.startfile(str(config.__file__))
+
+    tray = Tray(on_pause=do_pause, on_exit=do_exit,
+                on_throttle_toggle=do_throttle_toggle,
+                on_throttle_reset=do_throttle_reset,
+                on_open_config=do_open_config)
     tray_holder["tray"] = tray
 
     def on_cycle(triggers, state):
