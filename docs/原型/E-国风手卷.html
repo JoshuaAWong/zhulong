@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 E · 国风手卷</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 0;
+         background: #e8e0cc; color: #2b2620;
+         background-image: radial-gradient(ellipse at 50% 0%, #f2ead8 0%, #e8e0cc 70%); }
+  .scroll { max-width: 880px; margin: 28px auto; background: #f5efe0;
+            border: 1px solid #b8a988; outline: 4px double #b8a988; outline-offset: 5px;
+            padding: 34px 44px 28px; position: relative; }
+  /* 回纹角饰 */
+  .scroll::before, .scroll::after { content: "回"; position: absolute; font-family: "STKaiti","KaiTi",serif;
+            font-size: 18px; color: #b8a988; }
+  .scroll::before { top: 8px; left: 12px; }
+  .scroll::after { bottom: 8px; right: 12px; }
+  header { display: flex; align-items: flex-start; gap: 26px; border-bottom: 2px solid #2b2620; padding-bottom: 18px; }
+  .vtitle { writing-mode: vertical-rl; font-family: "STKaiti","KaiTi","楷体",serif; font-size: 46px; font-weight: 700;
+            letter-spacing: 18px; line-height: 1; color: #1d1913; }
+  .head-meta { flex: 1; }
+  .head-meta .season { font-family: "STKaiti","KaiTi",serif; font-size: 15px; color: #6b5f4a; }
+  .head-meta .path { font-size: 11px; color: #9a8b72; margin-top: 8px; }
+  .seal { width: 44px; height: 44px; background: #a83232; color: #f5e9e0; border-radius: 4px;
+          display: flex; align-items: center; justify-content: center; font-family: "STKaiti","KaiTi",serif;
+          font-size: 26px; transform: rotate(-4deg); box-shadow: inset 0 0 6px rgba(0,0,0,.3); }
+  .pills { display: flex; gap: 10px; margin-top: 14px; }
+  .pill { font-size: 12px; color: #6b5f4a; border: 1px solid #b8a988; padding: 4px 14px; cursor: pointer; background: transparent; }
+  .pill.on { background: #2b2620; color: #f5efe0; border-color: #2b2620; }
+  /* 签文数值 */
+  .omens { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px,1fr)); gap: 0; margin-top: 22px; }
+  .omen { padding: 10px 18px 12px; border-left: 1px solid #d8cbab; }
+  .omen:first-child { border-left: none; }
+  .omen .k { font-size: 11.5px; color: #9a8b72; letter-spacing: 2px; }
+  .omen .s { font-family: "STKaiti","KaiTi",serif; font-size: 23px; margin-top: 6px; color: #1d1913; }
+  .omen .s em { font-style: normal; font-size: 14px; margin-left: 8px; padding: 1px 8px; }
+  .an { color: #f5efe0; background: #4a7a4e; } .shen { color: #f5efe0; background: #b8862b; } .wei { color: #f5efe0; background: #a83232; }
+  .omen .d { font-size: 11px; color: #9a8b72; margin-top: 5px; line-height: 1.6; }
+  h3 { font-family: "STKaiti","KaiTi",serif; font-size: 19px; color: #1d1913; margin: 30px 0 10px;
+       display: flex; align-items: center; gap: 12px; }
+  h3::after { content: ""; flex: 1; height: 1px; background: #d8cbab; }
+  .chart-note { font-size: 11.5px; color: #9a8b72; margin-top: 6px; }
+  .chart-note b { color: #2b2620; }
+  /* 朱批事件 */
+  .ev { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px dashed #d8cbab; font-size: 12.5px; }
+  .ev .t { color: #9a8b72; width: 120px; flex-shrink: 0; }
+  .ev .body { flex: 1; color: #4a4034; }
+  .ev .pi { font-family: "STKaiti","KaiTi",serif; color: #a83232; width: 90px; flex-shrink: 0; text-align: right; }
+  footer { text-align: center; font-family: "STKaiti","KaiTi",serif; font-size: 13px; color: #9a8b72; margin-top: 26px; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+<div class="scroll">
+  <header>
+    <div class="vtitle">烛 龙</div>
+    <div class="head-meta">
+      <div class="season">岁在丙午 · 秋月系统监察录</div>
+      <div class="path">C:/Users/Administrator/.agents/skills/烛龙 · 面板只读（127.0.0.1）</div>
+      <div class="pills"><div class="pill on">一昼夜</div><div class="pill">七日</div><div class="pill">一月</div></div>
+    </div>
+    <div class="seal">烛</div>
+  </header>
+
+  <div class="omens">
+    <div class="omen"><div class="k">提交内存水位</div><div class="s">五成七<em class="an">安</em></div><div class="d">额度之占用，过八成五则游戏桌面恐崩</div></div>
+    <div class="omen"><div class="k">CPU 总占用</div><div class="s">二成六<em class="an">安</em></div><div class="d">诸核均值，宜合单核峰值同观</div></div>
+    <div class="omen"><div class="k">CPU 单核峰值</div><div class="s">五成一<em class="shen">慎</em></div><div class="d">一核独劳亦致卡顿，不可不察</div></div>
+    <div class="omen"><div class="k">磁盘读写</div><div class="s">甚微<em class="an">安</em></div><div class="d">读〇点四 写〇点九 MB/s，无外存扫描之象</div></div>
+  </div>
+
+  <h3>水位一昼夜之图</h3>
+  <canvas id="chart" height="110"></canvas>
+  <div class="chart-note">区间极值 <b>六成二（丑时三刻）</b> · 事件 <b>〇</b> 起 · 当前判词：<b style="color:#4a7a4e">安</b></div>
+
+  <h3>朱批记事</h3>
+  <div class="ev"><span class="t">酉时三刻 17:42</span><span class="body">HYPHelper 占十六点二 GB，触发泄漏之判，然十息内已二度处置，熔断未杀</span><span class="pi">待人工 ◉</span></div>
+  <div class="ev"><span class="t">酉时二刻 17:25</span><span class="body">水位越八成五逾九十息，告警已发</span><span class="pi">已处置</span></div>
+  <div class="ev"><span class="t">酉时一刻 17:23</span><span class="body">自动终结 HYPHelper.exe（pid 四四七一二）</span><span class="pi">已处置</span></div>
+
+  <footer>察于幽冥 · 睁眼为昼 闭眼为夜</footer>
+</div>
+<script>
+const pts = []; let v = 45;
+for (let i = 0; i < 288; i++) {
+  const t = new Date(Date.now() - (288 - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 16.9 && hm < 17.4) v = 84 + Math.random() * 6;
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const ctx = document.getElementById("chart").getContext("2d");
+const grad = ctx.createLinearGradient(0, 0, 0, 240);
+grad.addColorStop(0, "rgba(43,38,32,.16)"); grad.addColorStop(1, "rgba(43,38,32,0)");
+new Chart(ctx, {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pts.map(p => p[1]), borderColor: "#2b2620", backgroundColor: grad, fill: true, tension: .35, pointRadius: 0, borderWidth: 2.2 },
+    { data: pts.map(p => p[1] + 1.6), borderColor: "rgba(43,38,32,.25)", tension: .35, pointRadius: 0, borderWidth: 1 }
+  ]},
+  options: { scales: { x: { grid: { color: "rgba(43,38,32,.07)" }, ticks: { color: "#9a8b72", maxTicksLimit: 10 } },
+                        y: { grid: { color: "rgba(43,38,32,.07)" }, ticks: { color: "#9a8b72" }, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+</script>
+</body>
+</html>

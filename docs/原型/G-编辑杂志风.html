@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 G · 编辑杂志风</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, "Microsoft YaHei", serif; margin: 0; background: #faf7f0; color: #1c1a17; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 26px 36px 30px; }
+  /* 报头 */
+  .masthead { text-align: center; border-bottom: 3px double #1c1a17; padding-bottom: 14px; }
+  .masthead .kicker { font-size: 11px; letter-spacing: 5px; color: #8a8070; }
+  .masthead h1 { font-family: Georgia, "STSong", "SimSun", serif; font-size: 44px; margin: 6px 0 4px; font-weight: 700; letter-spacing: 4px; }
+  .masthead .dateline { font-size: 12px; color: #8a8070; display: flex; justify-content: space-between; }
+  /* 头条 */
+  .headline { display: grid; grid-template-columns: 1fr 1.35fr; gap: 30px; padding: 22px 0; border-bottom: 1px solid #d8d2c4; }
+  .bignum { font-family: Georgia, serif; font-size: 130px; font-weight: 700; line-height: .9; color: #1c1a17; }
+  .bignum small { font-size: 30px; color: #8a8070; }
+  .headline .lede { font-size: 14.5px; line-height: 1.85; color: #3a352c; }
+  .headline .lede b { color: #a83232; }
+  .headline .lede .byline { display: block; margin-top: 12px; font-size: 11px; letter-spacing: 2px; color: #8a8070; }
+  /* 数据栏 */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid #d8d2c4; }
+  .stat { padding: 14px 16px; border-left: 1px solid #d8d2c4; }
+  .stat:first-child { border-left: none; padding-left: 0; }
+  .stat .k { font-size: 10.5px; letter-spacing: 2px; color: #8a8070; }
+  .stat .v { font-family: Georgia, serif; font-size: 27px; font-weight: 700; margin-top: 4px; }
+  .stat .d { font-size: 10.5px; color: #a3987f; margin-top: 3px; line-height: 1.5; }
+  /* 图与侧栏 */
+  .cols { display: grid; grid-template-columns: 1.6fr 1fr; gap: 30px; padding-top: 20px; }
+  .figcap { font-size: 10.5px; letter-spacing: 2px; color: #8a8070; margin-bottom: 8px; }
+  .fignote { font-size: 11.5px; color: #6b6152; margin-top: 8px; line-height: 1.7; }
+  .fignote b { color: #1c1a17; }
+  aside h5 { font-size: 11px; letter-spacing: 3px; color: #8a8070; border-bottom: 1px solid #1c1a17; padding-bottom: 6px; margin: 0 0 4px; }
+  .news { padding: 9px 0; border-bottom: 1px solid #e3ddd0; font-size: 12.5px; line-height: 1.6; }
+  .news .t { color: #a3987f; font-size: 11px; display: block; }
+  .news .st { font-size: 10px; padding: 0 6px; margin-left: 6px; }
+  .st-p { background: #a83232; color: #fff; } .st-d { background: #e4ecdd; color: #4a7a4e; } .st-m { background: #eee; color: #8a8070; }
+  .news .tip { display: block; color: #a83232; font-size: 11px; margin-top: 2px; }
+  .pills { display: flex; gap: 14px; font-size: 11.5px; color: #8a8070; }
+  .pills span { cursor: pointer; border-bottom: 1px solid transparent; padding-bottom: 2px; }
+  .pills span.on { color: #1c1a17; border-bottom-color: #1c1a17; }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 12px; border-top: 3px double #1c1a17; font-size: 11px; color: #8a8070; }
+  .seal { width: 30px; height: 30px; background: #a83232; color: #f5e9e0; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 17px; transform: rotate(-4deg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="masthead">
+    <div class="kicker">THE ZHULONG OBSERVER · 系统监察</div>
+    <h1>烛 龙</h1>
+    <div class="dateline"><span>C:/Users/Administrator/.agents/skills/烛龙</span><span>2026年10月5日 · 第 4 期 · 面板只读（127.0.0.1）</span></div>
+  </div>
+
+  <div class="headline">
+    <div class="bignum">45.8<small>%</small></div>
+    <div class="lede">
+      <b>今日述评。</b>提交内存水位稳于四成六，远低八成五之危线。CPU 总量平和，然腾讯管家一核独食五成六，扫描未歇；磁盘读写甚微，无外存扫描之象；显卡四十九度、利用率百分之二，呈闲置。综合研判：<b>系统安泰，惟管家一核之劳、远控三套并驻，宜察。</b>
+      <span class="byline">烛龙 · 自动述评（每三十秒一撰）</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">提交内存</div><div class="v">42.7 / 93.2 GB</div><div class="d">物理内存与页面文件之总额度</div></div>
+    <div class="stat"><div class="k">物理内存</div><div class="v">22.1 / 31.1 GB</div><div class="d">真实内存条用量 · 71%</div></div>
+    <div class="stat"><div class="k">CPU 单核峰值</div><div class="v">51%</div><div class="d">一核独劳亦致卡顿 · 总值 26%</div></div>
+    <div class="stat"><div class="k">磁盘 IO</div><div class="v">0.4 / 0.9 MB/s</div><div class="d">读 / 写 · 最忙 PhysicalDrive1</div></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div class="figcap">图一 · 水位一昼夜（五分钟桶，虚线为七成黄、八成五红之界）</div>
+        <div class="pills"><span class="on">24小时</span><span>7天</span><span>30天</span></div>
+      </div>
+      <canvas id="chart" height="118"></canvas>
+      <div class="fignote">区间极值 <b>62.2%（01:45）</b>，事件〇起。曲线于戌时陡升者，数据源修正之刻也；其后水位复归平稳。</div>
+    </div>
+    <aside>
+      <h5>本 期 要 闻</h5>
+      <div class="news"><span class="t">17:42 · 泄漏处置</span>HYPHelper 占 16.2GB 触发泄漏之判，十息内已二度处置，熔断未杀<span class="st st-p">待处理</span><span class="tip">荐：手动终结该进程，或升级 HoYoPlay</span></div>
+      <div class="news"><span class="t">17:25 · 高水位告警</span>水位越八成五逾九十秒，通知已发<span class="st st-d">已处理</span></div>
+      <div class="news"><span class="t">17:23 · 泄漏处置</span>自动终结 HYPHelper.exe（pid 44712）<span class="st st-d">已处理</span></div>
+      <div class="news"><span class="t">16:02 · 泄漏处置</span>暂停期内触发，动作静音<span class="st st-m">已静音</span></div>
+      <h5 style="margin-top:16px">进 程 大 户 榜</h5>
+      <div class="news">① QQPCTray.exe — 0.6GB · CPU 56%<span class="tip">管家扫描未歇</span></div>
+      <div class="news">② java.exe — 6.2GB</div>
+      <div class="news">③ 360ChromeX.exe — 1.1GB · CPU 45%</div>
+    </aside>
+  </div>
+
+  <footer>
+    <span>采集周期三十秒 · 数据保留三十日 · 察于幽冥</span>
+    <div class="seal">烛</div>
+  </footer>
+</div>
+<script>
+const pts = []; let v = 45;
+for (let i = 0; i < 288; i++) {
+  const t = new Date(Date.now() - (288 - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 16.9 && hm < 17.4) v = 84 + Math.random() * 6;
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const ctx = document.getElementById("chart").getContext("2d");
+new Chart(ctx, {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pts.map(p => p[1]), borderColor: "#1c1a17", tension: .2, pointRadius: 0, borderWidth: 1.6 },
+    { data: labels.map(() => 70), borderColor: "#b8862b", borderDash: [3, 5], pointRadius: 0, borderWidth: 1 },
+    { data: labels.map(() => 85), borderColor: "#a83232", borderDash: [3, 5], pointRadius: 0, borderWidth: 1 }
+  ]},
+  options: { scales: { x: { grid: { color: "rgba(28,26,23,.06)" }, ticks: { color: "#a3987f", maxTicksLimit: 10 } },
+                        y: { grid: { color: "rgba(28,26,23,.06)" }, ticks: { color: "#a3987f" }, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+</script>
+</body>
+</html>

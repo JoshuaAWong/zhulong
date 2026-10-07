@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 F · 烛火拟物</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 0; min-height: 100vh; color: #efe6d8;
+         background: radial-gradient(ellipse 60% 45% at 50% 22%, #2a1a0c 0%, #120b06 55%, #080502 100%); }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 18px 30px 0; }
+  .brand { font-size: 15px; letter-spacing: 6px; color: #c9a96a; }
+  .pills span { font-size: 12px; color: #8a7550; padding: 4px 13px; border-radius: 999px; cursor: pointer; }
+  .pills span.on { color: #ffd9a0; background: rgba(255,180,90,.12); }
+  /* ── 蜡烛主指标 ── */
+  .stage { position: relative; text-align: center; padding-top: 26px; }
+  .glow { position: absolute; left: 50%; top: 30px; width: 340px; height: 340px; transform: translateX(-50%);
+          background: radial-gradient(circle, rgba(255,170,60,.20) 0%, rgba(255,170,60,0) 65%); pointer-events: none; }
+  .candle { position: relative; display: inline-block; }
+  .flame { width: 46px; height: 74px; margin: 0 auto; position: relative; transform-origin: 50% 100%;
+           background: radial-gradient(ellipse at 50% 68%, #fff3c4 0%, #ffc457 38%, #ff8c2a 70%, rgba(255,90,20,0) 100%);
+           border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+           animation: flick 1.7s ease-in-out infinite; }
+  @keyframes flick { 0%,100% { transform: scaleY(1) rotate(-1.2deg); } 30% { transform: scaleY(1.06) rotate(1.4deg); } 60% { transform: scaleY(.96) rotate(-.6deg); } }
+  .wick { width: 4px; height: 12px; background: #1a120a; margin: -6px auto 0; border-radius: 2px; }
+  .wax { width: 74px; height: 130px; margin: 0 auto; border-radius: 8px 8px 12px 12px;
+         background: linear-gradient(180deg, #e8dcc2 0%, #d4c3a0 60%, #b8a582 100%); position: relative; }
+  .wax::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 14px;
+                background: radial-gradient(ellipse at 50% 0%, #f5ecd8 0%, rgba(245,236,216,0) 80%); border-radius: 8px 8px 0 0; }
+  .num { margin-top: 16px; font-size: 58px; font-weight: 800; color: #ffd9a0; text-shadow: 0 0 34px rgba(255,170,60,.5); }
+  .num small { font-size: 18px; color: #a98e63; }
+  .cname { font-size: 13px; color: #c9a96a; margin-top: 4px; }
+  .cdesc { font-size: 11.5px; color: #8a7550; margin-top: 6px; }
+  /* ── 小灯副指标 ── */
+  .lamps { display: flex; justify-content: center; gap: 34px; margin-top: 26px; flex-wrap: wrap; }
+  .lamp { text-align: center; width: 108px; }
+  .lamp .f { width: 14px; height: 22px; margin: 0 auto 6px; border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+             background: radial-gradient(ellipse at 50% 68%, #fff3c4 0%, #ffc457 45%, rgba(255,140,42,0) 100%); }
+  .lamp .v { font-size: 19px; font-weight: 700; color: #f0dfc0; }
+  .lamp .l { font-size: 10.5px; color: #8a7550; margin-top: 3px; }
+  /* ── 烟迹曲线 ── */
+  .smoke { max-width: 1060px; margin: 30px auto 0; padding: 0 30px; }
+  .smoke h4 { font-size: 12px; color: #8a7550; font-weight: 600; letter-spacing: 2px; margin-bottom: 8px; }
+  /* ── 火星事件 ── */
+  .sparks { max-width: 760px; margin: 18px auto 30px; padding: 0 30px; }
+  .spark { display: flex; gap: 12px; align-items: baseline; padding: 8px 0; font-size: 12.5px; color: #c9b99b; }
+  .spark .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; transform: translateY(-1px);
+                box-shadow: 0 0 8px currentColor; }
+  .spark .t { color: #8a7550; width: 118px; flex-shrink: 0; }
+  .pend { color: #ff7a6b; } .done { color: #9cc79c; } .mute { color: #8a7550; }
+  footer { text-align: center; font-size: 11px; color: #5c4c33; padding-bottom: 20px; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">烛 龙</div>
+  <div class="pills"><span class="on">24小时</span><span>7天</span><span>30天</span></div>
+</header>
+
+<div class="stage">
+  <div class="glow"></div>
+  <div class="candle">
+    <div class="flame"></div>
+    <div class="wick"></div>
+    <div class="wax"></div>
+  </div>
+  <div class="num">45.8<small> %</small></div>
+  <div class="cname">提交内存水位</div>
+  <div class="cdesc">火随水涨 · 逾八成五则火赤而摇</div>
+</div>
+
+<div class="lamps">
+  <div class="lamp"><div class="f"></div><div class="v">42.7 GB</div><div class="l">已用提交内存</div></div>
+  <div class="lamp"><div class="f"></div><div class="v">93.2 GB</div><div class="l">提交内存上限</div></div>
+  <div class="lamp"><div class="f"></div><div class="v">26%</div><div class="l">CPU 总占用</div></div>
+  <div class="lamp"><div class="f" style="filter:hue-rotate(-18deg) saturate(1.4)"></div><div class="v">51%</div><div class="l">CPU 单核峰值</div></div>
+  <div class="lamp"><div class="f"></div><div class="v">0.9 MB/s</div><div class="l">磁盘写入</div></div>
+</div>
+
+<div class="smoke">
+  <h4>水位一昼夜 · 烟迹</h4>
+  <canvas id="chart" height="100"></canvas>
+</div>
+
+<div class="sparks">
+  <div class="spark"><span class="dot pend"></span><span class="t">17:42 泄漏处置</span><span>熔断未杀 · 十息内已二度处置 —— <b class="pend">待人工：手动终结 HYPHelper.exe</b></span></div>
+  <div class="spark"><span class="dot done"></span><span class="t">17:25 高水位告警</span><span>通知已发 · 水位越八成五逾九十息</span></div>
+  <div class="spark"><span class="dot done"></span><span class="t">17:23 泄漏处置</span><span>已自动终结 HYPHelper.exe（16.2GB）</span></div>
+  <div class="spark"><span class="dot mute"></span><span class="t">16:02 泄漏处置</span><span>暂停期内触发 · 已静音记录</span></div>
+</div>
+
+<footer>察于幽冥 · 睁眼为昼 闭眼为夜</footer>
+<script>
+const pts = []; let v = 45;
+for (let i = 0; i < 288; i++) {
+  const t = new Date(Date.now() - (288 - i) * 300 * 1000);
+  const hm = t.getHours() + t.getMinutes() / 60;
+  if (hm > 16.9 && hm < 17.4) v = 84 + Math.random() * 6;
+  else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+  pts.push([t, +v.toFixed(1)]);
+}
+const labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const ctx = document.getElementById("chart").getContext("2d");
+const grad = ctx.createLinearGradient(0, 240, 0, 0);
+grad.addColorStop(0, "rgba(255,170,60,0)"); grad.addColorStop(1, "rgba(255,170,60,.22)");
+new Chart(ctx, {
+  type: "line",
+  data: { labels, datasets: [
+    { data: pts.map(p => p[1]), borderColor: "rgba(255,190,110,.85)", backgroundColor: grad, fill: true, tension: .4, pointRadius: 0, borderWidth: 1.6 },
+    { type: "scatter", data: [{ x: labels[248], y: 88 }], pointRadius: 5, pointBackgroundColor: "#ff7a6b", pointStyle: "rectRot" }
+  ]},
+  options: { scales: { x: { grid: { color: "rgba(255,170,60,.06)" }, ticks: { color: "#6e5c40", maxTicksLimit: 10 } },
+                        y: { grid: { color: "rgba(255,170,60,.06)" }, ticks: { color: "#6e5c40" }, suggestedMax: 100 } },
+             plugins: { legend: { display: false } } }
+});
+</script>
+</body>
+</html>

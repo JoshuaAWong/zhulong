@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 E5 · 国风定稿（昼夜）</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  :root[data-theme="light"] {
+    --bg: radial-gradient(ellipse at 50% 0%, #efe6d0 0%, #e6dcc4 70%);
+    --scroll: #f5efe0; --frame: #b8a988; --ink: #2b2620; --ink2: #4a4034; --mut: #9a8b72; --dim: #b8a988;
+    --hair: #d8cbab; --cinn: #a83232; --ochre: #b8862b; --leaf: #4a7a4e;
+    --chart-main: #2b2620; --chart-fill: rgba(43,38,32,.13); --chart-grid: rgba(43,38,32,.07); --brush: #8a6d3b;
+  }
+  :root[data-theme="dark"] {
+    --bg: radial-gradient(ellipse at 50% 0%, #1a150f 0%, #0d0b08 70%);
+    --scroll: #17140f; --frame: #6b5f4a; --ink: #e8dcc0; --ink2: #c9bda0; --mut: #8a7a63; --dim: #5c5348;
+    --hair: rgba(200,180,140,.16); --cinn: #c04038; --ochre: #d0a24a; --leaf: #7ea87e;
+    --chart-main: #d8b96a; --chart-fill: rgba(216,185,106,.14); --chart-grid: rgba(216,185,106,.08); --brush: #a08c5c;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 0; color: var(--ink); background: var(--bg); }
+  .scroll { max-width: 2200px; margin: 24px auto; background: var(--scroll);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='32' viewBox='0 0 64 32'%3E%3Cg fill='none' stroke='%23b8a988' stroke-opacity='.10'%3E%3Cpath d='M-16 32 A16 16 0 0 1 16 32 M16 32 A16 16 0 0 1 48 32 M48 32 A16 16 0 0 1 80 32 M0 16 A16 16 0 0 1 32 16 M32 16 A16 16 0 0 1 64 16 M-16 0 A16 16 0 0 1 16 0 M16 0 A16 16 0 0 1 48 0 M48 0 A16 16 0 0 1 80 0'/%3E%3C/g%3E%3C/svg%3E");
+            border: 1px solid var(--frame); outline: 4px double var(--frame); outline-offset: 5px;
+            padding: 26px 38px 24px; position: relative; }
+  .scroll::before, .scroll::after { content: "回"; position: absolute; font-family: "STKaiti","KaiTi",serif; font-size: 18px; color: var(--frame); }
+  .scroll::before { top: 8px; left: 12px; } .scroll::after { bottom: 8px; right: 12px; }
+  .brand-logo { width: 64px; height: 64px; color: var(--ink); flex-shrink: 0; align-self: center; }
+  .brand-logo .flame { fill: var(--cinn); }
+  header { display: flex; align-items: flex-start; gap: 24px; border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
+  .vtitle { writing-mode: vertical-rl; font-family: "STKaiti","KaiTi","楷体",serif; font-size: 44px; font-weight: 700; letter-spacing: 6px; line-height: 1; color: var(--ink); }
+  .head-meta { flex: 1; }
+  .head-meta .season { font-family: "STKaiti","KaiTi",serif; font-size: 15px; color: var(--mut); }
+  .head-meta .path { font-size: 11px; color: var(--mut); margin-top: 6px; opacity: .8; }
+  .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+  .pills { display: flex; gap: 10px; }
+  .pill { font-size: 12px; color: var(--mut); border: 1px solid var(--frame); padding: 4px 14px; cursor: pointer; background: transparent; font-family: "STKaiti","KaiTi",serif; }
+  .pill.on { background: var(--ink); color: var(--scroll); border-color: var(--ink); }
+  .theme-btn { display: flex; align-items: center; gap: 7px; padding: 5px 13px; border: 1px solid var(--frame); background: transparent; color: var(--mut); font-size: 12.5px; cursor: pointer; }
+  .theme-btn:hover { color: var(--ink); }
+  .theme-btn svg { width: 20px; height: 20px; color: var(--ochre); }
+  .seal { width: 44px; height: 44px; background: var(--cinn); color: #f5e9e0; border-radius: 4px;
+          display: flex; align-items: center; justify-content: center; font-family: "STKaiti","KaiTi",serif; font-size: 26px; transform: rotate(-4deg); box-shadow: inset 0 0 6px rgba(0,0,0,.3); }
+  .headline { display: grid; grid-template-columns: auto 1fr; gap: 30px; padding: 16px 0 14px; border-bottom: 1px solid var(--hair); align-items: center; }
+  .bignum { font-family: Georgia, "STKaiti","KaiTi",serif; font-size: 96px; font-weight: 700; line-height: .95; color: var(--ink); }
+  .bignum small { font-size: 22px; color: var(--mut); }
+  .quickread { font-size: 13.5px; line-height: 2.05; color: var(--ink2); }
+  .an { color: var(--leaf); font-weight: 700; } .shen { color: var(--ochre); font-weight: 700; } .wei { color: var(--cinn); font-weight: 700; }
+  /* 朱批待办焦点条 */
+  .pendline { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 2px solid var(--cinn); }
+  .pendline-tag { font-family: "STKaiti","KaiTi",serif; font-size: 15px; color: var(--cinn); font-weight: 700; letter-spacing: 4px; }
+  .pendline-body { flex: 1; font-size: 12.5px; color: var(--ink2); }
+  .pendline-alt { font-size: 11px; color: var(--mut); }
+  .act-btn { font-family: "STKaiti","KaiTi",serif; font-size: 15px; padding: 6px 20px; background: var(--cinn); color: #f5e9e0;
+             border: none; border-radius: 4px; cursor: pointer; letter-spacing: 2px; box-shadow: 0 2px 8px rgba(168,50,50,.35); }
+  .act-btn:hover { filter: brightness(1.1); }
+  .act-btn:disabled { background: var(--leaf); cursor: default; box-shadow: none; }
+  .act-ask { font-family: "STKaiti","KaiTi",serif; font-size: 13.5px; color: var(--cinn); margin-right: 8px; }
+  .act-no { font-size: 13px; padding: 6px 14px; background: transparent; color: var(--mut);
+            border: 1px solid var(--frame); border-radius: 4px; cursor: pointer; }
+  .act-no:hover { color: var(--ink); }
+  /* 三栏：左大户榜 · 中分区 · 右朱批 */
+  .layout { display: grid; grid-template-columns: 320px 1fr 420px; column-gap: 30px; padding-top: 6px; }
+  @media (max-width: 1699px) { .layout { grid-template-columns: 1fr; } .rail { order: 3; } }
+  .zones { display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; }
+  @media (max-width: 999px) { .zones { grid-template-columns: 1fr; } }
+  .zone { padding: 14px 18px 14px; margin-bottom: 14px; display: flex; flex-direction: column; position: relative;
+          border: 1px solid var(--hair); border-left: 2px solid var(--leaf); border-radius: 10px; }
+  .zone::before, .zone::after { content: ""; position: absolute; width: 11px; height: 11px;
+          border: 1.5px solid var(--frame); opacity: .55; pointer-events: none; }
+  .zone::before { top: 5px; right: 5px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+  .zone::after { bottom: 5px; right: 5px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+  .zone.z-shen { border-left-color: var(--ochre); }
+  .zone.z-wei { border-left-color: var(--cinn); }
+  .zone .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; min-height: 26px; }
+  .zone .no { font-family: "STKaiti","KaiTi",Georgia,serif; font-size: 22px; color: var(--cinn); font-weight: 700; }
+  .zone h2 { font-family: "STKaiti","KaiTi",serif; font-size: 20px; margin: 0; letter-spacing: 3px; color: var(--ink); }
+  .zone .plain { font-size: 12.5px; font-weight: 700; margin-left: auto; }
+  .figcap { font-size: 10.5px; letter-spacing: 2px; color: var(--mut); margin-bottom: 4px; min-height: 14px; }
+  /* 固定高度图框：不再忽高忽低 */
+  .cbox { height: 192px; position: relative; }
+  .omens { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
+  .omen { padding: 4px 14px; border-left: 1px solid var(--hair); min-height: 78px; }
+  .omen:first-child { border-left: none; padding-left: 0; }
+  .omen .k { font-size: 10.5px; letter-spacing: 2px; color: var(--mut); }
+  .omen .v { font-family: "STKaiti","KaiTi",Georgia,serif; font-size: 21px; font-weight: 700; margin: 2px 0; color: var(--ink); }
+  .omen .v small { font-size: 12px; color: var(--mut); font-weight: 400; }
+  .omen .d { font-size: 11px; color: var(--mut); line-height: 1.55; }
+  .bar { height: 3px; background: var(--hair); margin: 5px 0 4px; }
+  .bar i { display: block; height: 100%; background: var(--ink); }
+  .bar i.warn { background: var(--ochre); }
+  .bar i.danger { background: var(--cinn); }
+  /* 左右栏：同入界格 */
+  .rail { padding: 14px 18px; margin-bottom: 14px; align-self: start; position: relative;
+          border: 1px solid var(--hair); border-left: 2px solid var(--ochre); border-radius: 10px; }
+  .rail.r-wei { border-left-color: var(--cinn); }
+  .rail::before, .rail::after { content: ""; position: absolute; width: 11px; height: 11px;
+          border: 1.5px solid var(--frame); opacity: .55; pointer-events: none; }
+  .rail::before { top: 5px; right: 5px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+  .rail::after { bottom: 5px; right: 5px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+  .rank { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; color: var(--ink2); }
+  .rank .vv { font-family: Georgia, serif; font-size: 12.5px; font-weight: 700; }
+  .ev { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; line-height: 1.55; }
+  .ev .t { color: var(--mut); width: 96px; flex-shrink: 0; font-size: 11.5px; }
+  .ev .b { flex: 1; color: var(--ink2); }
+  .ev .pi { font-family: "STKaiti","KaiTi",serif; width: 72px; flex-shrink: 0; text-align: right; }
+  .pi-wei { color: var(--cinn); } .pi-an { color: var(--leaf); } .pi-mute { color: var(--mut); }
+  .ev .tip { display: block; color: var(--cinn); font-size: 11px; margin-top: 2px; }
+  .watermark { position: absolute; right: 60px; top: 46%; font-family: "STKaiti","KaiTi",serif;
+               font-size: 300px; color: var(--ink); opacity: .035; pointer-events: none; user-select: none; }
+  .side-note { position: absolute; right: 12px; top: 150px; writing-mode: vertical-rl;
+               font-family: "STKaiti","KaiTi",serif; font-size: 11.5px; letter-spacing: 7px; color: var(--mut); opacity: .75; }
+  .dragon-div { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; color: var(--frame); }
+  .dragon-div .brush { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--hair), transparent); }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding-top: 12px; border-top: 2px solid var(--ink); }
+  footer .motto { font-family: "STKaiti","KaiTi",serif; font-size: 13px; color: var(--mut); letter-spacing: 3px; }
+  footer .meta { font-size: 11px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="scroll">
+  <header>
+    <svg class="brand-logo" viewBox="0 0 64 64" aria-label="烛龙">
+      <path d="M34 9 C49 10 56 21 56 33 C56 47 46 56 32 56 C18 56 8 47 8 33 C8 21 15 11 27 9"
+            fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+      <path d="M33 12.5 C45 13.5 52 22.5 52 33 C52 44.5 44 52.5 33 53"
+            fill="none" stroke="currentColor" stroke-width="1.1" opacity=".4" stroke-linecap="round"/>
+      <path d="M24 10 C22 6 24 2.5 28 2.5 M28 10 C28 6 31 3.5 34 4.5"
+            fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M23 10 C23 13 26 15 30 14 C33 13 34 10 32 8"
+            fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="27" cy="9.5" r="1.3" fill="currentColor"/>
+      <path class="flame" d="M32 21 C35.5 25.5 37.5 28.5 37.5 33 C37.5 37.5 35.5 40.5 32 40.5 C28.5 40.5 26.5 37.5 26.5 33 C26.5 28.5 28.5 25.5 32 21 Z"/>
+      <path class="flame" opacity=".45" d="M32 27.5 C33.8 29.8 34.8 31.5 34.8 33.6 C34.8 35.9 33.8 37.4 32 37.4 C30.2 37.4 29.2 35.9 29.2 33.6 C29.2 31.5 30.2 29.8 32 27.5 Z"/>
+    </svg>
+    <div class="vtitle">烛 龙</div>
+    <div class="head-meta">
+      <div class="season" id="seasonText">系统监察录</div>
+      <div class="path">C:/Users/Administrator/.agents/skills/烛龙 · 面板只读（127.0.0.1）</div>
+    </div>
+    <div class="head-right">
+      <div class="pills" id="rangePills"><div class="pill on" data-r="d1">一昼夜</div><div class="pill" data-r="d7">七日</div><div class="pill" data-r="d30">一月</div></div>
+      <button class="theme-btn" id="themeBtn">
+        <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M2.5 12 C6 6.5 18 6.5 21.5 12 C18 17.5 6 17.5 2.5 12 Z"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+        </svg>
+        <svg id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:none">
+          <path d="M2.5 12 C6 16 18 16 21.5 12"/><path d="M6 14.5 L4.8 16.2 M12 15.5 L12 17.8 M18 14.5 L19.2 16.2"/>
+        </svg>
+        <span id="themeLabel">昼</span>
+      </button>
+      <div class="seal">烛</div>
+    </div>
+  </header>
+
+  <div class="dragon-div">
+    <div class="brush"></div>
+    <svg width="150" height="22" viewBox="0 0 150 22" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+      <path d="M4 14 C18 4 34 4 46 10 C58 16 70 16 82 10 C94 4 108 6 118 12"/>
+      <path d="M118 12 C122 8 126 8 128 11 C130 14 128 17 125 17"/>
+      <circle cx="121" cy="11" r="1.1" fill="currentColor" stroke="none"/>
+      <path d="M138 2 C141 6 143 8 143 11 C143 14 141.5 16 138.5 16 C135.5 16 134 14 134 11 C134 8 135.5 6 138 2 Z" fill="currentColor" stroke="none" opacity=".9"/>
+    </svg>
+    <div class="brush"></div>
+  </div>
+  <div class="headline">
+    <div class="bignum">45.8<small> %</small></div>
+    <div class="quickread">
+      提交内存水位 <span class="an">安 · 绿区健康，无需处置</span><br>
+      内存：已用 42.7 / 上限 93.2 GB，余量充足 ｜ CPU：大户 QQPCTray（管家）占单核 56.0%，<span class="shen">慎 · 卡了再管</span> ｜ 磁盘网络：平稳无扫描 ｜ 显卡：49.0°C 闲置
+    </div>
+  </div>
+
+  <div class="pendline">
+    <span class="pendline-tag">待 人 工</span>
+    <span class="pendline-body">酉时三刻 · 熔断未杀：HYPHelper.exe 占 16.2GB（十息内已二度处置，熔断保护）</span>
+    <span class="act-zone" id="actZone"><button class="act-btn" onclick="askConfirm()">手动终结</button></span>
+    <span class="pendline-alt">或：升级 HoYoPlay 版本</span>
+  </div>
+
+  <div class="layout">
+    <!-- 左栏：大户榜 -->
+    <aside class="rail">
+      <div class="sec-head"><span class="no">柒</span><h2>大户榜</h2></div>
+      <div class="rank"><span>① QQPCTray.exe（管家）</span><span class="vv">0.6 GB · 56.0%</span></div>
+      <div class="rank"><span>② java.exe</span><span class="vv">6.2 GB</span></div>
+      <div class="rank"><span>③ 360ChromeX.exe</span><span class="vv">1.1 GB · 45.0%</span></div>
+      <div class="rank"><span>④ explorer.exe</span><span class="vv">0.6 GB · 45.0%</span></div>
+      <div class="rank"><span>⑤ ToDesk.exe</span><span class="vv">0.1 GB · 31.9%</span></div>
+    </aside>
+
+    <!-- 中栏：上一版两列分区 -->
+    <div class="zones">
+      <section class="zone">
+        <div class="sec-head"><span class="no">壹</span><h2>内存水位</h2><span class="plain an">安 · 内存很够用，不用担心</span></div>
+        <div class="figcap">提交内存水位 · <span class="rng-name">一昼夜</span>（虚线：七成慎 八成五危）</div>
+        <div class="cbox"><canvas id="c1"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">已用提交内存</div><div class="v">42.7 <small>GB</small></div><div class="bar"><i style="width:45.8%"></i></div><div class="d">诸程序预订内存之总量</div></div>
+          <div class="omen"><div class="k">提交内存上限</div><div class="v">93.2 <small>GB</small></div><div class="bar"><i style="width:100%"></i></div><div class="d">物理加页面文件，可自扩</div></div>
+          <div class="omen"><div class="k">物理内存</div><div class="v">22.1 / 31.1 <small>GB</small></div><div class="bar"><i style="width:71.0%"></i></div><div class="d">真实内存条 71.0%</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">肆</span><h2>网络与延迟</h2><span class="plain an">安 · 平稳</span></div>
+        <div class="figcap">上传 / 下载速率 · <span class="rng-name">一昼夜</span>（MB/s）</div>
+        <div class="cbox"><canvas id="c4"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">下载</div><div class="v">1.8 <small>MB/s</small></div><div class="bar"><i style="width:18.0%"></i></div><div class="d">当前速率</div></div>
+          <div class="omen"><div class="k">上传</div><div class="v">0.3 <small>MB/s</small></div><div class="bar"><i style="width:3.0%"></i></div><div class="d">当前速率</div></div>
+          <div class="omen"><div class="k">延迟 / 抖动</div><div class="v">12.0 / 1.4 <small>ms</small></div><div class="bar"><i style="width:12.0%"></i></div><div class="d">网关 0.6ms · 公网甚稳</div></div>
+        </div>
+      </section>
+      <section class="zone z-shen">
+        <div class="sec-head"><span class="no">贰</span><h2>处理器</h2><span class="plain shen">慎 · 有大户，暂且勿管</span></div>
+        <div class="figcap">CPU · <span class="rng-name">一昼夜</span>（实线总占用 虚线单核峰值）</div>
+        <div class="cbox"><canvas id="c2"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">总占用</div><div class="v">26.0 <small>%</small></div><div class="bar"><i style="width:26.0%"></i></div><div class="d">诸核之均值</div></div>
+          <div class="omen"><div class="k">单核峰值</div><div class="v">51.0 <small>%</small></div><div class="bar"><i class="warn" style="width:51.0%"></i></div><div class="d">最劳之一核</div></div>
+          <div class="omen"><div class="k">CPU 大户</div><div class="v">QQPCTray <small>56.0%</small></div><div class="bar"><i class="warn" style="width:56.0%"></i></div><div class="d">管家方在扫描</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">伍</span><h2>显卡</h2><span class="plain an">安 · 闲置，温度正常</span></div>
+        <div class="figcap">GPU 利用率 · <span class="rng-name">一昼夜</span>（%）</div>
+        <div class="cbox"><canvas id="c5"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">温度</div><div class="v">49.0 <small>°C</small></div><div class="bar"><i style="width:59.0%"></i></div><div class="d">正常（不及八十三度）</div></div>
+          <div class="omen"><div class="k">利用率</div><div class="v">2.0 <small>%</small></div><div class="bar"><i style="width:2.0%"></i></div><div class="d">基本闲置</div></div>
+          <div class="omen"><div class="k">显存</div><div class="v">4.9 / 12.2 <small>GB</small></div><div class="bar"><i style="width:40.2%"></i></div><div class="d">RTX 5070</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">叁</span><h2>磁盘</h2><span class="plain an">安 · 平稳，无有扫描</span></div>
+        <div class="figcap">读写速率 · <span class="rng-name">一昼夜</span>（MB/s）</div>
+        <div class="cbox"><canvas id="c3"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">读取</div><div class="v">0.4 <small>MB/s</small></div><div class="bar"><i style="width:4.0%"></i></div><div class="d">甚为安静</div></div>
+          <div class="omen"><div class="k">写入</div><div class="v">0.9 <small>MB/s</small></div><div class="bar"><i style="width:9.0%"></i></div><div class="d">甚为安静</div></div>
+          <div class="omen"><div class="k">IO 大户</div><div class="v">无</div><div class="d">无有进程大肆读写</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">陆</span><h2>页面文件</h2><span class="plain an">安 · 占用甚微</span></div>
+        <div class="figcap">页面文件已用 · <span class="rng-name">一昼夜</span>（GB）</div>
+        <div class="cbox"><canvas id="c6"></canvas></div>
+        <div class="omens">
+          <div class="omen"><div class="k">已用</div><div class="v">2.8 <small>GB</small></div><div class="bar"><i style="width:4.5%"></i></div><div class="d">内存溢出才动用</div></div>
+          <div class="omen"><div class="k">总量</div><div class="v">62.0 <small>GB</small></div><div class="bar"><i style="width:100%"></i></div><div class="d">系统自动管理扩缩</div></div>
+          <div class="omen"><div class="k">已用占比</div><div class="v">4.5 <small>%</small></div><div class="bar"><i style="width:4.5%"></i></div><div class="d">物理内存尚且够用</div></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 右栏：朱批记事 -->
+    <aside class="rail r-wei">
+      <div class="sec-head"><span class="no">捌</span><h2>朱批记事</h2><span class="plain wei">危 · 一起待人工</span></div>
+      <div class="ev"><span class="t">酉时三刻 17:42</span><span class="b">熔断未杀：HYPHelper.exe 占 16.2GB<span class="tip">荐：任务管理器手动终结，重开 HoYoPlay 即复</span></span><span class="pi pi-wei">待人工 ◉</span></div>
+      <div class="ev"><span class="t">酉时二刻 17:25</span><span class="b">水位越八成五逾九十息，告警已发</span><span class="pi pi-an">已处置</span></div>
+      <div class="ev"><span class="t">酉时一刻 17:23</span><span class="b">自动终结 HYPHelper.exe（16.2GB）</span><span class="pi pi-an">已处置</span></div>
+      <div class="ev"><span class="t">申时三刻 16:02</span><span class="b">暂停期内触发，动作静音</span><span class="pi pi-mute">已静音</span></div>
+    </aside>
+  </div>
+
+  <div class="watermark">烛</div>
+  <div class="side-note">秋月监察 · 烛龙司夜</div>
+  <footer>
+    <span class="motto">察于幽冥 · 睁眼为昼 闭眼为夜</span>
+    <span class="meta">采集周期三十秒 · 数据保留三十日</span>
+  </footer>
+</div>
+<script>
+const RANGES = {
+  d1:  { n: 288, stepMin: 5,   label: t => t.toTimeString().slice(0, 5), name: "一昼夜" },
+  d7:  { n: 336, stepMin: 30,  label: t => `${t.getMonth() + 1}月${t.getDate()}日 ${t.toTimeString().slice(0, 5)}`, name: "七日" },
+  d30: { n: 360, stepMin: 120, label: t => `${t.getMonth() + 1}月${t.getDate()}日`, name: "一月" }
+};
+let curRange = "d1";
+let charts = [];
+const CS = getComputedStyle(document.documentElement);
+const cv = k => CS.getPropertyValue(k).trim();
+function theme() {
+  return { main: cv("--chart-main"), fill: cv("--chart-fill"), grid: cv("--chart-grid"),
+           mut: cv("--mut"), cinn: cv("--cinn"), ochre: cv("--ochre"), brush: cv("--brush") };
+}
+function mock(spikeTo, base, spread, n, stepMin) {
+  const pts = []; let v = base;
+  for (let i = 0; i < n; i++) {
+    const t = new Date(Date.now() - (n - i) * stepMin * 60000);
+    const hm = t.getHours() + t.getMinutes() / 60;
+    if (spikeTo && hm > 16.9 && hm < 17.4) v = spikeTo + Math.random() * 3;
+    else { v += (Math.random() - 0.52) * 0.8; v = Math.max(Math.max(0, base - spread), Math.min(base + spread, v)); }
+    pts.push([t, +v.toFixed(1)]);
+  }
+  return pts;
+}
+function series(spikeTo, base, spread, fn) { const r = RANGES[curRange]; return mock(spikeTo, base, spread, r.n, r.stepMin).map(p => fn ? fn(p[1]) : p[1]); }
+function mk(id, datasets, unit, opts) {
+  opts = opts || {};
+  const t = theme(), r = RANGES[curRange];
+  const labels = mock(0, 45, 8, r.n, r.stepMin).map(p => r.label(p[0]));
+  // 绝对量程：Y 轴固定到指标上限（百分比 0-100，GB 类对到实际上限），曲线坐绝对位置
+  const yMin = opts.min ?? 0;
+  const yMax = opts.max;
+  const ctx = document.getElementById(id).getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, t.fill); grad.addColorStop(1, "rgba(0,0,0,0)");
+  datasets[0].backgroundColor = grad; datasets[0].fill = true;
+  charts.push(new Chart(ctx, { type: "line",
+    data: { labels, datasets },
+    options: { responsive: true, maintainAspectRatio: false,
+               scales: { x: { grid: { color: t.grid }, ticks: { color: t.mut, maxTicksLimit: 9 } },
+                          y: { grid: { color: t.grid }, ticks: { color: t.mut, callback: v => (+v).toFixed(1) + unit }, min: yMin, max: yMax } },
+               plugins: { legend: { display: false } } } }));
+}
+function build() {
+  charts.forEach(c => c.destroy()); charts = [];
+  const t = theme();
+  document.querySelectorAll(".rng-name").forEach(e => e.textContent = RANGES[curRange].name);
+  mk("c1", [
+    { data: series(70, 45, 10), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { data: series(0, 70, 0).map(() => 70), borderColor: t.ochre, borderDash: [3,5], pointRadius: 0, borderWidth: 1 },
+    { data: series(0, 85, 0).map(() => 85), borderColor: t.cinn, borderDash: [3,5], pointRadius: 0, borderWidth: 1 }
+  ], "%", { max: 100 });
+  mk("c2", [
+    { data: series(0, 25, 8), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { data: series(0, 25, 8, x => x * 1.9), borderColor: t.cinn, borderDash: [4,4], tension: .3, pointRadius: 0, borderWidth: 1.3 }
+  ], "%", { max: 100 });
+  mk("c3", [
+    { data: series(0, 0.4, 0.3), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { data: series(0, 0.9, 0.5), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+  ], " MB/s", { max: 5 });
+  mk("c4", [
+    { data: series(0, 1.8, 1.2), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { data: series(0, 0.3, 0.25), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+  ], " MB/s", { max: 10 });
+  mk("c5", [
+    { data: series(0, 8, 6, x => x * 1.1), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+  ], "%", { max: 100 });
+  mk("c6", [
+    { data: series(0, 2.8, 1.5), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+  ], " GB", { max: 70 });
+}
+// 干支年 + 四季月自动生成（永不写死）
+(function season() {
+  const stems = "甲乙丙丁戊己庚辛壬癸", branches = "子丑寅卯辰巳午未申酉戌亥";
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
+  const gz = stems[(y - 4) % 10] + branches[(y - 4) % 12];
+  const sn = m <= 2 || m === 12 ? "冬" : m <= 5 ? "春" : m <= 8 ? "夏" : "秋";
+  document.getElementById("seasonText").textContent = `岁在${gz} · ${sn}月系统监察录`;
+})();
+build();
+document.getElementById("rangePills").addEventListener("click", e => {
+  const pill = e.target.closest(".pill");
+  if (!pill) return;
+  document.querySelectorAll("#rangePills .pill").forEach(p => p.classList.remove("on"));
+  pill.classList.add("on");
+  curRange = pill.dataset.r;
+  build();
+});
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const el = document.documentElement;
+  const toDark = el.dataset.theme === "light";
+  el.dataset.theme = toDark ? "dark" : "light";
+  document.getElementById("eyeOpen").style.display = toDark ? "none" : "";
+  document.getElementById("eyeClosed").style.display = toDark ? "" : "none";
+  document.getElementById("themeLabel").textContent = toDark ? "夜" : "昼";
+  build();
+});
+const TARGET = "HYPHelper.exe";
+function askConfirm() {
+  const z = document.getElementById("actZone");
+  z.innerHTML = `<span class="act-ask">确认终结 ${TARGET} 乎？</span>` +
+    `<button class="act-btn" onclick="doKill()">确认</button> ` +
+    `<button class="act-no" onclick="resetAct()">再思</button>`;
+}
+function doKill() {
+  document.getElementById("actZone").innerHTML = `<button class="act-btn" disabled>已终结 ✓</button>`;
+}
+function resetAct() {
+  document.getElementById("actZone").innerHTML = `<button class="act-btn" onclick="askConfirm()">手动终结</button>`;
+}
+</script>
+</body>
+</html>

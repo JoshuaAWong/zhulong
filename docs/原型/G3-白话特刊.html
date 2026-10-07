@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 G3 · 白话特刊</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, "Microsoft YaHei", serif; margin: 0; background: #faf7f0; color: #1c1a17; }
+  .page { max-width: 1120px; margin: 0 auto; padding: 24px 36px 28px; }
+  .masthead { text-align: center; border-bottom: 3px double #1c1a17; padding-bottom: 12px; }
+  .masthead .kicker { font-size: 11px; letter-spacing: 5px; color: #8a8070; }
+  .masthead h1 { font-family: Georgia, "STSong", serif; font-size: 40px; margin: 5px 0 3px; letter-spacing: 4px; }
+  .masthead .dateline { font-size: 12px; color: #8a8070; display: flex; justify-content: space-between; }
+  /* 大数字行 */
+  .topline { display: grid; grid-template-columns: auto 1fr auto; gap: 30px; padding: 18px 0; border-bottom: 1px solid #d8d2c4; align-items: center; }
+  .bignum { font-family: Georgia, serif; font-size: 108px; font-weight: 700; line-height: .9; }
+  .bignum small { font-size: 24px; color: #8a8070; }
+  .topline .lab { font-size: 12px; color: #8a8070; letter-spacing: 2px; }
+  .zonebadge { padding: 6px 18px; border-radius: 999px; font-size: 13px; font-weight: 700; background: #e4ecdd; color: #4a7a4e; }
+  /* 说人话横条 */
+  .say { background: #f0ead9; border-left: 4px solid #b8862b; padding: 10px 16px; font-size: 13.5px; line-height: 1.7; color: #3a352c; margin: 14px 0 0; }
+  .say.ok { border-left-color: #4a7a4e; }
+  .say b { color: #1c1a17; }
+  /* 主从两栏 */
+  .cols { display: grid; grid-template-columns: 1.7fr 1fr; gap: 28px; padding-top: 16px; }
+  .zone { border-top: 2px solid #1c1a17; padding-top: 12px; margin-top: 20px; }
+  .zone h3 { font-family: Georgia, "STSong", serif; font-size: 17px; margin: 0 0 8px; letter-spacing: 1.5px; display: flex; justify-content: space-between; align-items: baseline; }
+  .zone h3 .v { font-size: 14px; color: #6b6152; font-weight: 400; }
+  .figcap { font-size: 10px; letter-spacing: 2px; color: #a3987f; margin-bottom: 4px; }
+  /* 右侧栏 */
+  aside .rail-head { font-size: 11px; letter-spacing: 3px; color: #8a8070; border-bottom: 1px solid #1c1a17; padding-bottom: 5px; margin: 0 0 4px; }
+  .pend-card { border: 1px solid #a83232; padding: 10px 14px; margin: 10px 0; font-size: 12.5px; line-height: 1.65; }
+  .pend-card .h { color: #a83232; font-weight: 700; font-size: 12px; letter-spacing: 1px; }
+  .pend-card .tip { color: #6b6152; font-size: 11.5px; margin-top: 5px; }
+  .rank { padding: 7px 0; border-bottom: 1px dashed #e3ddd0; font-size: 12.5px; display: flex; justify-content: space-between; }
+  .rank .vv { font-family: Georgia, serif; font-weight: 700; }
+  .ev { padding: 7px 0; border-bottom: 1px dashed #e3ddd0; font-size: 12px; line-height: 1.55; }
+  .ev .t { color: #a3987f; font-size: 10.5px; display: block; }
+  .ev .st { font-size: 10px; padding: 0 6px; margin-left: 5px; }
+  .st-p { background: #a83232; color: #fff; } .st-d { background: #e4ecdd; color: #4a7a4e; } .st-m { background: #eee; color: #8a8070; }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; padding-top: 12px; border-top: 3px double #1c1a17; font-size: 11px; color: #8a8070; }
+  .seal { width: 30px; height: 30px; background: #a83232; color: #f5e9e0; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 17px; transform: rotate(-4deg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="masthead">
+    <div class="kicker">THE ZHULONG OBSERVER</div>
+    <h1>烛 龙</h1>
+    <div class="dateline"><span>C:/Users/Administrator/.agents/skills/烛龙</span><span>2026年10月5日 · 面板只读（127.0.0.1）</span></div>
+  </div>
+
+  <div class="topline">
+    <div>
+      <div class="lab">提交内存水位</div>
+      <div class="bignum">45.8<small> %</small></div>
+    </div>
+    <div></div>
+    <div class="zonebadge">绿区 · 健康，无需处理</div>
+  </div>
+
+  <div class="say ok"><b>一句话：</b>内存很够用；CPU 里电脑管家（QQPCTray）占了单核 56% 在扫描，感觉卡再管它；磁盘正常，没有外接存储被扫描。</div>
+
+  <div class="cols">
+    <div>
+      <div class="zone">
+        <h3>内存水位 <span class="v">42.7 / 93.2 GB · 余量充足</span></h3>
+        <div class="figcap">24小时（虚线：70% 注意 / 85% 危险）</div>
+        <canvas id="c1" height="92"></canvas>
+      </div>
+      <div class="zone">
+        <h3>CPU <span class="v">总 26.0% / 单核峰值 51.0%</span></h3>
+        <div class="figcap">24小时（实线总占用 / 虚线单核峰值）</div>
+        <canvas id="c2" height="92"></canvas>
+      </div>
+      <div class="zone">
+        <h3>磁盘 IO <span class="v">读 0.4 / 写 0.9 MB/s · 很安静</span></h3>
+        <div class="figcap">24小时（MB/s）</div>
+        <canvas id="c3" height="92"></canvas>
+      </div>
+    </div>
+
+    <aside>
+      <div class="rail-head">待 处 理</div>
+      <div class="pend-card">
+        <div class="h">⚠ 泄漏处置降级 · 17:42</div>
+        HYPHelper.exe 占 16.2GB 触发判定，但 10 分钟内已自动处置 2 次（熔断保护），这次没自动杀。
+        <div class="tip"><b>建议</b>：任务管理器手动结束它，重开 HoYoPlay 即恢复。</div>
+      </div>
+
+      <div class="rail-head" style="margin-top:14px">大 户 榜</div>
+      <div class="rank"><span>① QQPCTray.exe（管家）</span><span class="vv">0.6 GB · 56.0%</span></div>
+      <div class="rank"><span>② java.exe</span><span class="vv">6.2 GB</span></div>
+      <div class="rank"><span>③ 360ChromeX.exe</span><span class="vv">1.1 GB · 45.0%</span></div>
+
+      <div class="rail-head" style="margin-top:14px">事 件</div>
+      <div class="ev"><span class="t">17:42 · 泄漏处置</span>熔断未杀，见上方待处理<span class="st st-p">待处理</span></div>
+      <div class="ev"><span class="t">17:25 · 高水位告警</span>通知已发<span class="st st-d">已处理</span></div>
+      <div class="ev"><span class="t">17:23 · 泄漏处置</span>已自动结束 HYPHelper.exe<span class="st st-d">已处理</span></div>
+      <div class="ev"><span class="t">16:02 · 泄漏处置</span>暂停期内触发<span class="st st-m">已静音</span></div>
+    </aside>
+  </div>
+
+  <footer>
+    <span>采集周期三十秒 · 数据保留三十日 · 察于幽冥</span>
+    <div class="seal">烛</div>
+  </footer>
+</div>
+<script>
+const N = 288;
+function mock(spike) {
+  const pts = []; let v = 45;
+  for (let i = 0; i < N; i++) {
+    const t = new Date(Date.now() - (N - i) * 300 * 1000);
+    const hm = t.getHours() + t.getMinutes() / 60;
+    if (spike && hm > 16.9 && hm < 17.4) v = 84 + Math.random() * 6;
+    else { v += (Math.random() - 0.52) * 2.5; v = Math.max(35, Math.min(92, v)); }
+    pts.push([t, +v.toFixed(1)]);
+  }
+  return pts;
+}
+const pts = mock(true), labels = pts.map(p => p[0].toTimeString().slice(0, 5));
+const GRID = { color: "rgba(28,26,23,.06)" }, TICK = { color: "#a3987f" };
+function mk(id, datasets, unit) {
+  new Chart(document.getElementById(id), { type: "line",
+    data: { labels, datasets },
+    options: { scales: { x: { grid: GRID, ticks: { ...TICK, maxTicksLimit: 10 } },
+                          y: { grid: GRID, ticks: { ...TICK, callback: v => (+v).toFixed(1) + unit }, suggestedMin: 0 } },
+               plugins: { legend: { display: false } } } });
+}
+mk("c1", [
+  { data: pts.map(p => p[1]), borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: labels.map(() => 70), borderColor: "#b8862b", borderDash: [3,5], pointRadius: 0, borderWidth: 1 },
+  { data: labels.map(() => 85), borderColor: "#a83232", borderDash: [3,5], pointRadius: 0, borderWidth: 1 }
+], "%");
+const cpu = mock(false).map(p => +(p[1] * 0.55).toFixed(1));
+mk("c2", [
+  { data: cpu, borderColor: "#2f6fb2", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: cpu.map(x => +(x * 1.9).toFixed(1)), borderColor: "#a83232", borderDash: [4,4], tension: .25, pointRadius: 0, borderWidth: 1.4 }
+], "%");
+mk("c3", [
+  { data: mock(false).map(p => +(p[1] / 60).toFixed(1)), borderColor: "#2f6fb2", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: mock(false).map(p => +(p[1] / 40).toFixed(1)), borderColor: "#b03a2e", tension: .25, pointRadius: 0, borderWidth: 1.6 }
+], " MB/s");
+</script>
+</body>
+</html>

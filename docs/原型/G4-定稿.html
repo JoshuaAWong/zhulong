@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>烛龙原型 G4 · 定稿（G 血统 + 白话分区 + 双栏）</title>
+<script src="../../zhulong/web/static/chart.umd.js"></script>
+<style>
+  /* ── G 的纯血统：纸、墨、发线、朱砂 ── */
+  :root {
+    --paper: #faf7f0; --ink: #1c1a17; --ink2: #3a352c; --mut: #8a8070; --dim: #a3987f;
+    --hair: #d8d2c4; --dash: #e3ddd0; --cinn: #a83232; --ochre: #b8862b; --leaf: #4a7a4e;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, "Microsoft YaHei", serif; margin: 0; background: var(--paper); color: var(--ink); }
+  .page { max-width: 1560px; margin: 0 auto; padding: 24px 34px 26px; }
+  /* 报头（与 G 一致） */
+  .masthead { text-align: center; border-bottom: 3px double var(--ink); padding-bottom: 12px; }
+  .masthead .kicker { font-size: 11px; letter-spacing: 5px; color: var(--mut); }
+  .masthead h1 { font-family: Georgia, "STSong", "SimSun", serif; font-size: 40px; margin: 5px 0 3px; letter-spacing: 4px; }
+  .masthead .dateline { font-size: 12px; color: var(--mut); display: flex; justify-content: space-between; }
+  /* 速读：无横幅无色块，纯文字 */
+  .headline { display: grid; grid-template-columns: auto 1fr; gap: 34px; padding: 18px 0 16px; border-bottom: 1px solid var(--hair); align-items: center; }
+  .bignum { font-family: Georgia, serif; font-size: 112px; font-weight: 700; line-height: .9; }
+  .bignum small { font-size: 24px; color: var(--mut); }
+  .quickread { font-size: 13.5px; line-height: 2.05; color: var(--ink2); }
+  .quickread .tag-an { color: var(--leaf); font-weight: 700; }
+  .quickread .tag-shen { color: var(--ochre); font-weight: 700; }
+  .quickread .tag-wei { color: var(--cinn); font-weight: 700; }
+  /* 双栏分区（宽屏一屏六区） */
+  .zones { display: grid; grid-template-columns: 1fr 1fr; column-gap: 34px; }
+  @media (max-width: 1399px) { .zones { grid-template-columns: 1fr; } }
+  .zone { padding: 16px 0 14px; border-bottom: 1px solid var(--hair); }
+  .zone .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .zone .no { font-family: Georgia, serif; font-size: 24px; color: var(--cinn); font-weight: 700; }
+  .zone h2 { font-family: Georgia, "STSong", serif; font-size: 19px; margin: 0; letter-spacing: 2px; }
+  .zone .plain { font-size: 12.5px; color: var(--leaf); font-weight: 700; margin-left: auto; }
+  .zone .plain.warn { color: var(--ochre); }
+  .zone .plain.danger { color: var(--cinn); }
+  .figcap { font-size: 10.5px; letter-spacing: 2px; color: var(--dim); margin-bottom: 4px; }
+  /* 数据行：发线分隔，无卡片 */
+  .minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 8px; }
+  .mini { padding: 4px 14px; border-left: 1px solid var(--hair); }
+  .mini:first-child { border-left: none; padding-left: 0; }
+  .mini .k { font-size: 10.5px; letter-spacing: 1.5px; color: var(--dim); }
+  .mini .v { font-family: Georgia, serif; font-size: 21px; font-weight: 700; margin: 2px 0; }
+  .mini .v small { font-size: 12px; color: var(--mut); font-weight: 400; }
+  .mini .d { font-size: 11px; color: var(--mut); line-height: 1.55; }
+  /* 大户榜与事件：与 G 的 aside 同款 */
+  .rank { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--dash); font-size: 12.5px; }
+  .rank .vv { font-family: Georgia, serif; font-weight: 700; }
+  .ev { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--dash); font-size: 12.5px; line-height: 1.55; }
+  .ev .t { color: var(--dim); width: 108px; flex-shrink: 0; font-size: 11.5px; }
+  .ev .b { flex: 1; }
+  .ev .st { font-size: 10px; padding: 0 6px; margin-left: 5px; }
+  .st-p { background: var(--cinn); color: #fff; } .st-d { background: #e4ecdd; color: var(--leaf); } .st-m { background: #eee; color: var(--mut); }
+  .ev .tip { display: block; color: var(--cinn); font-size: 11px; margin-top: 2px; }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 12px; border-top: 3px double var(--ink); font-size: 11px; color: var(--mut); }
+  .seal { width: 30px; height: 30px; background: var(--cinn); color: #f5e9e0; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 17px; transform: rotate(-4deg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="masthead">
+    <div class="kicker">THE ZHULONG OBSERVER</div>
+    <h1>烛 龙</h1>
+    <div class="dateline"><span>C:/Users/Administrator/.agents/skills/烛龙</span><span>2026年10月6日 · 面板只读（127.0.0.1）</span></div>
+  </div>
+
+  <div class="headline">
+    <div class="bignum">45.8<small> %</small></div>
+    <div class="quickread">
+      提交内存水位 <span class="tag-an">绿区 · 健康，无需处理</span><br>
+      内存：已用 42.7 / 上限 93.2 GB，余量充足 ｜ CPU：大户 QQPCTray（管家）占单核 56.0%，卡了再管 ｜ 磁盘与网络：平稳，无扫描 ｜ 显卡：49.0°C 闲置
+    </div>
+  </div>
+
+  <div class="zones">
+    <!-- 左栏 -->
+    <div>
+      <section class="zone">
+        <div class="sec-head"><span class="no">壹</span><h2>内存水位</h2><span class="plain">内存很够用，不用担心</span></div>
+        <div class="figcap">提交内存水位 · 24小时（虚线：70% 注意 / 85% 危险）</div>
+        <canvas id="c1" height="86"></canvas>
+        <div class="minis">
+          <div class="mini"><div class="k">已用提交内存</div><div class="v">42.7 <small>GB</small></div><div class="d">所有程序预订的内存总量</div></div>
+          <div class="mini"><div class="k">提交内存上限</div><div class="v">93.2 <small>GB</small></div><div class="d">物理+页面文件，会自动扩</div></div>
+          <div class="mini"><div class="k">物理内存</div><div class="v">22.1 / 31.1 <small>GB</small></div><div class="d">真实内存条 71.0%</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">贰</span><h2>处理器</h2><span class="plain warn">有个大户，暂时不用管</span></div>
+        <div class="figcap">CPU · 24小时（实线总占用 / 虚线单核峰值）</div>
+        <canvas id="c2" height="86"></canvas>
+        <div class="minis">
+          <div class="mini"><div class="k">总占用</div><div class="v">26.0 <small>%</small></div><div class="d">所有核心平均</div></div>
+          <div class="mini"><div class="k">单核峰值</div><div class="v">51.0 <small>%</small></div><div class="d">最忙的那个核</div></div>
+          <div class="mini"><div class="k">CPU 大户</div><div class="v">QQPCTray <small>56.0%</small></div><div class="d">管家在扫描</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">叁</span><h2>磁盘</h2><span class="plain">正常，没有扫描</span></div>
+        <div class="figcap">读写速率 · 24小时（MB/s）</div>
+        <canvas id="c3" height="86"></canvas>
+        <div class="minis">
+          <div class="mini"><div class="k">读取</div><div class="v">0.4 <small>MB/s</small></div><div class="d">很安静</div></div>
+          <div class="mini"><div class="k">写入</div><div class="v">0.9 <small>MB/s</small></div><div class="d">很安静</div></div>
+          <div class="mini"><div class="k">IO 大户</div><div class="v">无</div><div class="d">没有进程大量读写</div></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 右栏 -->
+    <div>
+      <section class="zone">
+        <div class="sec-head"><span class="no">肆</span><h2>网络与延迟</h2><span class="plain">平稳</span></div>
+        <div class="figcap">上传 / 下载速率 · 24小时（MB/s）</div>
+        <canvas id="c4" height="86"></canvas>
+        <div class="minis">
+          <div class="mini"><div class="k">下载</div><div class="v">1.8 <small>MB/s</small></div><div class="d">当前速率</div></div>
+          <div class="mini"><div class="k">上传</div><div class="v">0.3 <small>MB/s</small></div><div class="d">当前速率</div></div>
+          <div class="mini"><div class="k">延迟 / 抖动</div><div class="v">12.0 / 1.4 <small>ms</small></div><div class="d">网关 0.6ms · 公网 12ms 稳</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">伍</span><h2>显卡</h2><span class="plain">闲置，温度正常</span></div>
+        <div class="figcap">GPU 利用率 · 24小时（%）</div>
+        <canvas id="c5" height="86"></canvas>
+        <div class="minis">
+          <div class="mini"><div class="k">温度</div><div class="v">49.0 <small>°C</small></div><div class="d">正常（&lt;83°C）</div></div>
+          <div class="mini"><div class="k">利用率</div><div class="v">2.0 <small>%</small></div><div class="d">基本闲置</div></div>
+          <div class="mini"><div class="k">显存</div><div class="v">4.9 / 12.2 <small>GB</small></div><div class="d">RTX 5070</div></div>
+        </div>
+      </section>
+      <section class="zone">
+        <div class="sec-head"><span class="no">陆</span><h2>大户榜与事件</h2><span class="plain danger">1 起待处理</span></div>
+        <div class="rank"><span>① QQPCTray.exe（管家）</span><span class="vv">0.6 GB · 56.0%</span></div>
+        <div class="rank"><span>② java.exe</span><span class="vv">6.2 GB</span></div>
+        <div class="rank"><span>③ 360ChromeX.exe</span><span class="vv">1.1 GB · 45.0%</span></div>
+        <div class="ev" style="margin-top:6px"><span class="t">17:42 泄漏处置</span><span class="b">熔断未杀：HYPHelper.exe 16.2GB<span class="st st-p">待处理</span><span class="tip">建议：任务管理器手动结束，重开 HoYoPlay 即恢复</span></span></div>
+        <div class="ev"><span class="t">17:25 高水位告警</span><span class="b">水位超 85% 持续 90 秒<span class="st st-d">已处理</span></span></div>
+        <div class="ev"><span class="t">17:23 泄漏处置</span><span class="b">已自动结束 HYPHelper.exe<span class="st st-d">已处理</span></span></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <span>采集周期三十秒 · 数据保留三十日 · 察于幽冥</span>
+    <div class="seal">烛</div>
+  </footer>
+</div>
+<script>
+const N = 288;
+function mock(spike, base) {
+  const pts = []; let v = base;
+  for (let i = 0; i < N; i++) {
+    const t = new Date(Date.now() - (N - i) * 300 * 1000);
+    const hm = t.getHours() + t.getMinutes() / 60;
+    if (spike && hm > 16.9 && hm < 17.4) v = 84 + Math.random() * 6;
+    else { v += (Math.random() - 0.52) * 2.5; v = Math.max(10, Math.min(92, v)); }
+    pts.push([t, +v.toFixed(1)]);
+  }
+  return pts;
+}
+const labels = mock(false, 45).map(p => p[0].toTimeString().slice(0, 5));
+const GRID = { color: "rgba(28,26,23,.06)" }, TICK = { color: "#a3987f" };
+function mk(id, datasets, unit, max) {
+  new Chart(document.getElementById(id), { type: "line",
+    data: { labels, datasets },
+    options: { scales: { x: { grid: GRID, ticks: { ...TICK, maxTicksLimit: 9 } },
+                          y: { grid: GRID, ticks: { ...TICK, callback: v => (+v).toFixed(1) + unit }, suggestedMin: 0, suggestedMax: max } },
+               plugins: { legend: { display: false } } } });
+}
+mk("c1", [
+  { data: mock(true, 45).map(p => p[1]), borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: labels.map(() => 70), borderColor: "#b8862b", borderDash: [3,5], pointRadius: 0, borderWidth: 1 },
+  { data: labels.map(() => 85), borderColor: "#a83232", borderDash: [3,5], pointRadius: 0, borderWidth: 1 }
+], "%", 100);
+const cpu = mock(false, 25).map(p => +(p[1]).toFixed(1));
+mk("c2", [
+  { data: cpu, borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: cpu.map(x => +(x * 1.9).toFixed(1)), borderColor: "#a83232", borderDash: [4,4], tension: .25, pointRadius: 0, borderWidth: 1.3 }
+], "%", 100);
+mk("c3", [
+  { data: mock(false, 1).map(p => +(p[1] / 30).toFixed(1)), borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: mock(false, 2).map(p => +(p[1] / 25).toFixed(1)), borderColor: "#b03a2e", tension: .25, pointRadius: 0, borderWidth: 1.6 }
+], " MB/s");
+mk("c4", [
+  { data: mock(false, 2).map(p => +(p[1] / 12).toFixed(1)), borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 },
+  { data: mock(false, 1).map(p => +(p[1] / 40).toFixed(1)), borderColor: "#b8862b", tension: .25, pointRadius: 0, borderWidth: 1.6 }
+], " MB/s");
+mk("c5", [
+  { data: mock(false, 8).map(p => +(p[1] * 1.1).toFixed(1)), borderColor: "#1c1a17", tension: .25, pointRadius: 0, borderWidth: 1.6 }
+], "%", 100);
+</script>
+</body>
+</html>
