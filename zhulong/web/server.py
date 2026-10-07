@@ -1,5 +1,9 @@
-"""只读面板服务：GET-only，绑 127.0.0.1。零 POST/执行端点是安全红线（防 DNS rebinding）。"""
+"""只读面板服务 + 令牌守卫的动作通道。
+红线修订：面板仍零"配置写"端点；仅 POST /api/action 一个动作端点——
+CSRF token（同源页面才可读）+ Host/Origin 校验（防 DNS rebinding）+ 动作白名单 + kill 七步安全链。"""
 import json
+import secrets
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -7,18 +11,23 @@ from pathlib import Path
 from zhulong import config
 from zhulong.core import storage
 
+ACTION_TOKEN = secrets.token_hex(16)   # 进程级一次性动作令牌（GET /api/action_token 仅同源可读）
+
 STATIC = Path(__file__).parent / "static"
 _MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-         ".css": "text/css; charset=utf-8"}
+         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
 _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("memory", "commit_limit_gb"), ("memory", "mem_percent"),
                  ("memory", "mem_used_gb"), ("memory", "mem_total_gb"),
                  ("memory", "pagefile_used_gb"), ("memory", "pagefile_total_gb"),
-                 ("cpu", "cpu_percent"), ("cpu", "cpu_max_core"), ("cpu", "cpu_top_pct"),
-                 ("diskio", "io_read_mb_s"), ("diskio", "io_write_mb_s"), ("diskio", "io_top_mb"),
+                 ("cpu", "cpu_percent"), ("cpu", "cpu_max_core"),
+                 ("diskio", "io_read_mb_s"), ("diskio", "io_write_mb_s"),
                  ("net", "net_down_mb_s"), ("net", "net_up_mb_s"),
                  ("net", "ping_gw_ms"), ("net", "ping_net_ms"), ("net", "ping_jitter_ms"),
-                 ("gpu", "gpu_temp"), ("gpu", "gpu_util"), ("gpu", "gpu_mem_used"), ("gpu", "gpu_mem_total")]
+                 ("gpu", "gpu_temp"), ("gpu", "gpu_util"), ("gpu", "gpu_mem_used"), ("gpu", "gpu_mem_total"),
+                 ("proctop", "cpu_top_pct"), ("proctop", "io_top_mb"),
+                 ("proctop", "proctop1"), ("proctop", "proctop2"), ("proctop", "proctop3"),
+                 ("proctop", "proctop4"), ("proctop", "proctop5")]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -34,6 +43,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file(parsed.path.lstrip("/"))
             if parsed.path == "/favicon.ico":
                 return self._send(204, "text/plain", b"")
+            if parsed.path == "/api/action_token":
+                # 动作令牌：同源页面才可读（SOP 天然防线），POST 必须携带
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps({"token": ACTION_TOKEN}).encode("utf-8"))
             if parsed.path == "/api/current":
                 out = {}
                 labels = {}
@@ -77,7 +90,41 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, "text/plain", b"internal error")
 
     def do_POST(self):
-        self._send(405, "text/plain", b"read-only")   # 安全红线
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/action":
+            return self._send(405, "text/plain", b"read-only")
+        # 三层防护：Host/Origin 校验 → CSRF token → 动作白名单
+        if self.headers.get("Host", "").split(":")[0] not in ("127.0.0.1", "localhost"):
+            return self._send(403, "text/plain", b"forbidden host")
+        origin = self.headers.get("Origin", "")
+        if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
+            return self._send(403, "text/plain", b"forbidden origin")
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        except Exception:
+            return self._send(400, "text/plain", b"bad json")
+        if body.get("token") != ACTION_TOKEN:
+            return self._send(403, "application/json; charset=utf-8",
+                                  json.dumps({"status": "forbidden"}).encode("utf-8"))
+        action, target = body.get("action"), body.get("target", "")
+        if action == "kill_process":
+            allowed = {w["name"] for w in config.WATCH_PROCESSES} | set(getattr(config, "AUTOKILL", []))
+            if target not in allowed:
+                return self._send(400, "application/json; charset=utf-8",
+                                      json.dumps({"status": "skipped:not_allowed"}).encode("utf-8"))
+            from zhulong.actions import kill_process
+            result = kill_process.run(target, config, {})
+            storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                 "panel_action", "kill_process",
+                                 json.dumps({"target": target, "result": result}, ensure_ascii=False))
+            return self._send(200, "application/json; charset=utf-8",
+                              json.dumps(result, ensure_ascii=False).encode("utf-8"))
+        if action in ("throttle_on", "throttle_off"):
+            storage.kv_set(self.storage_conn, "throttle_enabled", "1" if action == "throttle_on" else "0")
+            return self._send(200, "application/json; charset=utf-8",
+                              json.dumps({"status": "ok", "enabled": action == "throttle_on"}).encode("utf-8"))
+        return self._send(400, "application/json; charset=utf-8",
+                          json.dumps({"status": "unknown_action"}).encode("utf-8"))
 
     def _file(self, name):
         p = STATIC / name

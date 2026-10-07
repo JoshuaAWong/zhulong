@@ -42,22 +42,27 @@ def main():
     d = {k: (v, l) for k, v, l in rows}
     assert abs(d["HYPHelper_commit_gb"][0] - 16.0) < 0.01 and d["HYPHelper_commit_gb"][1] == "111", d
     assert "notepad_commit_gb" not in d or d["notepad_commit_gb"][1] == "absent"
-    # cpu：注入 fake（CPU_TOP_INTERVAL=1 使大户每轮必出）
-    from zhulong.collectors import cpu, diskio
+    # cpu：注入 fake（仅零成本总量）
+    from zhulong.collectors import cpu, diskio, proctop
 
     class CC: CPU_TOP_INTERVAL = 1; GPU_INTERVAL = 1
-    rows = cpu.collect(CC, cpu_percent=33.3, percpu=[10.0, 90.0, 20.0], top_fn=lambda c: ("evil.exe", 88.0))
-    d = {k: (v, l) for k, v, l in rows}
-    assert d["cpu_percent"][0] == 33.3 and d["cpu_max_core"][0] == 90.0, d
-    assert d["cpu_top_pct"] == (88.0, "evil.exe"), d
+    rows = cpu.collect(CC, cpu_percent=33.3, percpu=[10.0, 90.0, 20.0])
+    d = {k: v for k, v, l in rows}
+    assert d == {"cpu_percent": 33.3, "cpu_max_core": 90.0}, d
 
-    # diskio：注入 fake
-    rows = diskio.collect(CC, rates_fn=lambda: (12.5, 3.5, "E"), removable_fn=lambda: "E",
-                          top_fn=lambda c: ("scanner.exe", 500.0))
+    # diskio：注入 fake（仅零成本总量）
+    rows = diskio.collect(CC, rates_fn=lambda: (12.5, 3.5, "E"), removable_fn=lambda: "E")
     d = {k: (v, l) for k, v, l in rows}
     assert d["io_read_mb_s"] == (12.5, "E") and d["io_write_mb_s"] == (3.5, "E"), d
     assert d["io_remount"] == (1.0, "E"), d
+
+    # proctop：一次遍历产三类大户（scan_fn 直给结果）
+    rows = proctop.collect(CC, scan_fn=lambda c: {"cpu": ("evil.exe", 88.0), "io": ("scanner.exe", 500.0),
+        "commit": [(31.9, "HYPHelper.exe"), (6.2, "java.exe"), (1.1, "chrome.exe")]})
+    d = {k: (v, l) for k, v, l in rows}
+    assert d["cpu_top_pct"] == (88.0, "evil.exe"), d
     assert d["io_top_mb"] == (500.0, "scanner.exe"), d
+    assert d["proctop1"] == (31.9, "HYPHelper.exe") and d["proctop2"] == (6.2, "java.exe"), d
 
     # net：注入 fake（速率/ping/网关）
     from zhulong.collectors import net, gpu

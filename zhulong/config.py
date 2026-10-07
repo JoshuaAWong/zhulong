@@ -55,7 +55,25 @@ DISPLAY_NAMES = {
     "gpu_util": ("显卡利用率", "GPU 计算占用率（%）"),
     "gpu_mem_used": ("显存已用", "显卡显存已用量（GB）"),
     "gpu_mem_total": ("显存总量", "显卡显存容量（GB）"),
+    "proctop1": ("大户①", "commit 占用第 1 的进程"),
+    "proctop2": ("大户②", "commit 占用第 2 的进程"),
+    "proctop3": ("大户③", "commit 占用第 3 的进程"),
+    "proctop4": ("大户④", "commit 占用第 4 的进程"),
+    "proctop5": ("大户⑤", "commit 占用第 5 的进程"),
 }
+
+# 限流器出厂规则（初始状态副本，永不改动；用户覆盖见 data/throttle_override.json）
+# 红线：priority 仅 normal/below_normal；cores 支持 "tail:N"（尾部 N 核）或核号列表
+THROTTLE_DEFAULTS = {
+    "enabled": True,
+    "rules": [
+        {"name": "ToDesk.exe", "priority": "below_normal", "cores": "tail:2"},
+        {"name": "QQPCTray.exe", "priority": "below_normal", "cores": "tail:4"},
+        {"name": "AweSun.exe", "priority": "below_normal", "cores": "tail:2"},
+        {"name": "sunloginclient.exe", "priority": "below_normal", "cores": "tail:2"},
+    ],
+}
+THROTTLE_INTERVAL_CYCLES = 4   # 每 4 个采集周期（2 分钟）巡检应用一次
 
 # 网络探测：烛龙唯一主动发包功能（每周期网关+公网各 1 个 ICMP 包）
 PING_ENABLED = True

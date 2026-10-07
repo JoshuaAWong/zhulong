@@ -68,6 +68,12 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
                     storage.insert_event(conn, now_iso(), t["rule"], action_name,
                                          json.dumps({"status": "degraded:exception",
                                                      "error": str(e)}, ensure_ascii=False))
+    # 限流器：分频幂等应用（自包含，失败不影响采集主循环）
+    try:
+        from zhulong import throttle
+        throttle.apply_if_due(conn, cfg, state)
+    except Exception:
+        pass
     # 每日清理：按天做一次（用 state 里的标记）
     day = time.strftime("%Y-%m-%d")
     if state.get("last_cleanup") != day:

@@ -1,4 +1,5 @@
-"""磁盘 IO 采集：系统读写速率、最忙的盘、可移动磁盘活动、读写最猛的进程。
+"""磁盘 IO 采集：系统读写速率、最忙的盘、可移动磁盘活动（零成本计数器差分）。
+进程级"IO 大户"已统一并入 proctop.py。
 速率由计数器差分/采样间隔得到；进程级扫描与 cpu 采集器同频分频。"""
 import time
 
@@ -38,20 +39,7 @@ def _removable_active():
     return ""
 
 
-def _top_io_process(cfg):
-    best_name, best_bps = "", 0.0
-    for p in psutil.process_iter(["pid", "name"]):
-        try:
-            io = p.io_counters()
-            bps = io.read_bytes + io.write_bytes
-            if bps > best_bps and (p.info["name"] or ""):
-                best_name, best_bps = p.info["name"], bps
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return best_name, round(best_bps / 1024 / 1024, 1)   # 累计 MB（总量非速率，作量级参考）
-
-
-def collect(cfg, rates_fn=None, removable_fn=None, top_fn=None):
+def collect(cfg, rates_fn=None, removable_fn=None):
     read, write, busiest = (rates_fn or _disk_rates)()
     removable = (removable_fn or _removable_active)()
     rows = [
@@ -60,11 +48,6 @@ def collect(cfg, rates_fn=None, removable_fn=None, top_fn=None):
     ]
     if removable:
         rows.append(("io_remount", 1.0, removable))   # 1=存在可移动磁盘
-    state = collect.__dict__.setdefault("_state", {"cycle": 0})
-    state["cycle"] += 1
-    if state["cycle"] % getattr(cfg, "CPU_TOP_INTERVAL", 4) == 0:
-        name, mb = (top_fn or _top_io_process)(cfg)
-        rows.append(("io_top_mb", mb, name))
     return rows
 
 
