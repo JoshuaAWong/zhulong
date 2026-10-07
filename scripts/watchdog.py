@@ -32,6 +32,7 @@ def _pid_alive(pid):
         return False
     # tasklist 输出为系统 ANSI 码页（中文 Windows 为 GBK），需容错解码
     out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True,
+                             creationflags=CREATE_NO_WINDOW,
                          text=True, errors="replace").stdout
     return str(pid) in out
 
@@ -49,7 +50,8 @@ def main():
     if action != "restart":
         return
     if hb and hb.get("pid") != os.getpid() and _pid_alive(hb.get("pid")):
-        subprocess.run(["taskkill", "/F", "/PID", str(hb["pid"])], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/PID", str(hb["pid"])], capture_output=True,
+                     creationflags=CREATE_NO_WINDOW)
         time.sleep(2)
     subprocess.Popen([str(config.PYTHONW), "-X", "utf8", "-m", "zhulong"],
                      cwd=str(PROJECT), creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW)
