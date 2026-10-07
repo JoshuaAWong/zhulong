@@ -95,6 +95,8 @@ header { display: flex; align-items: flex-start; gap: 24px; border-bottom: 2px s
 .rail::after { bottom: 5px; right: 5px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
 .rank { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; color: var(--ink2); }
 .rank .vv { font-family: Georgia, serif; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.rank-path { font-size: 10px; color: var(--dim); padding: 0 0 6px 18px; margin-top: -4px; border-bottom: 1px dashed var(--hair);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--hair); font-size: 12.5px; line-height: 1.55; }
 .ev .t { color: var(--mut); width: 96px; flex-shrink: 0; font-size: 11.5px; }
 .ev .b { flex: 1; color: var(--ink2); }

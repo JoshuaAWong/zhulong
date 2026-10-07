@@ -226,9 +226,13 @@ function renderHero(cur) {
 function renderRanks(cur) {
   const items = [];
   for (let i = 1; i <= 5; i++) {
-    const name = META.labels[`proctop${i}`];
+    const raw = META.labels[`proctop${i}`];
     const gb = cur[`proctop${i}`];
-    if (name) items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}</span><span class="vv">${f1(gb)} GB</span></div>`);
+    if (raw) {
+      const [name, path] = raw.split("|");
+      items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}</span><span class="vv">${f1(gb)} GB</span></div>` +
+        (path ? `<div class="rank-path" title="${path}">${path}</div>` : ""));
+    }
   }
   $("ranks").innerHTML = items.join("") || `<div class="rank"><span>暂无数据（大户扫描每两分钟一轮）</span></div>`;
   const top1 = META.labels.proctop1;
