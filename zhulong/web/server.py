@@ -15,7 +15,10 @@ _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("memory", "mem_used_gb"), ("memory", "mem_total_gb"),
                  ("memory", "pagefile_used_gb"), ("memory", "pagefile_total_gb"),
                  ("cpu", "cpu_percent"), ("cpu", "cpu_max_core"), ("cpu", "cpu_top_pct"),
-                 ("diskio", "io_read_mb_s"), ("diskio", "io_write_mb_s"), ("diskio", "io_top_mb")]
+                 ("diskio", "io_read_mb_s"), ("diskio", "io_write_mb_s"), ("diskio", "io_top_mb"),
+                 ("net", "net_down_mb_s"), ("net", "net_up_mb_s"),
+                 ("net", "ping_gw_ms"), ("net", "ping_net_ms"), ("net", "ping_jitter_ms"),
+                 ("gpu", "gpu_temp"), ("gpu", "gpu_util"), ("gpu", "gpu_mem_used"), ("gpu", "gpu_mem_total")]
 
 
 class Handler(BaseHTTPRequestHandler):

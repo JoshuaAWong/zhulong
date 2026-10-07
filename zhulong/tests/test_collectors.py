@@ -45,7 +45,7 @@ def main():
     # cpu：注入 fake（CPU_TOP_INTERVAL=1 使大户每轮必出）
     from zhulong.collectors import cpu, diskio
 
-    class CC: CPU_TOP_INTERVAL = 1
+    class CC: CPU_TOP_INTERVAL = 1; GPU_INTERVAL = 1
     rows = cpu.collect(CC, cpu_percent=33.3, percpu=[10.0, 90.0, 20.0], top_fn=lambda c: ("evil.exe", 88.0))
     d = {k: (v, l) for k, v, l in rows}
     assert d["cpu_percent"][0] == 33.3 and d["cpu_max_core"][0] == 90.0, d
@@ -58,6 +58,21 @@ def main():
     assert d["io_read_mb_s"] == (12.5, "E") and d["io_write_mb_s"] == (3.5, "E"), d
     assert d["io_remount"] == (1.0, "E"), d
     assert d["io_top_mb"] == (500.0, "scanner.exe"), d
+
+    # net：注入 fake（速率/ping/网关）
+    from zhulong.collectors import net, gpu
+    net._PINGS["net"] = [10.0, 12.0, 14.0]
+    rows = net.collect(CC, rates_fn=lambda: (2.5, 0.4), ping_fn=lambda h: 12.0 if h == "223.5.5.5" else 0.6,
+                       gw_fn=lambda: "192.168.1.1")
+    d = {k: v for k, v, l in rows}
+    assert d["net_down_mb_s"] == 2.5 and d["net_up_mb_s"] == 0.4, d
+    assert d["ping_gw_ms"] == 0.6 and d["ping_net_ms"] == 12.0, d
+    assert d["ping_jitter_ms"] > 0, d
+
+    # gpu：注入 fake（分频 CC 无 GPU_INTERVAL → 默认 2，首轮即采）
+    rows = gpu.collect(CC, query_fn=lambda: (69.0, 94.0, 4.8, 11.9))
+    d = {k: v for k, v, l in rows}
+    assert d == {"gpu_temp": 69.0, "gpu_util": 94.0, "gpu_mem_used": 4.8, "gpu_mem_total": 11.9}, d
     print("PASS")
 
 
