@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <title>烛龙 · 系统监控</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <script src="chart.umd.js"></script>
 <link rel="stylesheet" href="panel.css">
 </head>
 <body>
-<header>
-  <div class="brand-wrap">
-    <!-- 烛龙 logo：龙身圆环 + 龙首双角 + 腹中烛火（精修版） -->
-    <svg class="logo" viewBox="0 0 64 64" aria-label="烛龙">
+<div class="scroll">
+  <header>
+    <svg class="brand-logo" viewBox="0 0 64 64" aria-label="烛龙">
       <path d="M34 9 C49 10 56 21 56 33 C56 47 46 56 32 56 C18 56 8 47 8 33 C8 21 15 11 27 9"
             fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
       <path d="M33 12.5 C45 13.5 52 22.5 52 33 C52 44.5 44 52.5 33 53"
@@ -20,102 +20,115 @@
       <path d="M23 10 C23 13 26 15 30 14 C33 13 34 10 32 8"
             fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
       <circle cx="27" cy="9.5" r="1.3" fill="currentColor"/>
-      <path d="M32 21 C35.5 25.5 37.5 28.5 37.5 33 C37.5 37.5 35.5 40.5 32 40.5 C28.5 40.5 26.5 37.5 26.5 33 C26.5 28.5 28.5 25.5 32 21 Z"
-            fill="currentColor" opacity=".95"/>
-      <path d="M32 27.5 C33.8 29.8 34.8 31.5 34.8 33.6 C34.8 35.9 33.8 37.4 32 37.4 C30.2 37.4 29.2 35.9 29.2 33.6 C29.2 31.5 30.2 29.8 32 27.5 Z"
-            fill="var(--ink)" opacity=".45"/>
+      <path class="flame" d="M32 21 C35.5 25.5 37.5 28.5 37.5 33 C37.5 37.5 35.5 40.5 32 40.5 C28.5 40.5 26.5 37.5 26.5 33 C26.5 28.5 28.5 25.5 32 21 Z"/>
+      <path class="flame" opacity=".45" d="M32 27.5 C33.8 29.8 34.8 31.5 34.8 33.6 C34.8 35.9 33.8 37.4 32 37.4 C30.2 37.4 29.2 35.9 29.2 33.6 C29.2 31.5 30.2 29.8 32 27.5 Z"/>
     </svg>
-    <div>
-      <div class="brand"><span class="word">烛 龙</span><span class="sub">系统监控</span></div>
+    <div class="vtitle">烛 龙</div>
+    <div class="head-meta">
+      <div class="season" id="seasonText">系统监察录</div>
       <div class="path" id="programPath">…</div>
     </div>
-  </div>
-  <div class="head-right">
-    <div class="pills" id="rangePills">
-      <div class="pill on" data-range="24h">24小时</div>
-      <div class="pill" data-range="7d">7天</div>
-      <div class="pill" data-range="30d">30天</div>
-    </div>
-    <button class="theme-btn" id="themeBtn">
-      <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:none">
-        <path d="M2.5 12 C6 6.5 18 6.5 21.5 12 C18 17.5 6 17.5 2.5 12 Z"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
-      </svg>
-      <svg id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <path d="M2.5 12 C6 16 18 16 21.5 12"/><path d="M6 14.5 L4.8 16.2 M12 15.5 L12 17.8 M18 14.5 L19.2 16.2"/>
-      </svg>
-      <span id="themeLabel">夜</span>
-    </button>
-  </div>
-</header>
-<main>
-  <section class="top">
-    <div class="hero">
-      <div class="num" id="heroNum">–</div>
-      <div class="meta">
-        <div class="cn" id="heroCn">提交内存水位</div>
-        <div class="en">commit_percent</div>
-        <div class="desc" id="heroDesc"></div>
+    <div class="head-right">
+      <div class="pills" id="rangePills">
+        <div class="pill on" data-r="d1">一昼夜</div><div class="pill" data-r="d7">七日</div><div class="pill" data-r="d30">一月</div>
       </div>
+      <button class="theme-btn" id="themeBtn">
+        <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M2.5 12 C6 6.5 18 6.5 21.5 12 C18 17.5 6 17.5 2.5 12 Z"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+        </svg>
+        <svg id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:none">
+          <path d="M2.5 12 C6 16 18 16 21.5 12"/><path d="M6 14.5 L4.8 16.2 M12 15.5 L12 17.8 M18 14.5 L19.2 16.2"/>
+        </svg>
+        <span id="themeLabel">昼</span>
+      </button>
+      <div class="seal">烛</div>
     </div>
-    <div class="subcards" id="subcards"></div>
-  </section>
+  </header>
 
-  <div class="alert" id="alert" hidden>
-    <div class="head"><span class="led"></span><span id="alertTitle"></span></div>
-    <div class="advice" id="alertAdvice"></div>
-  </div>
-  <div class="handled" id="handledLine" hidden><span class="led"></span><span id="handledText"></span></div>
-
-  <div class="charts">
-    <div class="box main">
-      <span class="corner tl"></span><span class="corner br"></span>
-      <h4 id="mainTitle">提交内存水位</h4>
-      <div class="chart-wrap main-wrap"><canvas id="mainChart"></canvas></div>
-      <div class="legend-note" id="legendNote" hidden>
-        <span><i style="background:var(--ok)"></i>处理点（已自动处置）</span>
-        <span><i style="background:var(--info)"></i>提醒点（已通知）</span>
-        <span><i style="background:var(--danger)"></i>待处理（降级，需人工）</span>
-        <span><i style="background:var(--mut)"></i>静音点</span>
-      </div>
-      <div class="insight" id="insight"></div>
-    </div>
-    <div class="box">
-      <span class="corner tl"></span>
-      <h4>已用 / 上限（GB）</h4>
-      <div class="chart-wrap dim-wrap"><canvas id="dim1"></canvas></div>
-    </div>
-    <div class="box">
-      <span class="corner tl"></span>
-      <h4>物理内存占用（%）</h4>
-      <div class="chart-wrap dim-wrap"><canvas id="dim2"></canvas></div>
-    </div>
-    <div class="box">
-      <span class="corner tl"></span>
-      <h4>CPU 占用（%）</h4>
-      <div class="chart-wrap dim-wrap"><canvas id="dim3"></canvas></div>
-    </div>
-    <div class="box">
-      <span class="corner tl"></span>
-      <h4>磁盘 IO（MB/s）</h4>
-      <div class="chart-wrap dim-wrap"><canvas id="dim4"></canvas></div>
-    </div>
-    <div class="box proc">
-      <span class="corner tl"></span><span class="corner br"></span>
-      <h4>白名单进程 · commit 曲线</h4>
-      <div class="chart-wrap proc-wrap"><canvas id="procChart"></canvas></div>
-    </div>
+  <div class="dragon-div">
+    <div class="brush"></div>
+    <svg width="150" height="22" viewBox="0 0 150 22" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+      <path d="M4 14 C18 4 34 4 46 10 C58 16 70 16 82 10 C94 4 108 6 118 12"/>
+      <path d="M118 12 C122 8 126 8 128 11 C130 14 128 17 125 17"/>
+      <circle cx="121" cy="11" r="1.1" fill="currentColor" stroke="none"/>
+      <path d="M138 2 C141 6 143 8 143 11 C143 14 141.5 16 138.5 16 C135.5 16 134 14 134 11 C134 8 135.5 6 138 2 Z" fill="currentColor" stroke="none" opacity=".9"/>
+    </svg>
+    <div class="brush"></div>
   </div>
 
-  <div class="box timeline">
-    <span class="corner tl"></span><span class="corner br"></span>
-    <h4>事件时间线 · 回溯</h4>
-    <div id="events"></div>
+  <div class="headline">
+    <div class="bignum" id="heroNum">–</div>
+    <div class="quickread" id="quickread">…</div>
   </div>
-</main>
-<footer>
-  <span>采集周期 30 秒 · 数据保留 30 天 · 面板只读（127.0.0.1）· 察于幽冥 · 睁眼为昼 闭眼为夜</span>
-  <div class="seal">烛</div>
-</footer>
+
+  <div class="pendline" id="pendline" hidden>
+    <span class="pendline-tag">待 人 工</span>
+    <span class="pendline-body" id="pendBody"></span>
+    <span class="act-zone" id="actZone"></span>
+    <span class="pendline-alt" id="pendAlt"></span>
+  </div>
+
+  <div class="layout">
+    <aside class="rail" id="railLeft">
+      <div class="sec-head"><span class="no">柒</span><h2>大户榜</h2><span class="plain" id="rankPlain"></span></div>
+      <div id="ranks"></div>
+      <div class="sec-head" style="margin-top:14px"><span class="no">玖</span><h2>设置 · 限流</h2><span class="plain" id="thState"></span></div>
+      <div id="throttle"></div>
+      <div class="set-note">修改规则：编辑程序目录下 data/throttle_override.json（没有则新建，格式同出厂规则）；恢复出厂：删除该文件。开关亦可用托盘右键。</div>
+    </aside>
+
+    <div class="zones">
+      <section class="zone" id="z1">
+        <div class="sec-head"><span class="no">壹</span><h2>内存水位</h2><span class="plain" id="p1"></span></div>
+        <div class="figcap">提交内存水位 · <span class="rng-name">一昼夜</span>（虚线：七成慎 八成五危）</div>
+        <div class="cbox"><canvas id="c1"></canvas></div>
+        <div class="omens" id="o1"></div>
+      </section>
+      <section class="zone" id="z4">
+        <div class="sec-head"><span class="no">肆</span><h2>网络与延迟</h2><span class="plain" id="p4"></span></div>
+        <div class="figcap">上传 / 下载速率 · <span class="rng-name">一昼夜</span>（MB/s）</div>
+        <div class="cbox"><canvas id="c4"></canvas></div>
+        <div class="omens" id="o4"></div>
+      </section>
+      <section class="zone" id="z2">
+        <div class="sec-head"><span class="no">贰</span><h2>处理器</h2><span class="plain" id="p2"></span></div>
+        <div class="figcap">CPU · <span class="rng-name">一昼夜</span>（实线总占用 虚线单核峰值）</div>
+        <div class="cbox"><canvas id="c2"></canvas></div>
+        <div class="omens" id="o2"></div>
+      </section>
+      <section class="zone" id="z5">
+        <div class="sec-head"><span class="no">伍</span><h2>显卡</h2><span class="plain" id="p5"></span></div>
+        <div class="figcap">GPU 利用率 · <span class="rng-name">一昼夜</span>（%）</div>
+        <div class="cbox"><canvas id="c5"></canvas></div>
+        <div class="omens" id="o5"></div>
+      </section>
+      <section class="zone" id="z3">
+        <div class="sec-head"><span class="no">叁</span><h2>磁盘</h2><span class="plain" id="p3"></span></div>
+        <div class="figcap">读写速率 · <span class="rng-name">一昼夜</span>（MB/s）</div>
+        <div class="cbox"><canvas id="c3"></canvas></div>
+        <div class="omens" id="o3"></div>
+      </section>
+      <section class="zone" id="z6">
+        <div class="sec-head"><span class="no">陆</span><h2>页面文件</h2><span class="plain" id="p6"></span></div>
+        <div class="figcap">页面文件已用 · <span class="rng-name">一昼夜</span>（GB）</div>
+        <div class="cbox"><canvas id="c6"></canvas></div>
+        <div class="omens" id="o6"></div>
+      </section>
+    </div>
+
+    <aside class="rail r-wei" id="railRight">
+      <div class="sec-head"><span class="no">捌</span><h2>朱批记事</h2><span class="plain" id="evPlain"></span></div>
+      <div id="events"></div>
+    </aside>
+  </div>
+
+  <div class="watermark">烛</div>
+  <div class="side-note" id="sideNote">系统监察 · 烛龙司夜</div>
+  <footer>
+    <span class="motto">察于幽冥 · 睁眼为昼 闭眼为夜</span>
+    <span class="meta">采集周期三十秒 · 数据保留三十日 · 面板只读（127.0.0.1）</span>
+  </footer>
+</div>
 <script src="panel.js"></script>
 </body>
 </html>

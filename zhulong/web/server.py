@@ -39,10 +39,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/":
                 return self._file("index.html")
-            if parsed.path in ("/chart.umd.js", "/panel.css", "/panel.js"):   # 字面白名单
+            if parsed.path in ("/chart.umd.js", "/panel.css", "/panel.js", "/favicon.svg"):   # 字面白名单
                 return self._file(parsed.path.lstrip("/"))
             if parsed.path == "/favicon.ico":
                 return self._send(204, "text/plain", b"")
+            if parsed.path == "/api/throttle":
+                from zhulong import throttle as _th
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps({"enabled": storage.kv_get(self.storage_conn, "throttle_enabled") or "default",
+                                              "rules": _th.rules(config),
+                                              "applied": storage.kv_get(self.storage_conn, "throttle_applied") or "{}"},
+                                             ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/action_token":
                 # 动作令牌：同源页面才可读（SOP 天然防线），POST 必须携带
                 return self._send(200, "application/json; charset=utf-8",

@@ -1,33 +1,46 @@
 "use strict";
-/* 烛龙面板逻辑：数据拉取 / 区间切换 / 昼夜主题 / 事件语义标注 */
+/* 烛龙面板逻辑：真实数据拉取 / 国风昼夜 / 区间切换 / 动作通道（二次确认+令牌） */
 const $ = id => document.getElementById(id);
 
-const THEMES = {
-  dark:  { grid: "rgba(255,159,67,.07)", tick: "#6e6353", main: "#ff9f43", fill: "255,159,67",
-           dimA: "#b98c5f", limit: "#5c5348",
-           proc: ["#ff9800", "#03a9f4", "#e91e63", "#8bc34a", "#ab47bc"],
-           ok: "#9cc79c", info: "#5c9dff", danger: "#ff5c5c", mut: "#8a7a63" },
-  light: { grid: "rgba(90,70,40,.10)", tick: "#8a7a63", main: "#c87414", fill: "200,116,20",
-           dimA: "#a05a2c", limit: "#9a8b72",
-           proc: ["#c87414", "#2f6fb2", "#b03a2e", "#3e7d44", "#7d4fa0"],
-           ok: "#3e7d44", info: "#2f6fb2", danger: "#c0392b", mut: "#7a6c56" }
-};
 const RANGES = {
-  "24h": { hours: 24, bucket: 300, label: ts => ts.slice(11, 16), title: "24小时（5分钟桶）" },
-  "7d":  { hours: 168, bucket: 1800, label: ts => ts.slice(5, 16), title: "7天（30分钟桶）" },
-  "30d": { hours: 720, bucket: 7200, label: ts => ts.slice(5, 10), title: "30天（2小时桶）" }
+  d1:  { hours: 24, bucket: 300, label: ts => ts.slice(11, 16), name: "一昼夜" },
+  d7:  { hours: 168, bucket: 1800, label: ts => ts.slice(5, 16), name: "七日" },
+  d30: { hours: 720, bucket: 7200, label: ts => ts.slice(5, 10), name: "一月" }
 };
-const RULE_CN = { hyphelper_leak: "泄漏处置", commit_high: "高水位告警" };
-const ACTION_CN = { kill_process: "自动结束", toast: "通知", muted: "已静音" };
+let curRange = "d1";
+let state = { charts: {}, needRebuild: true, _lastSyncIdx: null, _syncRaf: null };
+let META = { names: {}, labels: {}, program_path: "" };
+let TOKEN = "";
+
+const RULE_CN = { hyphelper_leak: "泄漏处置", commit_high: "高水位告警", throttle: "限流", panel_action: "面板操作" };
 const ADVICE = {
-  "frequency_cap": "该进程 10 分钟内已自动处置 2 次（频次熔断保护），本次未自动结束。推荐：任务管理器手动结束该进程（重新打开对应启动器即重置）；若反复泄漏，升级该软件版本。",
-  "access_denied": "权限不足未能自动结束。推荐：以管理员身份打开任务管理器手动结束该进程。"
+  "frequency_cap": "该进程 10 分钟内已自动处置 2 次（熔断保护），未自动终结。可点「手动终结」直接处置，或升级对应软件版本。",
+  "access_denied": "权限不足未能自动终结。建议：以管理员身份手动结束该进程。"
 };
 
-let state = { range: "24h", charts: {}, needRebuild: true, _lastSyncIdx: null, _syncRaf: null };
-let META = { names: {}, program_path: "", labels: {} };
+async function jget(url) { return (await fetch(url)).json(); }
+const CS = getComputedStyle(document.documentElement);
+const cv = k => CS.getPropertyValue(k).trim();
+function theme() {
+  return { main: cv("--chart-main"), fill: cv("--chart-fill"), grid: cv("--chart-grid"),
+           mut: cv("--mut"), cinn: cv("--cinn"), ochre: cv("--ochre"), brush: cv("--brush"),
+           leaf: cv("--leaf") };
+}
+function zh(key) { const n = META.names[key]; return n ? n[0] : key; }
+function zhDesc(key) { const n = META.names[key]; return n ? n[1] : ""; }
+function f1(v) { return (v ?? 0).toFixed(1); }
 
-/* 十字线定位（内联插件，零依赖）+ 全图悬停联动 */
+/* ── 干支四季（永不写死） ── */
+(function season() {
+  const stems = "甲乙丙丁戊己庚辛壬癸", branches = "子丑寅卯辰巳午未申酉戌亥";
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
+  const gz = stems[(y - 4) % 10] + branches[(y - 4) % 12];
+  const sn = m <= 2 || m === 12 ? "冬" : m <= 5 ? "春" : m <= 8 ? "夏" : "秋";
+  $("seasonText").textContent = `岁在${gz} · ${sn}月系统监察录`;
+  $("sideNote").textContent = `${sn}月监察 · 烛龙司夜`;
+})();
+
+/* ── 十字线 + 联动（A1 节流） + 就地更新（A2） ── */
 const crosshairPlugin = {
   id: "crosshair",
   afterDraw(chart) {
@@ -36,15 +49,12 @@ const crosshairPlugin = {
     const x = act[0].element.x, y = act[0].element.y;
     const { ctx, chartArea } = chart;
     ctx.save();
-    ctx.strokeStyle = th().mut;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = theme().mut; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(chartArea.left, y); ctx.lineTo(chartArea.right, y); ctx.stroke();
     ctx.restore();
   }
 };
-/* A1 联动节流：仅索引变化才同步 + rAF 合帧（mousemove 不再每帧刷五图） */
 function syncOthers(srcChart, actEls) {
   const idx = actEls.length ? actEls[0].index : null;
   if (idx === state._lastSyncIdx) return;
@@ -61,18 +71,6 @@ function syncOthers(srcChart, actEls) {
     }
   });
 }
-
-async function jget(url) { return (await fetch(url)).json(); }
-function th() { return THEMES[document.documentElement.dataset.theme]; }
-function zh(key) { const n = META.names[key]; return n ? n[0] : key; }
-function zhDesc(key) { const n = META.names[key]; return n ? n[1] : ""; }
-function zoneOf(pct) {
-  if (pct < 70) return ["绿区 · 健康", "var(--ok)"];
-  if (pct < 85) return ["黄区 · 注意", "var(--acc2)"];
-  return ["红区 · 危险", "var(--danger)"];
-}
-
-/* A2 刷新轻量化：就地更新数据，仅结构变化/主题/区间切换才重建 */
 function upsert(key, canvasId, config) {
   const existing = state.charts[key];
   if (existing && !state.needRebuild) {
@@ -84,267 +82,236 @@ function upsert(key, canvasId, config) {
   state.charts[key] = new Chart($(canvasId), config);
   return state.charts[key];
 }
+function mk(id, datasets, unit, yMax) {
+  const t = theme(), r = RANGES[curRange];
+  const ctx = $(id).getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, t.fill); grad.addColorStop(1, "rgba(0,0,0,0)");
+  datasets[0].backgroundColor = grad; datasets[0].fill = true;
+  upsert(id, id, {
+    type: "line",
+    data: { labels: mk._labels, datasets },
+    options: { responsive: true, maintainAspectRatio: false,
+               interaction: { mode: "index", intersect: false },
+               onHover: (evt, actEls, chart) => syncOthers(chart, actEls),
+               scales: { x: { grid: { color: t.grid }, ticks: { color: t.mut, maxTicksLimit: 9 } },
+                          y: { grid: { color: t.grid }, ticks: { color: t.mut, callback: v => (+v).toFixed(1) + unit }, min: 0, max: yMax } },
+               plugins: { legend: { display: false }, tooltip: { callbacks: { label: it => (it.dataset.label ? it.dataset.label + " " : "") + it.parsed.y.toFixed(1) + unit } } }
+    },
+    plugins: [crosshairPlugin]
+  });
+}
+async function hist(collector, key) {
+  const r = RANGES[curRange];
+  const resp = await jget(`/api/history?collector=${collector}&key=${key}&hours=${r.hours}&bucket=${r.bucket}`);
+  return resp.points.map(p => p[1]);
+}
 
-/* ── 当前值渲染 ── */
-function renderCurrent(cur) {
+/* ── 判词 ── */
+function zoneAn(text) { return `<span class="an">${text}</span>`; }
+function zoneShen(text) { return `<span class="shen">${text}</span>`; }
+function zoneWei(text) { return `<span class="wei">${text}</span>`; }
+function setPlain(id, html, cls) {
+  $(id).innerHTML = html;
+  const z = $(id).closest(".zone, .rail");
+  if (z) { z.classList.remove("z-shen", "z-wei"); if (cls) z.classList.add(cls); }
+}
+function omen(k, vHtml, barPct, barCls, d) {
+  const bar = barPct == null ? "" : `<div class="bar"><i${barCls ? ` class="${barCls}"` : ""} style="width:${Math.max(0, Math.min(100, barPct)).toFixed(1)}%"></i></div>`;
+  return `<div class="omen"><div class="k">${k}</div><div class="v">${vHtml}</div>${bar}<div class="d">${d || ""}</div></div>`;
+}
+
+/* ── 各分区渲染 ── */
+async function renderZ1(cur) {
   const pct = cur.commit_percent ?? 0;
-  const [zt, zc] = zoneOf(pct);
-  $("heroNum").innerHTML = `${pct.toFixed(1)}<small> %</small>`;
-  $("heroNum").style.color = zc;
-  $("heroCn").textContent = zh("commit_percent");
-  $("heroDesc").textContent = zhDesc("commit_percent");
-  const cards = [];
-  const add = (key, val, unit) => cards.push(
-    `<div class="subcard"><div class="l">${zh(key)} <small>${key}</small></div>
-     <div class="v">${val} ${unit}</div><div class="d">${zhDesc(key)}</div></div>`);
-  add("commit_used_gb", (cur.commit_used_gb ?? 0).toFixed(1), "GB");
-  add("commit_limit_gb", (cur.commit_limit_gb ?? 0).toFixed(1), "GB");
-  add("mem_used_gb", (cur.mem_used_gb ?? 0).toFixed(1), "GB");
-  add("mem_total_gb", (cur.mem_total_gb ?? 0).toFixed(1), "GB");
-  add("mem_percent", (cur.mem_percent ?? 0).toFixed(1), "%");
-  add("pagefile_used_gb", (cur.pagefile_used_gb ?? 0).toFixed(1), "GB");
-  add("pagefile_total_gb", (cur.pagefile_total_gb ?? 0).toFixed(1), "GB");
-  add("cpu_percent", (cur.cpu_percent ?? 0).toFixed(1), "%");
-  add("cpu_max_core", (cur.cpu_max_core ?? 0).toFixed(1), "%");
-  const L = META.labels || {};
-  cards.push(`<div class="subcard"><div class="l">${zh("cpu_top_pct")} <small>cpu_top_pct</small></div>
-    <div class="v">${L.cpu_top_pct || "–"}</div><div class="d">${(cur.cpu_top_pct ?? 0).toFixed(1)}% · ${zhDesc("cpu_top_pct")}</div></div>`);
-  cards.push(`<div class="subcard"><div class="l">${zh("io_top_mb")} <small>io_top_mb</small></div>
-    <div class="v">${L.io_top_mb || "–"}</div><div class="d">累计 ${(cur.io_top_mb ?? 0).toFixed(1)}MB · ${zhDesc("io_top_mb")}</div></div>`);
-  for (const k of Object.keys(cur).filter(k => k.endsWith("_commit_gb"))) {
-    cards.push(`<div class="subcard"><div class="l">${zh(k)} <small>${k.replace("_commit_gb", "")}.exe</small></div>
-      <div class="v">${(cur[k] ?? 0).toFixed(1)} GB</div><div class="d">${zhDesc(k)}</div></div>`);
-  }
-  $("subcards").innerHTML = cards.join("");
+  const verdict = pct < 70 ? zoneAn("安 · 内存很够用，不用担心") : pct < 85 ? zoneShen("慎 · 水位偏高，留意大户") : zoneWei("危 · 逼近上限，请即处置");
+  setPlain("p1", verdict, pct < 70 ? "" : pct < 85 ? "z-shen" : "z-wei");
+  const t = theme();
+  const pts = await hist("memory", "commit_percent");
+  mk("c1", [
+    { data: pts, borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { data: pts.map(() => 70), borderColor: t.ochre, borderDash: [3, 5], pointRadius: 0, borderWidth: 1 },
+    { data: pts.map(() => 85), borderColor: t.cinn, borderDash: [3, 5], pointRadius: 0, borderWidth: 1 }
+  ], "%", 100);
+  $("o1").innerHTML =
+    omen("已用提交内存", `${f1(cur.commit_used_gb)} <small>GB</small>`, cur.commit_used_gb / (cur.commit_limit_gb || 1) * 100, "", zhDesc("commit_used_gb")) +
+    omen("提交内存上限", `${f1(cur.commit_limit_gb)} <small>GB</small>`, 100, "", zhDesc("commit_limit_gb")) +
+    omen("物理内存", `${f1(cur.mem_used_gb)} / ${f1(cur.mem_total_gb)} <small>GB</small>`, cur.mem_percent ?? 0, (cur.mem_percent ?? 0) > 85 ? "danger" : "", zhDesc("mem_percent"));
+}
+async function renderZ2(cur) {
+  const mc = cur.cpu_max_core ?? 0;
+  const verdict = mc > 80 ? zoneShen("慎 · 单核偏高") : zoneAn("安 · 算力充裕");
+  setPlain("p2", verdict, mc > 80 ? "z-shen" : "");
+  const t = theme();
+  mk("c2", [
+    { label: "总占用", data: await hist("cpu", "cpu_percent"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "单核峰值", data: await hist("cpu", "cpu_max_core"), borderColor: t.cinn, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.3 }
+  ], "%", 100);
+  const top = META.labels.cpu_top_pct || "";
+  $("o2").innerHTML =
+    omen("总占用", `${f1(cur.cpu_percent)} <small>%</small>`, cur.cpu_percent ?? 0, "", zhDesc("cpu_percent")) +
+    omen("单核峰值", `${f1(cur.cpu_max_core)} <small>%</small>`, cur.cpu_max_core ?? 0, mc > 80 ? "warn" : "", zhDesc("cpu_max_core")) +
+    omen("CPU 大户", top ? `${top} <small>${f1(cur.cpu_top_pct)}%</small>` : "–", cur.cpu_top_pct ?? 0, (cur.cpu_top_pct ?? 0) > 50 ? "warn" : "", zhDesc("cpu_top_pct"));
+}
+async function renderZ3(cur) {
+  const mx = Math.max(cur.io_read_mb_s ?? 0, cur.io_write_mb_s ?? 0);
+  const verdict = mx > 20 ? zoneShen("慎 · 读写繁忙") : zoneAn("安 · 平稳，无有扫描");
+  setPlain("p3", verdict, mx > 20 ? "z-shen" : "");
+  const t = theme();
+  mk("c3", [
+    { label: "读取", data: await hist("diskio", "io_read_mb_s"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "写入", data: await hist("diskio", "io_write_mb_s"), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+  ], " MB/s", 5);
+  const top = META.labels.io_top_mb || "";
+  $("o3").innerHTML =
+    omen("读取", `${f1(cur.io_read_mb_s)} <small>MB/s</small>`, (cur.io_read_mb_s ?? 0) / 5 * 100, "", zhDesc("io_read_mb_s")) +
+    omen("写入", `${f1(cur.io_write_mb_s)} <small>MB/s</small>`, (cur.io_write_mb_s ?? 0) / 5 * 100, "", zhDesc("io_write_mb_s")) +
+    omen("IO 大户", top ? `${top} <small>${f1(cur.io_top_mb)}MB</small>` : "无", null, "", zhDesc("io_top_mb"));
+}
+async function renderZ4(cur) {
+  const jit = cur.ping_jitter_ms ?? 0;
+  const verdict = jit > 10 ? zoneShen("慎 · 抖动偏大") : zoneAn("安 · 平稳");
+  setPlain("p4", verdict, jit > 10 ? "z-shen" : "");
+  const t = theme();
+  mk("c4", [
+    { label: "下载", data: await hist("net", "net_down_mb_s"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "上传", data: await hist("net", "net_up_mb_s"), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+  ], " MB/s", 10);
+  $("o4").innerHTML =
+    omen("下载", `${f1(cur.net_down_mb_s)} <small>MB/s</small>`, (cur.net_down_mb_s ?? 0) / 10 * 100, "", zhDesc("net_down_mb_s")) +
+    omen("上传", `${f1(cur.net_up_mb_s)} <small>MB/s</small>`, (cur.net_up_mb_s ?? 0) / 10 * 100, "", zhDesc("net_up_mb_s")) +
+    omen("延迟 / 抖动", `${f1(cur.ping_net_ms)} / ${f1(jit)} <small>ms</small>`, Math.min(100, jit * 10), jit > 10 ? "warn" : "", zhDesc("ping_jitter_ms"));
+}
+async function renderZ5(cur) {
+  const temp = cur.gpu_temp ?? 0, util = cur.gpu_util ?? 0;
+  const verdict = temp > 83 ? zoneShen("慎 · 温度偏高") : util > 80 ? zoneShen("慎 · 高负载运转") : zoneAn("安 · 闲置，温度正常");
+  setPlain("p5", verdict, (temp > 83 || util > 80) ? "z-shen" : "");
+  const t = theme();
+  mk("c5", [
+    { label: "利用率", data: await hist("gpu", "gpu_util"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+  ], "%", 100);
+  $("o5").innerHTML =
+    omen("温度", `${f1(cur.gpu_temp)} <small>°C</small>`, temp / 90 * 100, temp > 83 ? "warn" : "", zhDesc("gpu_temp")) +
+    omen("利用率", `${f1(cur.gpu_util)} <small>%</small>`, util, util > 80 ? "warn" : "", zhDesc("gpu_util")) +
+    omen("显存", `${f1(cur.gpu_mem_used)} / ${f1(cur.gpu_mem_total)} <small>GB</small>`, cur.gpu_mem_used / (cur.gpu_mem_total || 1) * 100, "", zhDesc("gpu_mem_used"));
+}
+async function renderZ6(cur) {
+  const total = cur.pagefile_total_gb || 62;
+  const ratio = (cur.pagefile_used_gb ?? 0) / total * 100;
+  const verdict = ratio > 60 ? zoneShen("慎 · 物理内存吃紧") : zoneAn("安 · 占用甚微");
+  setPlain("p6", verdict, ratio > 60 ? "z-shen" : "");
+  const t = theme();
+  mk("c6", [
+    { label: "已用", data: await hist("memory", "pagefile_used_gb"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+  ], " GB", Math.ceil(total * 1.05));
+  $("o6").innerHTML =
+    omen("已用", `${f1(cur.pagefile_used_gb)} <small>GB</small>`, ratio, ratio > 60 ? "warn" : "", zhDesc("pagefile_used_gb")) +
+    omen("总量", `${f1(cur.pagefile_total_gb)} <small>GB</small>`, 100, "", zhDesc("pagefile_total_gb")) +
+    omen("已用占比", `${f1(ratio)} <small>%</small>`, ratio, ratio > 60 ? "warn" : "", "物理内存尚且够用");
 }
 
-/* ── 事件语义：标记点（仅 24h）与时间线 ── */
-function evActionClass(action) {
-  if (action.startsWith("degraded")) return "pend";
-  if (action === "muted") return "muted-b";
-  return "done";
+/* ── 主数字与速读 ── */
+function renderHero(cur) {
+  const pct = cur.commit_percent ?? 0;
+  const [zt, zc, zcls] = pct < 70 ? ["安 · 绿区健康，无需处置", "an", ""] : pct < 85 ? ["慎 · 水位偏高，留意大户", "shen", ""] : ["危 · 逼近上限，请即处置", "wei", ""];
+  $("heroNum").innerHTML = `${f1(pct)}<small> %</small>`;
+  $("heroNum").style.color = pct < 70 ? "var(--ink)" : pct < 85 ? "var(--ochre)" : "var(--cinn)";
+  const top = META.labels.cpu_top_pct ? `CPU：大户 ${META.labels.cpu_top_pct} 占 ${f1(cur.cpu_top_pct)}%` : "CPU：平稳";
+  $("quickread").innerHTML =
+    `${zh("commit_percent")} <span class="${zcls || "an"}">${zt}</span><br>` +
+    `内存：已用 ${f1(cur.commit_used_gb)} / 上限 ${f1(cur.commit_limit_gb)} GB ｜ ${top} ｜ 磁盘网络：平稳 ｜ 显卡：${f1(cur.gpu_temp)}°C ${(cur.gpu_util ?? 0) > 50 ? "高负载" : "闲置"}`;
 }
-function actionCn(action) {
-  if (action.startsWith("degraded")) return "降级处理";
-  return ACTION_CN[action] || action;
-}
-function parseStatus(detail) {
-  try { return JSON.parse(detail || "{}").status || ""; } catch (e) { return ""; }
-}
-function buildMarkers(events, labels) {
-  const groups = {};
-  for (const [ts, rule, action, detail] of events) {
-    const minute = ts.slice(0, 16);
-    const key = rule + "|" + minute;
-    const pri = action.startsWith("degraded") ? 4 : action === "kill_process" ? 3 : action === "muted" ? 2 : 1;
-    if (!groups[key] || pri > groups[key].pri) groups[key] = { ts, rule, action, detail, pri };
+
+/* ── 大户榜 / 设置 / 事件 / 待办 ── */
+function renderRanks(cur) {
+  const items = [];
+  for (let i = 1; i <= 5; i++) {
+    const name = META.labels[`proctop${i}`];
+    const gb = cur[`proctop${i}`];
+    if (name) items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}</span><span class="vv">${f1(gb)} GB</span></div>`);
   }
-  const out = [];
-  for (const g of Object.values(groups)) {
-    const label = g.ts.slice(11, 16);
-    const idx = labels.indexOf(label);
-    if (idx < 0) continue;
-    out.push({ idx, pri: g.pri,
-               title: `${actionCn(g.action)} · ${RULE_CN[g.rule] || g.rule} · ${label}`,
-               detail: (g.detail || "").slice(0, 80) });
-  }
-  return out;
+  $("ranks").innerHTML = items.join("") || `<div class="rank"><span>暂无数据（大户扫描每两分钟一轮）</span></div>`;
+  const top1 = META.labels.proctop1;
+  $("rankPlain").textContent = top1 ? `榜首 ${top1}` : "";
 }
-function renderTimeline(events) {
-  $("events").innerHTML = events.map(([ts, rule, action, detail]) => {
-    const cls = evActionClass(action);
-    const badge = cls === "pend" ? "待处理" : cls === "muted-b" ? "已静音" : "已处理";
-    let tip = "";
-    if (cls === "pend") {
-      const st = parseStatus(detail);
-      tip = `<span class="tip">推荐：${ADVICE[st.split(":")[1]] || "详见重点提醒区"}</span>`;
-    }
-    return `<div class="ev"><span class="t">${ts}</span><span class="rule">${RULE_CN[rule] || rule}</span>
-      <span class="st"><span class="st-badge ${cls}">${badge}</span></span>
-      <span class="detail">${(detail || "").slice(0, 110)}${tip}</span></div>`;
-  }).join("") || `<div class="ev"><span class="detail">本区间无事件</span></div>`;
+async function renderThrottle() {
+  const th = await jget("/api/throttle");
+  const enabled = th.enabled === "default" ? "出厂默认开" : th.enabled === "1" ? "开" : "关";
+  $("thState").textContent = enabled;
+  const rows = th.rules.map(r =>
+    `<div class="set-row"><span>${r.name}</span><span class="vv">${r.priority} · ${r.cores}</span></div>`);
+  const applied = JSON.parse(th.applied || "{}");
+  const names = Object.keys(applied);
+  if (names.length) rows.push(`<div class="set-row"><span>当前生效</span><span class="vv">${names.join("、")}</span></div>`);
+  $("throttle").innerHTML = rows.join("");
 }
-function renderAlert(events) {
+const ACTION_CN = a => a.startsWith("degraded") ? "降级处理" : { kill_process: "自动终结", toast: "通知", muted: "已静音", apply: "施加", restore: "还原" }[a] || a;
+function renderEvents(events) {
   const pend = events.filter(([, , a]) => a.startsWith("degraded"));
-  const handled = events.filter(([, , a]) => a === "kill_process" || a === "toast").length;
-  if (pend.length) {
-    const [ts, rule, , detail] = pend[0];
-    const st = parseStatus(detail).split(":")[1] || "";
-    $("alertTitle").textContent = `待处理 ${pend.length} 起 · 需要人工介入`;
-    $("alertAdvice").innerHTML = `<b>${ts.slice(11)} ${RULE_CN[rule] || rule}降级</b><br><b>推荐处理思路</b>：${ADVICE[st] || "详见事件时间线"}`;
-    $("alert").hidden = false;
-  } else {
-    $("alert").hidden = true;
-  }
-  if (handled) {
-    $("handledText").textContent = `本区间其余 ${handled} 起处置已全部自动完成`;
-    $("handledLine").hidden = false;
-  } else {
-    $("handledLine").hidden = true;
-  }
+  $("evPlain").textContent = pend.length ? `危 · ${pend.length} 起待人工` : "安 · 无待人工";
+  $("events").innerHTML = events.slice(0, 20).map(([ts, rule, action, detail]) => {
+    const cls = action.startsWith("degraded") ? "pi-wei" : action === "muted" ? "pi-mute" : "pi-an";
+    const pi = cls === "pi-wei" ? "待人工 ◉" : cls === "pi-mute" ? "已静音" : "已处置";
+    return `<div class="ev"><span class="t">${ts.slice(5)}</span><span class="b">${RULE_CN[rule] || rule} · ${ACTION_CN(action)}：${(detail || "").slice(0, 80)}</span><span class="pi ${cls}">${pi}</span></div>`;
+  }).join("") || `<div class="ev"><span class="b">本区间无事件 —— 系统安泰</span></div>`;
+  renderPendline(pend);
 }
 
-/* ── 图表 ── */
-function baseOpts(t, extra) {
-  return Object.assign({
-    responsive: true, maintainAspectRatio: false,
-    interaction: { mode: "index", intersect: false },
-    onHover: (evt, actEls, chart) => syncOthers(chart, actEls),
-    scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
-              y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
-    plugins: { legend: { display: false } }
-  }, extra || {});
+/* ── 待办与动作（二次确认 + 令牌 POST） ── */
+let pendTarget = "";
+function adviceOf(detail) {
+  try { return ADVICE[(JSON.parse(detail || "{}").status || "").split(":")[1]] || ADVICE.frequency_cap; }
+  catch (e) { return ADVICE.frequency_cap; }
 }
-/* 单位与精度：所有图统一一位小数，刻度与悬浮均带单位 */
-function withUnit(opts, unit) {
-  const yTicks = opts.scales.y.ticks;
-  yTicks.callback = v => (+v).toFixed(v % 1 === 0 ? 0 : 1) + unit;
-  const prevLabel = opts.plugins && opts.plugins.tooltip && opts.plugins.tooltip.callbacks && opts.plugins.tooltip.callbacks.label;
-  opts.plugins.tooltip = opts.plugins.tooltip || {};
-  opts.plugins.tooltip.callbacks = opts.plugins.tooltip.callbacks || {};
-  if (!prevLabel) {
-    opts.plugins.tooltip.callbacks.label = it =>
-      (it.dataset.label ? it.dataset.label + " " : "") + it.parsed.y.toFixed(1) + unit;
-  }
-  return opts;
+function renderPendline(pend) {
+  if (!pend.length) { $("pendline").hidden = true; return; }
+  const [ts, rule, , detail] = pend[0];
+  let target = "";
+  try { target = JSON.parse(detail || "{}").process || ""; } catch (e) { }
+  pendTarget = target || "HYPHelper.exe";
+  $("pendBody").textContent = `${ts.slice(5)} · ${RULE_CN[rule] || rule}降级：${(detail || "").slice(0, 60)}`;
+  $("pendAlt").textContent = adviceOf(detail).split("，")[0];
+  $("actZone").innerHTML = `<button class="act-btn" onclick="askConfirm()">手动终结</button>`;
+  $("pendline").hidden = false;
 }
-function buildMain(labels, values, events) {
-  const t = th();
-  const ctx = $("mainChart").getContext("2d");
-  const grad = ctx.createLinearGradient(0, 0, 0, 320);
-  grad.addColorStop(0, `rgba(${t.fill},.26)`); grad.addColorStop(1, `rgba(${t.fill},0)`);
-  const markers = state.range === "24h" ? buildMarkers(events, labels) : [];
-  const mkColor = m => m.pri === 4 ? t.danger : m.pri === 3 ? t.ok : m.pri === 2 ? t.mut : t.info;
-  const datasets = [
-    { data: values, borderColor: t.main, backgroundColor: grad, fill: true, tension: .3, pointRadius: 0, borderWidth: 2 },
-    { data: labels.map(() => 70), borderColor: t.mut, borderDash: [4, 5], pointRadius: 0, borderWidth: 1 },
-    { data: labels.map(() => 85), borderColor: t.danger, borderDash: [4, 5], pointRadius: 0, borderWidth: 1 }
-  ];
-  if (markers.length) datasets.push({
-    type: "scatter", data: markers.map(m => ({ x: labels[m.idx], y: values[m.idx] })),
-    pointRadius: 7, pointStyle: "rectRot",
-    pointBackgroundColor: markers.map(mkColor), pointBorderColor: "#00000000"
+window.askConfirm = function () {
+  $("actZone").innerHTML = `<span class="act-ask">确认终结 ${pendTarget} 乎？</span>` +
+    `<button class="act-btn" onclick="doKill()">确认</button> ` +
+    `<button class="act-no" onclick="resetAct()">再思</button>`;
+};
+window.resetAct = function () {
+  $("actZone").innerHTML = `<button class="act-btn" onclick="askConfirm()">手动终结</button>`;
+};
+window.doKill = async function () {
+  $("actZone").innerHTML = `<span class="act-ask">处置中…</span>`;
+  const resp = await fetch("/api/action", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "kill_process", target: pendTarget, token: TOKEN })
   });
-  const opts = withUnit(baseOpts(t, {
-    scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
-              y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
-    plugins: { legend: { display: false },
-               tooltip: { filter: it => it.datasetIndex === 0 || (markers.length && it.datasetIndex === 3),
-                          callbacks: { title: items => items[0].datasetIndex === 3 && markers.length ? markers[items[0].dataIndex].title : items[0].label,
-                                       label: it => it.datasetIndex === 3 && markers.length ? markers[it.dataIndex].detail : `${(it.parsed.y).toFixed(1)}%` } } }
-  }), "%");
-  upsert("main", "mainChart", { type: "line", data: { labels, datasets }, options: opts, plugins: [crosshairPlugin] });
-  $("legendNote").hidden = markers.length === 0;
-}
-function buildDim1(labels, used, limit) {
-  const t = th();
-  upsert("dim1", "dim1", {
-    type: "line",
-    data: { labels, datasets: [
-      { label: "已用", data: used, borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.5 },
-      { label: "上限", data: limit, borderColor: t.limit, borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
-    ]},
-    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick } } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
-    plugins: [crosshairPlugin]
-  });
-}
-function buildDim2(labels, mem) {
-  const t = th();
-  upsert("dim2", "dim2", {
-    type: "line",
-    data: { labels, datasets: [{ data: mem, borderColor: t.dimA, tension: .3, pointRadius: 0, borderWidth: 1.5 }]},
-    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } } }), "%"),
-    plugins: [crosshairPlugin]
-  });
-}
-function buildDim3(labels, total, maxCore) {
-  const t = th();
-  upsert("dim3", "dim3", {
-    type: "line",
-    data: { labels, datasets: [
-      { label: "总占用", data: total, borderColor: t.proc[1], tension: .3, pointRadius: 0, borderWidth: 1.5 },
-      { label: "单核峰值", data: maxCore, borderColor: t.danger, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.5 }
-    ]},
-    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMax: 100 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), "%"),
-    plugins: [crosshairPlugin]
-  });
-}
-function buildDim4(labels, read, write) {
-  const t = th();
-  upsert("dim4", "dim4", {
-    type: "line",
-    data: { labels, datasets: [
-      { label: "读取", data: read, borderColor: t.info, tension: .3, pointRadius: 0, borderWidth: 1.5 },
-      { label: "写入", data: write, borderColor: t.proc[2], tension: .3, pointRadius: 0, borderWidth: 1.5 }
-    ]},
-    options: withUnit(baseOpts(t, { scales: { x: { display: false }, y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " MB/s"),
-    plugins: [crosshairPlugin]
-  });
-}
-async function buildProc(labels, cur, r) {
-  const t = th();
-  const keys = Object.keys(cur).filter(k => k.endsWith("_commit_gb"));
-  const datasets = [];
-  for (let i = 0; i < keys.length; i++) {
-    const resp = await jget(`/api/history?collector=process&key=${keys[i]}&hours=${r.hours}&bucket=${r.bucket}`);
-    const byLabel = {};
-    resp.points.forEach(p => { byLabel[r.label(p[0])] = p[1]; });
-    datasets.push({ label: zh(keys[i]), data: labels.map(l => byLabel[l] ?? null),
-                    borderColor: t.proc[i % t.proc.length], tension: .25, pointRadius: 0, borderWidth: 1.5, spanGaps: true });
-  }
-  upsert("procChart", "procChart", {
-    type: "line",
-    data: { labels, datasets },
-    options: withUnit(baseOpts(t, { scales: { x: { grid: { color: t.grid }, ticks: { color: t.tick, maxTicksLimit: 12 } },
-                                     y: { grid: { color: t.grid }, ticks: { color: t.tick }, suggestedMin: 0 } },
-                           plugins: { legend: { labels: { color: t.tick, boxWidth: 10 } } } }), " GB"),
-    plugins: [crosshairPlugin]
-  });
-}
-function renderInsight(points, events, curPct) {
-  let maxV = 0, maxT = "";
-  for (const [ts, v] of points) if (v > maxV) { maxV = v; maxT = ts.slice(5, 16); }
-  const counts = {};
-  for (const [, , a] of events) counts[actionCn(a)] = (counts[actionCn(a)] || 0) + 1;
-  const [zt, zc] = zoneOf(curPct);
-  $("insight").innerHTML =
-    `区间最高 <b>${maxV.toFixed(1)}%（${maxT}）</b> · 事件 <b>${events.length}</b> 起` +
-    (events.length ? `（${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" / ")}）` : "") +
-    ` · 当前水位：<b style="color:${zc}">${zt}</b>`;
-}
+  const result = await resp.json();
+  const ok = result.status === "killed";
+  $("actZone").innerHTML = `<button class="act-btn" disabled>${ok ? "已终结 ✓" : "未终结：" + (result.status || "失败")}</button>`;
+};
 
 /* ── 主刷新 ── */
 async function refresh() {
   const cur = await jget("/api/current");
   META = cur._meta || META;
   $("programPath").textContent = META.program_path || "";
-  renderCurrent(cur);
-  const r = RANGES[state.range];
-  $("mainTitle").innerHTML = `提交内存水位 · ${r.title} <span class="mk">（虚线：70% 黄区 / 85% 红区阈值）</span>`;
-  const [commitPts, usedPts, limitPts, memPts, cpuPts, cpuMaxPts, ioRPts, ioWPts, eventsResp] = await Promise.all([
-    jget(`/api/history?collector=memory&key=commit_percent&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=memory&key=commit_used_gb&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=memory&key=commit_limit_gb&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=memory&key=mem_percent&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=cpu&key=cpu_percent&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=cpu&key=cpu_max_core&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=diskio&key=io_read_mb_s&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/history?collector=diskio&key=io_write_mb_s&hours=${r.hours}&bucket=${r.bucket}`),
-    jget(`/api/events?hours=${r.hours}&limit=200`)
-  ]);
-  const labels = commitPts.points.map(p => r.label(p[0]));
-  buildMain(labels, commitPts.points.map(p => p[1]), eventsResp.events);
-  buildDim1(labels, usedPts.points.map(p => p[1]), limitPts.points.map(p => p[1]));
-  buildDim2(labels, memPts.points.map(p => p[1]));
-  buildDim3(labels, cpuPts.points.map(p => p[1]), cpuMaxPts.points.map(p => p[1]));
-  buildDim4(labels, ioRPts.points.map(p => p[1]), ioWPts.points.map(p => p[1]));
-  await buildProc(labels, cur, r);
-  renderTimeline(eventsResp.events);
-  renderAlert(eventsResp.events);
-  renderInsight(commitPts.points, eventsResp.events, cur.commit_percent ?? 0);
+  const r = RANGES[curRange];
+  document.querySelectorAll(".rng-name").forEach(e => e.textContent = r.name);
+  renderHero(cur);
+  const evts = await jget(`/api/events?hours=${r.hours}&limit=50`);
+  mk._labels = (await jget(`/api/history?collector=memory&key=commit_percent&hours=${r.hours}&bucket=${r.bucket}`)).points.map(p => r.label(p[0]));
+  await renderZ1(cur);
+  await renderZ4(cur);
+  await renderZ2(cur);
+  await renderZ5(cur);
+  await renderZ3(cur);
+  await renderZ6(cur);
+  renderRanks(cur);
+  renderEvents(evts.events);
+  await renderThrottle();
   state.needRebuild = false;
 }
 
@@ -354,10 +321,10 @@ function applyTheme(mode) {
   $("eyeOpen").style.display = mode === "light" ? "" : "none";
   $("eyeClosed").style.display = mode === "light" ? "none" : "";
   $("themeLabel").textContent = mode === "light" ? "昼" : "夜";
-  try { localStorage.setItem("zhulong-theme", mode); } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem("zhulong-theme", mode); } catch (e) { }
 }
 $("themeBtn").addEventListener("click", async () => {
-  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
   state.needRebuild = true;
   await refresh();
 });
@@ -366,13 +333,17 @@ $("rangePills").addEventListener("click", async e => {
   if (!pill) return;
   document.querySelectorAll("#rangePills .pill").forEach(p => p.classList.remove("on"));
   pill.classList.add("on");
-  state.range = pill.dataset.range;
+  curRange = pill.dataset.r;
   state.needRebuild = true;
   await refresh();
 });
 
-let savedTheme = "dark";
-try { savedTheme = localStorage.getItem("zhulong-theme") || "dark"; } catch (e) { /* 忽略 */ }
-applyTheme(savedTheme);
-refresh();
-setInterval(refresh, 30000);
+(async function init() {
+  let saved = "light";
+  try { saved = localStorage.getItem("zhulong-theme") || "light"; } catch (e) { }
+  applyTheme(saved);
+  const tok = await jget("/api/action_token");
+  TOKEN = tok.token || "";
+  await refresh();
+  setInterval(refresh, 30000);
+})();
