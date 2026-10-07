@@ -16,6 +16,17 @@ def by_name(rules, name):
     return [r for r in rules if r["name"] == name]
 
 
+# 本地泄漏测试规则：替代已下线的 hyphelper_leak（引擎锁存/静音/幻影回归与生产规则名解耦）
+LEAK_RULE = {
+    "name": "leak_test",
+    "condition": lambda ctx: (ctx.process_commit_gb("HYPHelper.exe") or 0) > 15,
+    "for_seconds": 0,
+    "cooldown_seconds": 600,
+    "actions": ["kill_process", "toast"],
+    "params": {"process": "HYPHelper.exe"},
+}
+
+
 def main():
     # ---- 窗口：commit_high 需连续 90s ----
     eng, _ = make_engine()
@@ -69,23 +80,23 @@ def main():
 
     # ---- 静音：muted 期间照常产出但标记 muted ----
     eng4, store = make_engine()
-    rk = by_name(RULES, "hyphelper_leak")[0]
+    rk = LEAK_RULE
     eng4.mute(0.0, 300)
     fired = eng4.evaluate([rk], ctx(hhelper=16.0), 1.0)
     assert len(fired) == 1 and fired[0]["muted"] is True, fired
     eng4.muted_until = 0
-    eng4.cooldown_until_by_name["hyphelper_leak"] = 0   # 越过冷却，专注验证 muted 标记
+    eng4.cooldown_until_by_name["leak_test"] = 0   # 越过冷却，专注验证 muted 标记
     fired = eng4.evaluate([rk], ctx(hhelper=16.0), 400.0)
     assert fired[0]["muted"] is False
     assert store.get("muted_until") is not None, "静音应持久化到 kv"
 
     # ---- Critical 回归：无迟滞规则触发后，条件不再成立时绝不幻影再触发 ----
     eng5, _ = make_engine()
-    rk2 = by_name(RULES, "hyphelper_leak")[0]
+    rk2 = LEAK_RULE
     assert len(eng5.evaluate([rk2], ctx(hhelper=16.0), 0.0)) == 1   # 触发+冷却600s
     assert eng5.evaluate([rk2], ctx(hhelper=1.0), 5.0) == []        # 进程健康：不触发
     assert eng5.evaluate([rk2], ctx(hhelper=0.0), 10.0) == []       # 进程消失：不触发
-    eng5.cooldown_until_by_name["hyphelper_leak"] = 0
+    eng5.cooldown_until_by_name["leak_test"] = 0
     assert eng5.evaluate([rk2], ctx(hhelper=1.0), 700.0) == []      # 冷却后仍健康：不触发
 
     # ---- 迟滞语义回归：窗口期内（未触发）跌破进入阈值应重置窗口 ----

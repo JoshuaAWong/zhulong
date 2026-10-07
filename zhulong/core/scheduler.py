@@ -20,6 +20,7 @@ def write_heartbeat(state_dir):
 
 def build_ctx(conn, cfg):
     metrics, processes = {}, {}
+    anomalies = []
     for w in cfg.WATCH_PROCESSES:
         key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
         row = storage.latest(conn, "process", key)
@@ -30,7 +31,14 @@ def build_ctx(conn, cfg):
         row = storage.latest(conn, *c_key)
         if row:
             metrics[c_key] = row[1]
-    return MetricCtx(metrics, processes)
+    try:
+        from zhulong.core import anomaly
+        anomalies = anomaly.detect(anomaly.series_from_db(conn))
+    except Exception:
+        anomalies = []
+    ctx = MetricCtx(metrics, processes)
+    ctx.anomalies = anomalies
+    return ctx
 
 
 def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=True):
@@ -56,12 +64,18 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
             if t["muted"]:
                 storage.insert_event(conn, ts, t["rule"], "muted", "动作已静音")
                 continue
+            if t["rule"] == "anomaly_leak" and getattr(ctx, "anomalies", None):
+                a = ctx.anomalies[0]
+                t["params"]["toast_body"] = a["reason"] + "，详情见面板大户榜与朱批记事。"
+                t["params"]["_anomaly"] = a   # 事件详情用
             for action_name in t["actions"]:
                 act = actions.get(action_name)
                 if act is None:
                     continue
                 try:
                     result = act["run"](t.get("params", {}), cfg, state)
+                    if "_anomaly" in t.get("params", {}):
+                        result = dict(result); result["anomaly"] = t["params"]["_anomaly"]
                     storage.insert_event(conn, now_iso(), t["rule"], action_name,
                                          json.dumps(result, ensure_ascii=False))
                 except Exception as e:

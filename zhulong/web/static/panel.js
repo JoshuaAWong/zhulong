@@ -224,6 +224,7 @@ function renderHero(cur) {
 
 /* ── 大户榜 / 设置 / 事件 / 待办 ── */
 function renderRanks(cur) {
+  const anomalyNames = new Set((META.anomalies || []).map(a => a.name.toLowerCase()));
   const items = [];
   for (let i = 1; i <= 5; i++) {
     const raw = META.labels[`proctop${i}`];
@@ -231,13 +232,14 @@ function renderRanks(cur) {
     if (raw) {
       const parts = raw.split("|");
       const name = parts[0], pid = parts[1] || "", cmd = parts.slice(2).join("|");
-      items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}${pid ? ` <small>#${pid}</small>` : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
+      const isAnomaly = anomalyNames.has(name.toLowerCase());
+      items.push(`<div class="rank"${isAnomaly ? ' style="color:var(--cinn)"' : ""}><span>${"①②③④⑤"[i - 1]} ${name}${pid ? ` <small>#${pid}</small>` : ""}${isAnomaly ? ' <b>⚠ 疑似泄漏</b>' : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
         (cmd ? `<div class="rank-path" title="${cmd}">${cmd}</div>` : ""));
     }
   }
   $("ranks").innerHTML = items.join("") || `<div class="rank"><span>暂无数据（大户扫描每两分钟一轮）</span></div>`;
   const top1 = META.labels.proctop1;
-  $("rankPlain").textContent = top1 ? `榜首 ${top1}` : "";
+  $("rankPlain").textContent = anomalyNames.size ? `危 · ${anomalyNames.size} 起疑似泄漏` : (top1 ? `榜首 ${top1.split("|")[0]}` : "");
 }
 async function renderThrottle() {
   const th = await jget("/api/throttle");

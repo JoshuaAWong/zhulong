@@ -75,6 +75,9 @@ THROTTLE_DEFAULTS = {
 }
 THROTTLE_INTERVAL_CYCLES = 4   # 每 4 个采集周期（2 分钟）巡检应用一次
 
+# 通用异常进程：自动杀仅限显式名单（默认空 = 全部只告警）；保护名单见 core/anomaly.NEVER_KILL
+AUTOKILL = []
+
 # 网络探测：烛龙唯一主动发包功能（每周期网关+公网各 1 个 ICMP 包）
 PING_ENABLED = True
 PING_HOST = "223.5.5.5"   # 阿里公共 DNS

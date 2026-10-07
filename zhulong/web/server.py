@@ -74,7 +74,13 @@ class Handler(BaseHTTPRequestHandler):
                         out[key] = row[1]
                     names[key] = [w.get("display_name", w["name"]),
                                   f"阈值 {w['max_commit_gb']}GB，超限自动结束（白名单进程）"]
-                out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names, "labels": labels}
+                try:
+                    from zhulong.core import anomaly
+                    anomalies = anomaly.detect(anomaly.series_from_db(self.storage_conn))
+                except Exception:
+                    anomalies = []
+                out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names,
+                                "labels": labels, "anomalies": anomalies}
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":
