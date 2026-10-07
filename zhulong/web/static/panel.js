@@ -229,9 +229,10 @@ function renderRanks(cur) {
     const raw = META.labels[`proctop${i}`];
     const gb = cur[`proctop${i}`];
     if (raw) {
-      const [name, path] = raw.split("|");
-      items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}</span><span class="vv">${f1(gb)} GB</span></div>` +
-        (path ? `<div class="rank-path" title="${path}">${path}</div>` : ""));
+      const parts = raw.split("|");
+      const name = parts[0], pid = parts[1] || "", cmd = parts.slice(2).join("|");
+      items.push(`<div class="rank"><span>${"①②③④⑤"[i - 1]} ${name}${pid ? ` <small>#${pid}</small>` : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
+        (cmd ? `<div class="rank-path" title="${cmd}">${cmd}</div>` : ""));
     }
   }
   $("ranks").innerHTML = items.join("") || `<div class="rank"><span>暂无数据（大户扫描每两分钟一轮）</span></div>`;

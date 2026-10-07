@@ -56,14 +56,20 @@ def collect(cfg, scan_fn=None):
     for i, entry in enumerate(t["commit"][:5], 1):
         gb, name = entry[0], entry[1]
         pid = entry[2] if len(entry) > 2 else None
-        # 大户附可执行文件路径（java.exe 这类泛名靠路径辨认身份）
-        path = ""
+        # 大户附 PID 与命令行：同路径多实例（双开 java/浏览器）靠 pid 区分，
+        # JVM/解释器类的真实身份看启动参数（-jar / 脚本路径）
+        cmd = ""
         if pid is not None:
             try:
-                path = _PROC_CACHE[pid].exe()
+                cmd = " ".join(_PROC_CACHE[pid].cmdline())
             except Exception:
                 pass
-        rows.append((f"proctop{i}", round(gb, 2), name + ("|" + path if path else "")))
+        label = name
+        if pid:
+            label += f"|{pid}"
+        if cmd:
+            label += f"|{cmd}"
+        rows.append((f"proctop{i}", round(gb, 2), label))
     return rows
 
 
