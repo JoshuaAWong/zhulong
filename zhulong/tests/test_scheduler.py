@@ -98,6 +98,15 @@ def main():
         notified = _json2.loads(storage.kv_get(conn, "redline_notified"))
         assert notified == {"Leak.exe": 27.0}, notified
 
+        # ---- C3：rule["params"] 引用污染回归——anomaly_leak 触发后 rules.RULES 原 dict 不被写入 ----
+        from zhulong.core.engine import Engine
+        from zhulong.rules import RULES
+        orig = next(r for r in RULES if r["name"] == "anomaly_leak")
+        default_body = orig["params"]["toast_body"]
+        scheduler.run_cycle(conn, C, [], RULES, Engine(), actions3, state={}, evaluate=True)
+        assert orig["params"]["toast_body"] == default_body, "默认文案被污染"
+        assert "_anomaly" not in orig["params"], "rules.RULES 共享 dict 被写入 _anomaly"
+
         # ---- B3：interval 统一分频（interval=2 隔轮执行）----
         slow_calls = []
         slow = {"name": "slow", "interval": 2,

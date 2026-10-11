@@ -2,6 +2,7 @@ import http.client
 import json
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from zhulong.core import storage
@@ -40,7 +41,8 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         conn = storage.connect(Path(td) / "t.db")
         storage.init_schema(conn)
-        storage.insert_metrics(conn, [("2026-10-02T10:00:00", "memory", "commit_percent", 66.0, "")])
+        storage.insert_metrics(conn, [(time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                       "memory", "commit_percent", 66.0, "")])
         srv = server.serve(conn, port=0)
         port = srv.server_address[1]
         threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -119,8 +121,7 @@ def main():
             st, body = post_json(port, "/api/action", {"action": "kill_process", "target": "HYPHelper.exe", "token": tok})
             assert st == 200 and json.loads(body)["status"].startswith(("skipped", "killed", "degraded")), body
             # 面板手动 kill 与自动通道共用 kv 熔断计数（按进程名分桶）：kv 已有 2 次 → 第 3 次被熔断
-            import time as _time
-            now = _time.time()
+            now = time.time()
             storage.kv_set(conn, "kill_times", json.dumps({"hyphelper.exe": [now - 60, now - 30]}))
             st, body = post_json(port, "/api/action", {"action": "kill_process", "target": "HYPHelper.exe", "token": tok})
             assert st == 200 and json.loads(body)["status"] == "degraded:frequency_cap", body

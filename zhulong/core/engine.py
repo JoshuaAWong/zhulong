@@ -68,7 +68,9 @@ class Engine:
                 self.alarm_on[name] = True   # 触发即进入锁存态（仅迟滞规则）
             self.since[name] = None
             fired.append({"rule": name, "actions": rule["actions"],
-                          "params": rule.get("params", {}),
+                          # params 浅拷贝递出：scheduler 会往里写 toast_body/_anomaly，
+                          # 按引用递出会永久污染 rules.py 模块级共享 dict（默认文案丢失）
+                          "params": dict(rule.get("params", {})),
                           "muted": muted})
         return fired
 

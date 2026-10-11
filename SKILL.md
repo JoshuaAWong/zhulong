@@ -18,5 +18,5 @@ description: Windows 系统监控托盘软件：30 秒采集 commit 虚拟内存
 ## 维护
 - 全部阈值/白名单：`zhulong/config.py`（唯一可调文件）
 - 加监控项/规则/动作：见 docs/设计文档.md §14 扩展指南
-- 测试：`python -X utf8 -m zhulong.tests.test_engine`（各 test_* 同理）
+- 测试：`python -X utf8 -m zhulong.tests.run_all`（一键全量；单跑某模块用 `... zhulong.tests.test_<名>`）
 - 首次部署被安全软件拦截：见 README.md 排障节

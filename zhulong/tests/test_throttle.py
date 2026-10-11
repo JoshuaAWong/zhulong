@@ -46,16 +46,18 @@ class FakePS:
 
 
 class FakeCfg:
-    DATA_DIR = Path(tempfile.mkdtemp())
     THROTTLE_INTERVAL_CYCLES = 1
     THROTTLE_DEFAULTS = {"enabled": True, "rules": [
         {"name": "ToDesk.exe", "priority": "below_normal", "cores": "tail:2"},
         {"name": "ghost.exe", "priority": "below_normal", "cores": "tail:2"},   # 不存在 → 应跳过
     ]}
+    # DATA_DIR 在 main() 里挂到临时目录（随 TemporaryDirectory 自动清理）
 
 
 def main():
     with tempfile.TemporaryDirectory() as td:
+        FakeCfg.DATA_DIR = Path(td) / "cfg"
+        FakeCfg.DATA_DIR.mkdir()
         conn = storage.connect(Path(td) / "t.db")
         storage.init_schema(conn)
         p1, p2 = FakeProc(101, "ToDesk.exe"), FakeProc(102, "notepad.exe")
@@ -139,6 +141,16 @@ def main():
         assert n1 == 1 and pok._nice == NORMAL and pok._aff == list(range(16)), n1
         n2 = throttle.restore(conn, psutil_mod=FakePS([pok]))
         assert n2 == 0, n2   # 清单已空，再调无副作用
+
+        # ---- C2 红线负例：限流器永不处理自身进程（apply/restore 均跳过 os.getpid()）----
+        import os
+        self_proc = FakeProc(os.getpid(), "ToDesk.exe")   # 名字命中规则但 PID 是自身
+        throttle.apply_if_due(conn, FakeCfg, {}, psutil_mod=FakePS([self_proc]))
+        assert self_proc._nice == NORMAL and self_proc._aff == list(range(16)), "自身进程被限流"
+        storage.kv_set(conn, "throttle_applied",
+                       json.dumps({"ToDesk.exe": {"priority": "below_normal", "cores": [14, 15]}}))
+        n = throttle.restore(conn, psutil_mod=FakePS([self_proc]))
+        assert n == 0 and self_proc._nice == NORMAL, "restore 碰了自身进程"
         conn.close()
     print("PASS")
 
