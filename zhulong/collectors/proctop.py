@@ -1,10 +1,11 @@
-"""统一进程大户采集：每 CPU_TOP_INTERVAL 个周期一次全进程遍历，
+"""统一进程大户采集：分频由调度器统一实现（COLLECTOR["interval"]=4 = 2 分钟一轮），
 一趟同时产出 CPU 大户、IO 大户、commit Top5——扫描次数最少化（v1.2 里 cpu/diskio
 各自的进程扫描已下线合并于此）。进程名放 label。"""
 import psutil
 
 GB = 1024 ** 3
 _PROC_CACHE = {}
+_CMD_MAX = 200   # label 里 cmdline 截断上限：实测长 label 占 DB 日写入字节 87%
 # 系统伪进程：不计入大户（System Idle Process 的 cpu_percent 是"空闲率"而非消耗）
 _SKIP_NAMES = {"system idle process", "system", "registry", "memory compression"}
 
@@ -43,10 +44,6 @@ def _scan(cfg, process_iter=None):
 
 
 def collect(cfg, scan_fn=None):
-    state = collect.__dict__.setdefault("_state", {"cycle": 0})
-    state["cycle"] += 1
-    if state["cycle"] % getattr(cfg, "CPU_TOP_INTERVAL", 4) != 0:
-        return []
     t = (scan_fn or _scan)(cfg)
     rows = []
     if t["cpu"][0]:
@@ -68,9 +65,11 @@ def collect(cfg, scan_fn=None):
         if pid:
             label += f"|{pid}"
         if cmd:
+            if len(cmd) > _CMD_MAX:
+                cmd = cmd[:_CMD_MAX] + "…"   # 超长命令行截断，控制 DB 写入量
             label += f"|{cmd}"
         rows.append((f"proctop{i}", round(gb, 2), label))
     return rows
 
 
-COLLECTOR = {"name": "proctop", "interval": 1, "collect": collect}
+COLLECTOR = {"name": "proctop", "interval": 4, "collect": collect}   # 30s×4 = 2 分钟一轮

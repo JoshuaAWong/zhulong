@@ -84,11 +84,8 @@ AUTOKILL = []
 # 网络探测：烛龙唯一主动发包功能（每周期网关+公网各 1 个 ICMP 包）
 PING_ENABLED = True
 PING_HOST = "223.5.5.5"   # 阿里公共 DNS
-# GPU 采集分频：每 N 个周期查一次 nvidia-smi（30s × 2 = 1 分钟）
-GPU_INTERVAL = 2
-
-# 进程级"大户"扫描分频：每 N 个采集周期一次（30s × 4 = 2 分钟，总量指标仍 30 秒）
-CPU_TOP_INTERVAL = 4
+# 采集分频已收编：由调度器统一按各 COLLECTOR["interval"] 实现（gpu=2、proctop=4，其余=1），
+# 不再从这里配置（B3 删除 GPU_INTERVAL / CPU_TOP_INTERVAL 两个死配置）
 
 TOAST_APP_ID = "Zhulong.烛龙"
 PANEL_URL = f"http://{HOST}:{PORT}/"

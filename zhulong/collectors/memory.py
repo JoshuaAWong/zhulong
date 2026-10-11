@@ -6,11 +6,17 @@ Get-Counter "\\Memory\\Committed Bytes"/"\\Memory\\Commit Limit" 完全同源。
 页面文件(pagefile)用量而非 commit charge——本机实测 total=62GB(页面文件) vs
 系统 commit 上限 93GB。旧版 psutil 曾用它表示 commit，行为已在更新中改变。"""
 import ctypes
+import time
 from ctypes import wintypes
 
 import psutil
 
 GB = 1024 ** 3
+
+# 常量键 on-change 落库（B3）：值不变不重复写，每日至少一行兜底；
+# 模块级状态重启即空 → 重启后首采必写，天然满足"重启后首日要落一行"
+_ON_CHANGE_KEYS = {"mem_total_gb", "pagefile_total_gb", "commit_limit_gb"}
+_LAST = {}   # key -> (date_iso, value)
 
 
 class _PERF_INFO(ctypes.Structure):
@@ -35,7 +41,7 @@ def collect(cfg, commit_stats=None, vm=None, pagefile=None):
     used, limit = (commit_stats or _commit_stats)()
     v = vm or psutil.virtual_memory()
     pf = pagefile or psutil.swap_memory()   # 新版 psutil：此处即页面文件用量
-    return [
+    rows = [
         ("commit_used_gb", round(used / GB, 2), ""),
         ("commit_limit_gb", round(limit / GB, 2), ""),
         ("commit_percent", round(used / limit * 100, 1), ""),
@@ -45,6 +51,15 @@ def collect(cfg, commit_stats=None, vm=None, pagefile=None):
         ("pagefile_used_gb", round(pf.used / GB, 2), ""),
         ("pagefile_total_gb", round(pf.total / GB, 2), ""),
     ]
+    today = time.strftime("%Y-%m-%d")
+    out = []
+    for key, value, label in rows:
+        if key in _ON_CHANGE_KEYS and _LAST.get(key) == (today, value):
+            continue   # 常量键：同日同值不重复落库
+        if key in _ON_CHANGE_KEYS:
+            _LAST[key] = (today, value)
+        out.append((key, value, label))
+    return out
 
 
 COLLECTOR = {"name": "memory", "interval": 1, "collect": collect}

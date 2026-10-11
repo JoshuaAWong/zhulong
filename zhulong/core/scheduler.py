@@ -1,11 +1,15 @@
-"""采集调度：单周期 run_cycle + 常驻 loop。心跳每周期刷新。"""
+"""采集调度：单周期 run_cycle + 常驻 loop。心跳每周期刷新。
+分频统一在此实现（cycle % COLLECTOR["interval"]，缺省=1）——采集器内不得再私自分频。"""
 import json
+import logging
 import os
 import time
 from datetime import datetime
 
 from zhulong.core import anomaly, storage
 from zhulong.core.engine import MetricCtx
+
+LOG = logging.getLogger("zhulong")
 
 
 def now_iso():
@@ -60,14 +64,22 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
     # 熔断计数走 kv 表：自动通道与面板通道共用同一份（kill_process 经 state 取用）
     state.setdefault("_kv_get", lambda k: storage.kv_get(conn, k))
     state.setdefault("_kv_set", lambda k, v: storage.kv_set(conn, k, v))
+    state["cycle"] = state.get("cycle", 0) + 1
+    failed_names = state.setdefault("_failed_collectors", set())   # 失败去重：连续失败只记一条
     rows = []
     failures = 0
     for c in collectors:
+        if state["cycle"] % c.get("interval", 1) != 0:
+            continue   # 统一分频（gpu=2、proctop=4，其余=1）
         try:
             for key, value, label in c["collect"](cfg):
                 rows.append((ts, c["name"], key, float(value), label))
+            failed_names.discard(c["name"])   # 恢复后重置：下次失败会重新记日志
         except Exception:
             failures += 1   # 单采集器失败不影响本轮其他采集，但计数供托盘灰态呈现
+            if c["name"] not in failed_names:
+                failed_names.add(c["name"])
+                LOG.exception("采集器 %s 采集失败", c["name"])
     state["collect_failures"] = failures
     if rows:
         storage.insert_metrics(conn, rows)

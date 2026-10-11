@@ -97,6 +97,37 @@ def main():
         assert len(toast_calls) == 2, toast_calls   # ③ 涨超 1GB 再报
         notified = _json2.loads(storage.kv_get(conn, "redline_notified"))
         assert notified == {"Leak.exe": 27.0}, notified
+
+        # ---- B3：interval 统一分频（interval=2 隔轮执行）----
+        slow_calls = []
+        slow = {"name": "slow", "interval": 2,
+                "collect": lambda cfg: slow_calls.append(1) or [("x", 1.0, "")]}
+        st4 = {}
+        for expect in (0, 1, 1, 2):   # 周期 1 跳过、2 执行、3 跳过、4 执行
+            scheduler.run_cycle(conn, C, [slow], [], FakeEngine(), actions,
+                                state=st4, evaluate=False)
+            assert len(slow_calls) == expect, (expect, slow_calls)
+
+        # ---- B3：采集器必炸记日志且主循环不死；同名连续失败只记一条，恢复后重置 ----
+        import logging
+        records = []
+        h = logging.Handler()
+        h.emit = lambda r: records.append(r)
+        logging.getLogger("zhulong").addHandler(h)
+        boom = {"name": "boom", "interval": 1, "collect": lambda cfg: 1 / 0}
+        st5 = {}
+        try:
+            scheduler.run_cycle(conn, C, [boom], [], FakeEngine(), actions, state=st5, evaluate=False)
+            scheduler.run_cycle(conn, C, [boom], [], FakeEngine(), actions, state=st5, evaluate=False)
+            assert len(records) == 1, records   # 连续失败每周期只记一条
+            assert st5["collect_failures"] == 1
+            ok = {"name": "boom", "interval": 1, "collect": lambda cfg: [("y", 2.0, "")]}
+            scheduler.run_cycle(conn, C, [ok], [], FakeEngine(), actions, state=st5, evaluate=False)
+            assert st5["collect_failures"] == 0   # 恢复
+            scheduler.run_cycle(conn, C, [boom], [], FakeEngine(), actions, state=st5, evaluate=False)
+            assert len(records) == 2, records   # 恢复后再次失败重新记一条
+        finally:
+            logging.getLogger("zhulong").removeHandler(h)
         conn.close()
     print("PASS")
 
