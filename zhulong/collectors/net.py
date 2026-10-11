@@ -26,15 +26,39 @@ def _rates():
     return round(max(down, 0.0), 2), round(max(up, 0.0), 2)
 
 
+def _parse_default_gateway(out):
+    """解析 route print -4 输出：找目的 0.0.0.0 / 掩码 0.0.0.0 的默认路由行，
+    多条时按跃点数（metric）取最小者的网关列。纯函数可测。
+    IPv4 路由表行的列为：网络目标、网络掩码、网关、接口、跃点数。"""
+    best, best_metric = None, None
+    for line in out.splitlines():
+        cols = line.split()
+        if len(cols) < 5 or cols[0] != "0.0.0.0" or cols[1] != "0.0.0.0":
+            continue
+        gw = cols[2]
+        if not re.match(r"^\d+\.\d+\.\d+\.\d+$", gw):
+            continue   # "在链路上"等非 IP 网关不可 ping
+        try:
+            metric = int(cols[4])
+        except ValueError:
+            continue
+        if best is None or metric < best_metric:
+            best, best_metric = gw, metric
+    return best
+
+
 def _gateway():
-    """默认网关：解析 ipconfig 输出（中文 Windows 为 GBK）。"""
+    """默认网关：解析 route print -4（中文 Windows 为 GBK）。
+    旧实现用 ipconfig 正则抓「默认网关」，多网卡/VPN 场景常抓错或抓不到。"""
     try:
-        out = subprocess.run(["ipconfig"], capture_output=True, timeout=5,
+        out = subprocess.run(["route", "print", "-4"], capture_output=True, timeout=5,
                              creationflags=CREATE_NO_WINDOW).stdout.decode("gbk", errors="replace")
-        m = re.search(r"(?:默认网关|Default Gateway)[.\s:：]*?(\d+\.\d+\.\d+\.\d+)", out)
-        return m.group(1) if m else None
+        return _parse_default_gateway(out)
     except Exception:
         return None
+
+
+_GW_CACHE = {"ip": None}   # 模块级缓存：命中直接用，仅 ping 失败才重新解析
 
 
 def _ping(host, timeout_ms=800):
@@ -56,8 +80,21 @@ def collect(cfg, rates_fn=None, ping_fn=None, gw_fn=None):
 
     if getattr(cfg, "PING_ENABLED", True):
         pf = ping_fn or _ping
-        gw = (gw_fn or _gateway)()
-        g = pf(gw) if gw else None
+        if gw_fn is not None:
+            gw = gw_fn()
+            g = pf(gw) if gw else None
+        else:
+            # 缓存命中直接用；仅 ping 网关失败时才重新解析 route print（换网/VPN 切换场景）
+            gw = _GW_CACHE["ip"]
+            if gw is not None:
+                g = pf(gw)
+                if g is None:
+                    gw = _gateway()
+                    g = pf(gw) if gw else None
+            else:
+                gw = _gateway()
+                g = pf(gw) if gw else None
+            _GW_CACHE["ip"] = gw
         n = pf(getattr(cfg, "PING_HOST", "223.5.5.5"))
         for key, val in (("gw", g), ("net", n)):
             if val is not None:

@@ -66,6 +66,12 @@ def main():
             assert st == 400 and json.loads(body)["status"] == "skipped:not_allowed", body
             st, body = post_json(port, "/api/action", {"action": "kill_process", "target": "HYPHelper.exe", "token": tok})
             assert st == 200 and json.loads(body)["status"].startswith(("skipped", "killed", "degraded")), body
+            # 面板手动 kill 与自动通道共用 kv 熔断计数：kv 已有 2 次 → 第 3 次被熔断
+            import time as _time
+            now = _time.time()
+            storage.kv_set(conn, "kill_times", json.dumps([now - 60, now - 30]))
+            st, body = post_json(port, "/api/action", {"action": "kill_process", "target": "HYPHelper.exe", "token": tok})
+            assert st == 200 and json.loads(body)["status"] == "degraded:frequency_cap", body
             st, body = post_json(port, "/api/action", {"action": "nope", "token": tok})
             assert st == 400 and json.loads(body)["status"] == "unknown_action", body
             st, _ = get("127.0.0.1", port, "/favicon.ico")

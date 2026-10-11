@@ -110,6 +110,45 @@ def main():
     p = ReusedProc(8, "HYPHelper.exe", 16 * 2**30, old, good_exe)
     r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p]))
     assert r["status"] == "skipped:pid_reused" and not p.killed, r
+
+    # 9) AUTOKILL 回落：WATCH 查不到则查 AUTOKILL，阈值=红线 20GB，全流程可杀
+    #    熔断计数走 kv（与面板通道共用），杀成后 kv 里应记 1 次
+    class C2:
+        WATCH_PROCESSES = []
+        AUTOKILL = ["BigApp.exe"]
+    kv = {}
+    p = FakeProc(9, "BigApp.exe", 21 * 2**30, old, r"D:\\anywhere\\BigApp.exe")
+    r = kill_process.run("BigApp.exe", C2, {}, psutil_mod=FakePS([p]),
+                         kv_get=lambda k: kv.get(k), kv_set=lambda k, v: kv.__setitem__(k, v))
+    assert r["status"] == "killed" and p.killed, r
+    import json as _json
+    assert len(_json.loads(kv["kill_times"])) == 1, kv
+
+    # 9b) AUTOKILL 阈值语义：19GB（<20GB 红线）不杀
+    p = FakeProc(10, "BigApp.exe", 19 * 2**30, old, r"D:\\anywhere\\BigApp.exe")
+    r = kill_process.run("BigApp.exe", C2, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "skipped:commit_below_threshold" and not p.killed, r
+
+    # 9c) AUTOKILL dict 形式带 path_contains：路径不匹配仍拒
+    class C3:
+        WATCH_PROCESSES = []
+        AUTOKILL = [{"name": "BigApp.exe", "path_contains": "Games"}]
+    p = FakeProc(11, "BigApp.exe", 21 * 2**30, old, r"C:\\evil\\BigApp.exe")
+    r = kill_process.run("BigApp.exe", C3, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "skipped:path_mismatch" and not p.killed, r
+
+    # 10) NEVER_KILL 入口硬阻断：AUTOKILL 误配 explorer.exe 仍 blocked（防配置事故）
+    class C4:
+        WATCH_PROCESSES = []
+        AUTOKILL = ["explorer.exe"]
+    p = FakeProc(12, "explorer.exe", 25 * 2**30, old, r"C:\\Windows\\explorer.exe")
+    r = kill_process.run("explorer.exe", C4, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "blocked:never_kill" and not p.killed, r
+
+    # 11) 白名单外进程仍拒杀（WATCH 与 AUTOKILL 都查不到）
+    p = FakeProc(13, "notepad.exe", 30 * 2**30, old, None)
+    r = kill_process.run("notepad.exe", C2, {}, psutil_mod=FakePS([p]))
+    assert r["status"] == "skipped:not_whitelisted" and not p.killed, r
     print("PASS")
 
 

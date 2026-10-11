@@ -74,6 +74,40 @@ def main():
     assert d["ping_gw_ms"] == 0.6 and d["ping_net_ms"] == 12.0, d
     assert d["ping_jitter_ms"] > 0, d
 
+    # net._parse_default_gateway：假 route print 输出（注入假输出，不依赖实机）
+    fake_out = (
+        "===========================================================================\n"
+        "IPv4 路由表\n"
+        "===========================================================================\n"
+        "活动路由:\n"
+        "网络目标        网络掩码          网关             接口          跃点数\n"
+        "          0.0.0.0          0.0.0.0      192.168.1.1    192.168.1.100     25\n"
+        "          0.0.0.0          0.0.0.0         10.8.0.1       10.8.0.6       10\n"
+        "        127.0.0.0        255.0.0.0        在链路上       127.0.0.1        331\n"
+        "===========================================================================\n"
+    )
+    assert net._parse_default_gateway(fake_out) == "10.8.0.1"   # 多条默认路由取跃点数最小者
+    assert net._parse_default_gateway("信息: 没有可用的路由。\r\n") is None
+    # 默认路由网关列为「在链路上」（非 IP）→ 跳过，不可 ping
+    assert net._parse_default_gateway(
+        "          0.0.0.0          0.0.0.0        在链路上   192.168.1.100     25\n") is None
+
+    # 网关缓存：命中不重新解析；ping 网关失败才重新解析 route print
+    calls = []
+    orig_gw = net._gateway
+    net._gateway = lambda: calls.append(1) or "192.168.1.1"
+    try:
+        net._GW_CACHE["ip"] = None
+        net.collect(CC, rates_fn=lambda: (0.0, 0.0), ping_fn=lambda h: 1.0)
+        assert len(calls) == 1, calls   # 首次解析
+        net.collect(CC, rates_fn=lambda: (0.0, 0.0), ping_fn=lambda h: 1.0)
+        assert len(calls) == 1, calls   # 缓存命中，未再解析
+        net.collect(CC, rates_fn=lambda: (0.0, 0.0), ping_fn=lambda h: None)
+        assert len(calls) == 2, calls   # ping 网关失败 → 重新解析
+    finally:
+        net._gateway = orig_gw
+        net._GW_CACHE["ip"] = None
+
     # gpu：注入 fake（分频 CC 无 GPU_INTERVAL → 默认 2，首轮即采）
     rows = gpu.collect(CC, query_fn=lambda: (69.0, 94.0, 4.8, 11.9))
     d = {k: v for k, v, l in rows}

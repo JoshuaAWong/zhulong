@@ -1,8 +1,11 @@
 """白名单进程自动结束：安全链，任何一步不过即跳过/降级，绝不抛出未捕获异常。
-顺序：频次熔断 → 重读水位 → 存活时长 → 路径校验(fail-closed) → create_time 竞态防护 → kill → 记账"""
+顺序：NEVER_KILL 硬阻断 → 频次熔断 → 重读水位 → 存活时长 → 路径校验(fail-closed) → create_time 竞态防护 → kill → 记账"""
+import json
 import time
 
 import psutil
+
+from zhulong.core.anomaly import ANOMALY_REDLINE_GB, NEVER_KILL
 
 GB = 1024 ** 3
 
@@ -13,18 +16,55 @@ def _find(procs, name):
             yield p
 
 
-def run(process_name, cfg, state, psutil_mod=None):
+def _autokill_rule(process_name, cfg):
+    """AUTOKILL 名单回落：元素允许字符串（仅按名匹配）或 dict（可带 path_contains）。
+    阈值取异常红线 ANOMALY_REDLINE_GB（20GB）——能进名单的都是已判异常的进程。"""
+    for e in getattr(cfg, "AUTOKILL", []):
+        name = e["name"] if isinstance(e, dict) else e
+        if name.lower() == process_name.lower():
+            return {"name": process_name, "max_commit_gb": ANOMALY_REDLINE_GB,
+                    "path_contains": e.get("path_contains") if isinstance(e, dict) else None}
+    return None
+
+
+def _load_kill_times(state, kv_get, now):
+    """熔断计数：优先 kv 表（自动通道与面板通道共用同一份），无 kv 时退回 state 字典。"""
+    raw = kv_get("kill_times") if kv_get else None
+    times = []
+    if raw:
+        try:
+            times = [float(t) for t in json.loads(raw)]
+        except Exception:
+            times = []   # kv 内容损坏视为无历史，不阻断安全链
+    elif state is not None:
+        times = state.get("kill_times", [])
+    return [t for t in times if now - t < 600]
+
+
+def _save_kill_times(times, state, kv_set):
+    if kv_set:
+        kv_set("kill_times", json.dumps(times))
+    elif state is not None:
+        state["kill_times"] = times
+
+
+def run(process_name, cfg, state, psutil_mod=None, kv_get=None, kv_set=None):
     psutil_mod = psutil_mod or psutil
     now = time.time()
+    # NEVER_KILL 入口硬阻断：防配置事故（即使管理员误把 explorer.exe 配进名单也杀不了）
+    if process_name.lower() in NEVER_KILL:
+        return {"status": "blocked:never_kill"}
     rule = next((w for w in cfg.WATCH_PROCESSES
                  if w["name"].lower() == process_name.lower()), None)
+    if rule is None:
+        rule = _autokill_rule(process_name, cfg)
     if rule is None:
         return {"status": "skipped:not_whitelisted"}
 
     # 频次熔断：10 分钟内超限 → 降级为仅通知（先于一切进程枚举）
-    times = [t for t in state.get("kill_times", []) if now - t < 600]
+    times = _load_kill_times(state, kv_get, now)
     if len(times) >= rule.get("max_kills_per_10min", 2):
-        state["kill_times"] = times
+        _save_kill_times(times, state, kv_set)
         return {"status": "degraded:frequency_cap"}
 
     # 重读水位：取同名进程中 commit 最大者（Windows 上 vms=PagefileUsage=commit，回退用）
@@ -74,10 +114,12 @@ def run(process_name, cfg, state, psutil_mod=None):
     except psutil_mod.NoSuchProcess:
         return {"status": "skipped:process_gone"}
     times.append(now)
-    state["kill_times"] = times
+    _save_kill_times(times, state, kv_set)
     return {"status": "killed", "pid": best.info["pid"],
             "commit_gb": round(best_commit / GB, 2)}
 
 
 ACTION = {"name": "kill_process",
-          "run": lambda params, cfg, state: run(params.get("process", ""), cfg, state)}
+          "run": lambda params, cfg, state: run(params.get("process", ""), cfg, state,
+                                                kv_get=state.get("_kv_get") if state else None,
+                                                kv_set=state.get("_kv_set") if state else None)}

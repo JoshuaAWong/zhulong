@@ -26,6 +26,12 @@ function theme() {
            mut: cv("--mut"), cinn: cv("--cinn"), ochre: cv("--ochre"), brush: cv("--brush"),
            leaf: cv("--leaf") };
 }
+/* HTML 转义：进程名/命令行/事件详情等外部文本进 innerHTML 前必须过此（防 XSS）；
+   转义了引号，属性上下文（title="..."）同样安全 */
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 function zh(key) { const n = META.names[key]; return n ? n[0] : key; }
 function zhDesc(key) { const n = META.names[key]; return n ? n[1] : ""; }
 function f1(v) { return (v ?? 0).toFixed(1); }
@@ -151,7 +157,7 @@ async function renderZ2(cur) {
   $("o2").innerHTML =
     omen("总占用", `${f1(cur.cpu_percent)} <small>%</small>`, cur.cpu_percent ?? 0, "", zhDesc("cpu_percent")) +
     omen("单核峰值", `${f1(cur.cpu_max_core)} <small>%</small>`, cur.cpu_max_core ?? 0, mc > 80 ? "warn" : "", zhDesc("cpu_max_core")) +
-    omen("CPU 大户", top ? `${top} <small>${f1(cur.cpu_top_pct)}%</small>` : "–", cur.cpu_top_pct ?? 0, (cur.cpu_top_pct ?? 0) > 50 ? "warn" : "", zhDesc("cpu_top_pct"));
+    omen("CPU 大户", top ? `${esc(top)} <small>${f1(cur.cpu_top_pct)}%</small>` : "–", cur.cpu_top_pct ?? 0, (cur.cpu_top_pct ?? 0) > 50 ? "warn" : "", zhDesc("cpu_top_pct"));
 }
 async function renderZ3(cur) {
   const mx = Math.max(cur.io_read_mb_s ?? 0, cur.io_write_mb_s ?? 0);
@@ -166,7 +172,7 @@ async function renderZ3(cur) {
   $("o3").innerHTML =
     omen("读取", `${f1(cur.io_read_mb_s)} <small>MB/s</small>`, (cur.io_read_mb_s ?? 0) / 5 * 100, "", zhDesc("io_read_mb_s")) +
     omen("写入", `${f1(cur.io_write_mb_s)} <small>MB/s</small>`, (cur.io_write_mb_s ?? 0) / 5 * 100, "", zhDesc("io_write_mb_s")) +
-    omen("IO 大户", top ? `${top} <small>${f1(cur.io_top_mb)}MB</small>` : "无", null, "", zhDesc("io_top_mb"));
+    omen("IO 大户", top ? `${esc(top)} <small>${f1(cur.io_top_mb)}MB</small>` : "无", null, "", zhDesc("io_top_mb"));
 }
 async function renderZ4(cur) {
   const jit = cur.ping_jitter_ms ?? 0;
@@ -216,7 +222,7 @@ function renderHero(cur) {
   const [zt, zc, zcls] = pct < 70 ? ["安 · 绿区健康，无需处置", "an", ""] : pct < 85 ? ["慎 · 水位偏高，留意大户", "shen", ""] : ["危 · 逼近上限，请即处置", "wei", ""];
   $("heroNum").innerHTML = `${f1(pct)}<small> %</small>`;
   $("heroNum").style.color = pct < 70 ? "var(--ink)" : pct < 85 ? "var(--ochre)" : "var(--cinn)";
-  const top = META.labels.cpu_top_pct ? `CPU：大户 ${META.labels.cpu_top_pct} 占 ${f1(cur.cpu_top_pct)}%` : "CPU：平稳";
+  const top = META.labels.cpu_top_pct ? `CPU：大户 ${esc(META.labels.cpu_top_pct)} 占 ${f1(cur.cpu_top_pct)}%` : "CPU：平稳";
   $("quickread").innerHTML =
     `${zh("commit_percent")} <span class="${zcls || "an"}">${zt}</span><br>` +
     `内存：已用 ${f1(cur.commit_used_gb)} / 上限 ${f1(cur.commit_limit_gb)} GB ｜ ${top} ｜ 磁盘网络：平稳 ｜ 显卡：${f1(cur.gpu_temp)}°C ${(cur.gpu_util ?? 0) > 50 ? "高负载" : "闲置"}`;
@@ -233,8 +239,8 @@ function renderRanks(cur) {
       const parts = raw.split("|");
       const name = parts[0], pid = parts[1] || "", cmd = parts.slice(2).join("|");
       const isAnomaly = anomalyNames.has(name.toLowerCase());
-      items.push(`<div class="rank"${isAnomaly ? ' style="color:var(--cinn)"' : ""}><span>${"①②③④⑤"[i - 1]} ${name}${pid ? ` <small>#${pid}</small>` : ""}${isAnomaly ? ' <b>⚠ 疑似泄漏</b>' : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
-        (cmd ? `<div class="rank-path" title="${cmd}">${cmd}</div>` : ""));
+      items.push(`<div class="rank"${isAnomaly ? ' style="color:var(--cinn)"' : ""}><span>${"①②③④⑤"[i - 1]} ${esc(name)}${pid ? ` <small>#${esc(pid)}</small>` : ""}${isAnomaly ? ' <b>⚠ 疑似泄漏</b>' : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
+        (cmd ? `<div class="rank-path" title="${esc(cmd)}">${esc(cmd)}</div>` : ""));
     }
   }
   $("ranks").innerHTML = items.join("") || `<div class="rank"><span>暂无数据（大户扫描每两分钟一轮）</span></div>`;
@@ -246,10 +252,10 @@ async function renderThrottle() {
   const enabled = th.enabled === "default" ? "出厂默认开" : th.enabled === "1" ? "开" : "关";
   $("thState").textContent = enabled;
   const rows = th.rules.map(r =>
-    `<div class="set-row"><span>${r.name}</span><span class="vv">${r.priority} · ${r.cores}</span></div>`);
+    `<div class="set-row"><span>${esc(r.name)}</span><span class="vv">${r.priority} · ${r.cores}</span></div>`);
   const applied = JSON.parse(th.applied || "{}");
   const names = Object.keys(applied);
-  if (names.length) rows.push(`<div class="set-row"><span>当前生效</span><span class="vv">${names.join("、")}</span></div>`);
+  if (names.length) rows.push(`<div class="set-row"><span>当前生效</span><span class="vv">${names.map(esc).join("、")}</span></div>`);
   $("throttle").innerHTML = rows.join("");
 }
 const ACTION_CN = a => a.startsWith("degraded") ? "降级处理" : { kill_process: "自动终结", toast: "通知", muted: "已静音", apply: "施加", restore: "还原" }[a] || a;
@@ -259,7 +265,7 @@ function renderEvents(events) {
   $("events").innerHTML = events.slice(0, 20).map(([ts, rule, action, detail]) => {
     const cls = action.startsWith("degraded") ? "pi-wei" : action === "muted" ? "pi-mute" : "pi-an";
     const pi = cls === "pi-wei" ? "待人工 ◉" : cls === "pi-mute" ? "已静音" : "已处置";
-    return `<div class="ev"><span class="t">${ts.slice(5)}</span><span class="b">${RULE_CN[rule] || rule} · ${ACTION_CN(action)}：${(detail || "").slice(0, 80)}</span><span class="pi ${cls}">${pi}</span></div>`;
+    return `<div class="ev"><span class="t">${ts.slice(5)}</span><span class="b">${RULE_CN[rule] || esc(rule)} · ${ACTION_CN(action)}：${esc((detail || "").slice(0, 80))}</span><span class="pi ${cls}">${pi}</span></div>`;
   }).join("") || `<div class="ev"><span class="b">本区间无事件 —— 系统安泰</span></div>`;
   renderPendline(pend);
 }
@@ -282,7 +288,7 @@ function renderPendline(pend) {
   $("pendline").hidden = false;
 }
 window.askConfirm = function () {
-  $("actZone").innerHTML = `<span class="act-ask">确认终结 ${pendTarget} 乎？</span>` +
+  $("actZone").innerHTML = `<span class="act-ask">确认终结 ${esc(pendTarget)} 乎？</span>` +
     `<button class="act-btn" onclick="doKill()">确认</button> ` +
     `<button class="act-no" onclick="resetAct()">再思</button>`;
 };

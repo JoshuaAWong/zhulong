@@ -43,7 +43,7 @@ class Tray:
         self.icon = pystray.Icon("Zhulong", self._imgs["gray"], "烛龙 · 启动中…",
                                  menu=pystray.Menu(*items))
 
-    def update(self, percent=None, used_gb=None, limit_gb=None, healthy=True):
+    def update(self, percent=None, used_gb=None, limit_gb=None, healthy=True, note=""):
         if not healthy or percent is None:
             state, tip = "gray", "烛龙 · 采集心跳异常"
         else:
@@ -52,7 +52,7 @@ class Tray:
             if used_gb and limit_gb:
                 tip += f" ({used_gb:.0f}/{limit_gb:.0f}GB)"
         self.icon.icon = self._imgs[state]
-        self.icon.title = tip[:127]
+        self.icon.title = (tip + note)[:127]   # note：如「面板端口被占用」等常驻提示
 
     def run(self):
         self.icon.run()

@@ -33,6 +33,14 @@ def main():
         assert storage.latest(conn, "memory", "commit_percent")[1] == 90.0
         hb = (td / "state" / "heartbeat.json")
         assert hb.exists() and abs(hb.read_text(encoding="utf-8").count("pid")) == 1
+
+        # 心跳原子写：遗留半截 .tmp 不影响正式心跳；写完正式文件始终完整可解析
+        (td / "state" / "heartbeat.json.tmp").write_text('{"pid": 12', encoding="utf-8")   # 模拟崩溃遗留
+        scheduler.write_heartbeat(td / "state")
+        import json as _json
+        hbj = _json.loads(hb.read_text(encoding="utf-8"))   # 若曾读到半截这里必抛
+        assert hbj["pid"] > 0 and hbj["ts"] > 1e9, hbj
+        assert not (td / "state" / "heartbeat.json.tmp").exists(), "os.replace 应收走临时文件"
         evts = storage.query_events(conn)
         assert evts[0][2] == "fake" and evts[0][3].count("ok") == 1, evts
 

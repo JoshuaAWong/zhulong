@@ -89,6 +89,14 @@ def main():
     fired = eng4.evaluate([rk], ctx(hhelper=16.0), 400.0)
     assert fired[0]["muted"] is False
     assert store.get("muted_until") is not None, "静音应持久化到 kv"
+    assert float(store["muted_until"]) >= 1e9, "静音落库应为墙钟时间戳"
+
+    # ---- kv 残留旧 monotonic 值（<1e9）：丢弃视为无静音，不导致永久静音 ----
+    store_old = {"muted_until": repr(12345.6)}   # 旧版本写入的 monotonic 残留
+    eng7 = Engine(kv_get=lambda k: store_old.get(k), kv_set=lambda k, v: store_old.__setitem__(k, v))
+    assert eng7.muted_until == 0.0, eng7.muted_until
+    fired = eng7.evaluate([LEAK_RULE], ctx(hhelper=16.0), 1.0)
+    assert len(fired) == 1 and fired[0]["muted"] is False, fired
 
     # ---- Critical 回归：无迟滞规则触发后，条件不再成立时绝不幻影再触发 ----
     eng5, _ = make_engine()

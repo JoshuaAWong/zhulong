@@ -65,10 +65,16 @@ def main():
     engine = Engine(kv_get=lambda k: storage.kv_get(kv_conn, k),
                     kv_set=lambda k, v: storage.kv_set(kv_conn, k, v))
 
-    # 面板服务（daemon 线程 B）
+    # 面板服务（daemon 线程 B）：端口被占用不致命，降级为无面板模式（采集/规则/托盘照常）
     from zhulong.web import server as web_server
-    srv = web_server.serve(conn)
-    threading.Thread(target=srv.serve_forever, name="web", daemon=True).start()
+    try:
+        srv = web_server.serve(conn)
+    except OSError:
+        srv = None
+        LOG.error("面板端口 %d 被占用，降级为无面板模式", config.PORT)
+    panel_note = "" if srv is not None else " ｜ 面板端口被占用"
+    if srv is not None:
+        threading.Thread(target=srv.serve_forever, name="web", daemon=True).start()
 
     # 托盘（主线程）与采集（daemon）互相通过回调通信
     stop_event = threading.Event()
@@ -83,7 +89,8 @@ def main():
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         intent.write_text("user exit", encoding="utf-8")
         stop_event.set()
-        srv.shutdown()   # 面板线程退出
+        if srv is not None:
+            srv.shutdown()   # 面板线程退出（无面板模式跳过）
         LOG.info("用户退出：意图标记已写入")
         t = tray_holder.get("tray")   # 停掉主线程托盘消息循环，进程才能真正退出
         if t is not None:
@@ -121,14 +128,14 @@ def main():
         tray.update(percent=row[1] if row else None,
                     used_gb=used[1] if used else None,
                     limit_gb=limit[1] if limit else None,
-                    healthy=healthy)
+                    healthy=healthy, note=panel_note)
         for t in triggers:
             LOG.info("触发 %s actions=%s muted=%s", t["rule"], t["actions"], t["muted"])
 
     threading.Thread(target=scheduler.loop, name="collector",
                      args=(conn, config, collectors, rules, engine, actions, stop_event, on_cycle),
                      daemon=True).start()
-    LOG.info("烛龙启动完成，面板 %s", config.PANEL_URL)
+    LOG.info("烛龙启动完成%s", f"，面板 {config.PANEL_URL}" if srv is not None else "（无面板模式）")
     tray.run()          # 主线程阻塞于托盘消息循环
     LOG.info("烛龙退出")
 

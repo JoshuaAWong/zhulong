@@ -14,8 +14,10 @@ def now_iso():
 
 def write_heartbeat(state_dir):
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "heartbeat.json").write_text(
-        json.dumps({"pid": os.getpid(), "ts": time.time()}), encoding="utf-8")
+    # 临时文件 + os.replace 原子替换：看门狗永不读到半截 JSON
+    tmp = state_dir / "heartbeat.json.tmp"
+    tmp.write_text(json.dumps({"pid": os.getpid(), "ts": time.time()}), encoding="utf-8")
+    os.replace(tmp, state_dir / "heartbeat.json")
 
 
 def build_ctx(conn, cfg):
@@ -43,6 +45,9 @@ def build_ctx(conn, cfg):
 
 def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=True):
     ts = now_iso()
+    # 熔断计数走 kv 表：自动通道与面板通道共用同一份（kill_process 经 state 取用）
+    state.setdefault("_kv_get", lambda k: storage.kv_get(conn, k))
+    state.setdefault("_kv_set", lambda k, v: storage.kv_set(conn, k, v))
     rows = []
     failures = 0
     for c in collectors:

@@ -121,12 +121,17 @@ class Handler(BaseHTTPRequestHandler):
                                   json.dumps({"status": "forbidden"}).encode("utf-8"))
         action, target = body.get("action"), body.get("target", "")
         if action == "kill_process":
-            allowed = {w["name"] for w in config.WATCH_PROCESSES} | set(getattr(config, "AUTOKILL", []))
+            # AUTOKILL 元素允许字符串或 dict（{"name", "path_contains"?}），白名单比对只取名字
+            allowed = {w["name"] for w in config.WATCH_PROCESSES} | {
+                (e["name"] if isinstance(e, dict) else e) for e in getattr(config, "AUTOKILL", [])}
             if target not in allowed:
                 return self._send(400, "application/json; charset=utf-8",
                                       json.dumps({"status": "skipped:not_allowed"}).encode("utf-8"))
             from zhulong.actions import kill_process
-            result = kill_process.run(target, config, {})
+            # 熔断计数走 kv 表：与自动通道共用同一份（面板手动 kill 不再绕过熔断）
+            result = kill_process.run(target, config, {},
+                                      kv_get=lambda k: storage.kv_get(self.storage_conn, k),
+                                      kv_set=lambda k, v: storage.kv_set(self.storage_conn, k, v))
             storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
                                  "panel_action", "kill_process",
                                  json.dumps({"target": target, "result": result}, ensure_ascii=False))

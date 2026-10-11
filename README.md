@@ -45,7 +45,7 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 ```
 
 - 数据：SQLite WAL 通用窄表（30 天保留自动清理），扩展指标不改表结构
-- 安全红线：面板零写端点、只绑 127.0.0.1；kill fail-closed 路径校验 + PID 复用竞态防护；无提权、无注入
+- 安全红线：面板仅一个令牌守卫的 POST /api/action 动作通道（零配置写端点）、只绑 127.0.0.1；kill fail-closed 路径校验 + PID 复用竞态防护 + NEVER_KILL 入口硬阻断；无提权、无注入
 - 依赖仅 4 个纯 pip 包：psutil、pystray、Pillow、winotify（面板用标准库 http.server，无 Flask）
 
 ## 文档
@@ -71,6 +71,7 @@ python -X utf8 -m zhulong.tests.test_engine   :: 其余 test_* 同理，断言�
 | 托盘图标不出现 | 查 pythonw.exe 与 `data/logs/zhulong.log`；勿用管理员身份跑计划任务 |
 | 通知收不到 | Windows 设置 → 系统 → 通知：总开关开启、勿扰关闭 |
 | 面板打不开/数据陈旧 | 查 `data/logs/zhulong.log`；托盘是否变灰；杀 pythonw 由看门狗拉起 |
+| 托盘提示「面板端口被占用」 | 8890 被别的程序占了：烛龙已降级为无面板模式（采集/告警照常），重启烛龙或腾出端口即可恢复 |
 
 ---
 

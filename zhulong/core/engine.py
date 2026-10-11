@@ -1,5 +1,5 @@
 """规则引擎：唯一持有运行态（窗口/冷却/迟滞/静音）的模块。
-时间纪律：窗口与冷却一律用 monotonic；落库时间由调用方用 wall clock 生成。"""
+时间纪律：窗口与冷却一律用 monotonic；静音（muted_until）用墙钟并落库（重启后仍生效）。"""
 import time
 
 
@@ -24,10 +24,14 @@ class Engine:
         self.cycle = 0
         self._kv_get = kv_get or (lambda k: None)
         self._kv_set = kv_set or (lambda k, v: None)
-        self.muted_until = float(self._kv_get("muted_until") or 0)
+        # muted_until 落库用墙钟（monotonic 重启即失效）。<1e9 的值是旧版本写入的
+        # monotonic 残留，丢弃视为无静音——否则会被当成 1970 年的时间戳永久静音
+        v = float(self._kv_get("muted_until") or 0)
+        self.muted_until = v if v >= 1e9 else 0.0
 
     def mute(self, now_mono, seconds):
-        self.muted_until = max(self.muted_until, now_mono + seconds)
+        # now_mono 保留仅为签名兼容；落库与比较一律墙钟（重启后静音仍生效）
+        self.muted_until = max(self.muted_until, time.time() + seconds)
         self._kv_set("muted_until", repr(self.muted_until))
 
     def evaluate(self, rules, ctx, now_mono):
@@ -57,7 +61,7 @@ class Engine:
                 continue
             if now_mono < self.cooldown_until_by_name.get(name, 0):
                 continue
-            muted = now_mono < self.muted_until
+            muted = time.time() < self.muted_until   # 与落库口径一致：墙钟比较
             if not muted:
                 self.cooldown_until_by_name[name] = now_mono + rule.get("cooldown_seconds", 0)
             if rule.get("reset_below"):

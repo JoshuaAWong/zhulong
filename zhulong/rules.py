@@ -39,9 +39,11 @@ RULES = [
 ]
 
 # AUTOKILL 动态规则：名单内进程一旦判定异常即自动终结（仍走七步安全链）
+# 名单元素允许字符串或 dict（{"name", "path_contains"?}），此处只取名字
 def _autokill_rules():
     rules = []
-    for name in getattr(config, "AUTOKILL", []):
+    for entry in getattr(config, "AUTOKILL", []):
+        name = entry["name"] if isinstance(entry, dict) else entry
         rules.append({
             "name": f"autokill_{name}",
             "condition": lambda ctx, n=name: any(a["name"].lower() == n.lower()

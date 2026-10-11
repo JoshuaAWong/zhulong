@@ -76,6 +76,9 @@ THROTTLE_DEFAULTS = {
 THROTTLE_INTERVAL_CYCLES = 4   # 每 4 个采集周期（2 分钟）巡检应用一次
 
 # 通用异常进程：自动杀仅限显式名单（默认空 = 全部只告警）；保护名单见 core/anomaly.NEVER_KILL
+# （NEVER_KILL 在 kill_process 入口硬阻断，误配名单也杀不动）
+# 名单元素允许字符串（仅按名匹配）或 dict：{"name": "x.exe", "path_contains": "路径片段"}
+# ——不配 path_contains 则无路径校验；阈值固定取 core/anomaly.ANOMALY_REDLINE_GB（20GB）
 AUTOKILL = []
 
 # 网络探测：烛龙唯一主动发包功能（每周期网关+公网各 1 个 ICMP 包）
