@@ -44,7 +44,17 @@ def _load_kill_times(state, kv_get, now, name):
         d = state.get("kill_times", {})
         if isinstance(d, dict):
             buckets = d
-    times = [t for t in buckets.get(name.lower(), []) if now - t < 600]
+    raw_times = buckets.get(name.lower(), [])
+    if not isinstance(raw_times, list):
+        raw_times = []   # kv 分桶内容非列表：视为无历史（fail-open）
+    times = []
+    for t in raw_times:
+        try:
+            t = float(t)
+        except (TypeError, ValueError):
+            continue   # 非法元素（None/字符串等）逐元素丢弃，不炸安全链
+        if now - t < 600:
+            times.append(t)
     return buckets, times
 
 

@@ -66,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(parsed.query)
         try:
             if parsed.path == "/":
-                return self._file("index.html")
+                return self._file("index.html", cache="no-store")   # HTML 自身不缓存（?v= 救不了它）
             if parsed.path in ("/chart.umd.js", "/panel.css", "/panel.js", "/favicon.svg"):   # 字面白名单
                 return self._file(parsed.path.lstrip("/"))
             if parsed.path == "/favicon.ico":
@@ -155,36 +155,43 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, "application/json; charset=utf-8",
                                   json.dumps({"status": "forbidden"}).encode("utf-8"))
         action, target = body.get("action"), body.get("target", "")
-        if action == "kill_process":
-            # AUTOKILL 元素允许字符串或 dict（{"name", "path_contains"?}），白名单比对只取名字
-            allowed = {w["name"] for w in config.WATCH_PROCESSES} | {
-                (e["name"] if isinstance(e, dict) else e) for e in getattr(config, "AUTOKILL", [])}
-            if target not in allowed:
-                return self._send(400, "application/json; charset=utf-8",
+        try:
+            if action == "kill_process":
+                # AUTOKILL 元素允许字符串或 dict（{"name", "path_contains"?}），白名单比对只取名字
+                allowed = {w["name"] for w in config.WATCH_PROCESSES} | {
+                    (e["name"] if isinstance(e, dict) else e) for e in getattr(config, "AUTOKILL", [])}
+                if target not in allowed:
+                    return self._send(400, "application/json; charset=utf-8",
                                       json.dumps({"status": "skipped:not_allowed"}).encode("utf-8"))
-            from zhulong.actions import kill_process
-            # 熔断计数走 kv 表：与自动通道共用同一份（面板手动 kill 不再绕过熔断）
-            result = kill_process.run(target, config, {},
-                                      kv_get=lambda k: storage.kv_get(self.storage_conn, k),
-                                      kv_set=lambda k, v: storage.kv_set(self.storage_conn, k, v))
-            storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
-                                 "panel_action", "kill_process",
-                                 json.dumps({"target": target, "result": result}, ensure_ascii=False))
-            return self._send(200, "application/json; charset=utf-8",
-                              json.dumps(result, ensure_ascii=False).encode("utf-8"))
-        if action in ("throttle_on", "throttle_off"):
-            storage.kv_set(self.storage_conn, "throttle_enabled", "1" if action == "throttle_on" else "0")
-            return self._send(200, "application/json; charset=utf-8",
-                              json.dumps({"status": "ok", "enabled": action == "throttle_on"}).encode("utf-8"))
-        return self._send(400, "application/json; charset=utf-8",
-                          json.dumps({"status": "unknown_action"}).encode("utf-8"))
+                from zhulong.actions import kill_process
+                # 熔断计数走 kv 表：与自动通道共用同一份（面板手动 kill 不再绕过熔断）
+                result = kill_process.run(target, config, {},
+                                          kv_get=lambda k: storage.kv_get(self.storage_conn, k),
+                                          kv_set=lambda k, v: storage.kv_set(self.storage_conn, k, v))
+                storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "panel_action", "kill_process",
+                                     json.dumps({"target": target, "result": result}, ensure_ascii=False))
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            if action in ("throttle_on", "throttle_off"):
+                storage.kv_set(self.storage_conn, "throttle_enabled", "1" if action == "throttle_on" else "0")
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps({"status": "ok", "enabled": action == "throttle_on"}).encode("utf-8"))
+            return self._send(400, "application/json; charset=utf-8",
+                              json.dumps({"status": "unknown_action"}).encode("utf-8"))
+        except Exception:
+            # 与 do_GET 同风格：sqlite 等内部错误回 500，不断连无响应
+            LOG.exception("动作通道处理异常")
+            return self._send(500, "application/json; charset=utf-8",
+                              json.dumps({"status": "internal_error"}).encode("utf-8"))
 
-    def _file(self, name):
+    def _file(self, name, cache="max-age=3600"):
         body = self.static_files.get(name)
         if body is None:
             return self._send(404, "text/plain", b"not found")
-        # 静态资源可缓存 1 小时；前端更新靠 index.html 里引用 URL 的 ?v= 版本串刷新
-        self._send(200, _MIME[Path(name).suffix], body, cache="max-age=3600")
+        # 静态资源可缓存 1 小时；前端更新靠引用 URL 的 ?v= 版本串刷新。
+        # index.html 自身必须 no-store——?v= 救不了 HTML 自己（调用方传 cache 覆盖）
+        self._send(200, _MIME[Path(name).suffix], body, cache=cache)
 
     def _send(self, code, ctype, body, cache="no-store"):
         try:

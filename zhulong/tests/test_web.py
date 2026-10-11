@@ -47,8 +47,9 @@ def main():
         port = srv.server_address[1]
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            st, _, body = get("127.0.0.1", port, "/")
+            st, hdr, body = get("127.0.0.1", port, "/")
             assert st == 200 and "烛龙".encode("utf-8") in body, st
+            assert hdr.get("Cache-Control") == "no-store", hdr   # 终审修订：HTML 自身不缓存（?v= 救不了它）
             st, hdr, body = get("127.0.0.1", port, "/api/current")
             data = json.loads(body)
             assert st == 200 and data["commit_percent"] == 66.0, data
@@ -127,6 +128,14 @@ def main():
             assert st == 200 and json.loads(body)["status"] == "degraded:frequency_cap", body
             st, body = post_json(port, "/api/action", {"action": "nope", "token": tok})
             assert st == 400 and json.loads(body)["status"] == "unknown_action", body
+            # 终审修订：do_POST 内部异常（如 sqlite 抛错）回 500 JSON，不断连无响应
+            orig_kv_set = storage.kv_set
+            storage.kv_set = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db gone"))
+            try:
+                st, body = post_json(port, "/api/action", {"action": "throttle_on", "token": tok})
+                assert st == 500 and json.loads(body)["status"] == "internal_error", (st, body)
+            finally:
+                storage.kv_set = orig_kv_set
             st, _, _ = get("127.0.0.1", port, "/favicon.ico")
             assert st == 204
             # 静态拆分文件：字面白名单路由 + MIME 硬编码 + B2 内存缓存与 Cache-Control

@@ -97,9 +97,14 @@ def main():
     assert pruned == {}, pruned   # 跌破红线：清除
     out, notified2 = anomaly.redline_notifiable([RL(21.0)], pruned)
     assert [a["name"] for a in out] == ["Leak.exe"] and notified2["Leak.exe"] == 21.0, (out, notified2)
-    # 进程消失（序列中不再出现）同样清除；序列取失败（None）不剪，防误清
-    assert anomaly.prune_redline_notified({}, notified) == {}
+    # 终审修订：序列消失（跌出 Top5/未采到）不再清除——边界震荡进程回榜仍按环比语义；
+    # 序列取失败（None）同样不剪，防误清
+    assert anomaly.prune_redline_notified({}, notified) == notified   # 保留
     assert anomaly.prune_redline_notified(None, notified) == notified
+    # 跌出 Top5 一轮后回榜同值（26.5 < 26.2+1GB 步长）不重报
+    kept = anomaly.prune_redline_notified({}, notified)
+    out, notified4 = anomaly.redline_notifiable([RL(26.5)], kept)
+    assert out == [] and notified4 == notified, (out, notified4)
 
     # suspect 不受抑制：同名同值反复放行，且不写通知记录
     out, notified3 = anomaly.redline_notifiable([SP(12.0)], {"Grow.exe": 12.0})

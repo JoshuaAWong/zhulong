@@ -52,6 +52,35 @@ def main():
         storage.kv_set(conn, "muted_until", "123.45")
         assert storage.kv_get(conn, "muted_until") == "123.45"
         assert storage.kv_get(conn, "nope") is None
+
+        # 并发读写 smoke（终审修订：单连接跨线程读写全靠 _LOCK）：两线程交替写读 100 次不抛
+        import threading
+        errors = []
+
+        def writer():
+            for i in range(100):
+                try:
+                    storage.insert_metrics(conn, [(_iso(base + i), "mem", "c", float(i), "")])
+                    storage.kv_set(conn, "k", str(i))
+                except Exception as e:
+                    errors.append(e)
+
+        def reader():
+            for i in range(100):
+                try:
+                    storage.latest(conn, "mem", "c")
+                    storage.kv_get(conn, "k")
+                    storage.query_events(conn, limit=5)
+                except Exception as e:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=writer), threading.Thread(target=writer),
+                   threading.Thread(target=reader), threading.Thread(target=reader)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors, errors[:3]
         conn.close()
     print("PASS")
 

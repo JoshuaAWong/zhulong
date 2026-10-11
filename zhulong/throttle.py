@@ -102,15 +102,21 @@ def apply_if_due(conn, cfg, state, psutil_mod=None):
             continue
         except pm.AccessDenied:
             skipped.append(proc.name())   # 提权/自保护进程（如电脑管家）：不再静默
-    if skipped:
-        storage.insert_event(conn, _ts(), "throttle", "skip",
-                             json.dumps({"reason": "access_denied", "processes": skipped},
-                                        ensure_ascii=False))
+    # 状态变化才记：denied 集合与上轮相同不重复记——自保护进程（如 QQPCTray）永远
+    # AccessDenied，每轮（2 分钟）记一条会变成每天 720 条的告警风暴（同款 _bad_rules 模式）
+    cur_denied = sorted(skipped)
+    if cur_denied != state.get("_last_denied", []):
+        state["_last_denied"] = cur_denied
+        if cur_denied:
+            storage.insert_event(conn, _ts(), "throttle", "skip",
+                                 json.dumps({"reason": "access_denied", "processes": cur_denied},
+                                            ensure_ascii=False))
     storage.kv_set(conn, "throttle_applied", json.dumps(applied, ensure_ascii=False))
 
 
-def restore(conn, psutil_mod=None):
-    """按已施加清单全量还原（normal + 全部核），清空清单。返回还原进程数。"""
+def restore(conn, psutil_mod=None, state=None):
+    """按已施加清单全量还原（normal + 全部核），清空清单。返回还原进程数。
+    state 可选：传入则 denied 集合去重（同 apply）；不传（退出/手动一次性调用）则照记。"""
     pm = psutil_mod or psutil
     applied = json.loads(storage.kv_get(conn, "throttle_applied") or "{}")
     if not applied:
@@ -132,8 +138,12 @@ def restore(conn, psutil_mod=None):
             except pm.AccessDenied:
                 skipped.append(name)   # 自保护进程还原被拒：记一次 skip 事件（此前静默）
     if skipped:
-        storage.insert_event(conn, _ts(), "throttle", "skip",
-                             json.dumps({"reason": "access_denied", "processes": skipped,
-                                         "op": "restore"}, ensure_ascii=False))
+        cur_denied = sorted(skipped)
+        if state is None or cur_denied != state.get("_last_denied", []):
+            if state is not None:
+                state["_last_denied"] = cur_denied
+            storage.insert_event(conn, _ts(), "throttle", "skip",
+                                 json.dumps({"reason": "access_denied", "processes": cur_denied,
+                                             "op": "restore"}, ensure_ascii=False))
     storage.kv_set(conn, "throttle_applied", "{}")
     return done

@@ -87,12 +87,15 @@ def latest_by_name(series):
 
 
 def prune_redline_notified(series, notified, redline=ANOMALY_REDLINE_GB):
-    """红线通知状态的生命周期闭环：最新值跌破红线（≤redline）或已消失的进程清除条目——
-    否则回落后再涨会被永久抑制。series 为 None（本轮取序列失败）时不剪，防误清。"""
+    """红线通知状态的生命周期闭环（v1.5 终审修订）：
+    - 序列存在但最新值跌破红线（≤redline）→ 清除条目（回落后再涨可再报）
+    - 序列不存在（跌出 Top5/本轮未采到）→ 保留记录：边界震荡进程回榜后仍按
+      环比语义（同值不重报），不按首次越线重报
+    - series 为 None（本轮取序列失败）→ 不剪，防误清"""
     if series is None:
         return dict(notified)
     latest = latest_by_name(series)
-    return {n: v for n, v in notified.items() if latest.get(n, 0.0) > redline}
+    return {n: v for n, v in notified.items() if n not in latest or latest[n] > redline}
 
 
 def redline_notifiable(anomalies, notified, step_gb=REDLINE_RENOTIFY_STEP_GB):

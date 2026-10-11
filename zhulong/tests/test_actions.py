@@ -185,6 +185,20 @@ def main():
     assert r["status"] == "killed", r
     assert isinstance(_json.loads(kv2["kill_times"]), dict), kv2   # 写回即迁移为分桶格式
 
+    # 14b) kv 分桶类型防护（终审修订）：桶非列表 / 含非数字元素 → 逐元素丢弃，不抛 TypeError
+    kv3 = {"kill_times": _json.dumps({"leaka.exe": "notalist"})}
+    p = FakeProc(25, "LeakA.exe", 16 * 2**30, old, None)
+    r = kill_process.run("LeakA.exe", C5, {}, psutil_mod=FakePS([p]),
+                         kv_get=lambda k: kv3.get(k), kv_set=lambda k, v: kv3.__setitem__(k, v))
+    assert r["status"] == "killed", r   # 桶非列表视为无历史
+    kv4 = {"kill_times": _json.dumps({"leaka.exe": ["x", None, now - 10]})}
+    p = FakeProc(26, "LeakA.exe", 16 * 2**30, old, None)
+    r = kill_process.run("LeakA.exe", C5, {}, psutil_mod=FakePS([p]),
+                         kv_get=lambda k: kv4.get(k), kv_set=lambda k, v: kv4.__setitem__(k, v))
+    assert r["status"] == "killed", r   # 非法元素丢弃，合法的 now-10 计入但不熔断
+    times4 = _json.loads(kv4["kill_times"])["leaka.exe"]
+    assert len(times4) == 2 and abs(times4[0] - (now - 10)) < 1, times4   # 非法元素已被滤除
+
     # 15) toast PowerShell 降级链转义：单引号双写（进程名/cmdline 可含 '，属注入面）
     script = toast._ps_script("烛龙's", "it's a 'leak'")
     assert "烛龙''s" in script and "it''s a ''leak''" in script, script

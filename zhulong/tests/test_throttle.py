@@ -136,6 +136,26 @@ def main():
                  if e[2] == "skip" and "access_denied" in e[3]]
         assert len(skips) == 1 and "ToDesk.exe" in skips[0][3], skips
 
+        # 终审修订：denied 集合不变不重复记（自保护进程永远 AccessDenied，每轮记会刷屏）
+        def deny_event_count():
+            return len([e for e in storage.query_events(conn, limit=100)
+                        if e[2] == "skip" and "access_denied" in e[3]])
+        st6 = {}
+        throttle.apply_if_due(conn, FakeCfg, st6, psutil_mod=FakePS([DenyProc(500, "ToDesk.exe")]))
+        n_ev = deny_event_count()
+        throttle.apply_if_due(conn, FakeCfg, st6, psutil_mod=FakePS([DenyProc(501, "ToDesk.exe")]))
+        assert deny_event_count() == n_ev, "同一 denied 集合重复记事件"
+        # 集合变化（新增 ghost.exe 也被拒）→ 再记一条
+        throttle.apply_if_due(conn, FakeCfg, st6,
+                              psutil_mod=FakePS([DenyProc(502, "ToDesk.exe"),
+                                                 DenyProc(503, "ghost.exe")]))
+        assert deny_event_count() == n_ev + 1, "denied 集合变化未记事件"
+        # 集合收窄（恢复无阻）→ 不记；再次被拒（集合重新非空）→ 记
+        throttle.apply_if_due(conn, FakeCfg, st6, psutil_mod=FakePS([]))
+        assert deny_event_count() == n_ev + 1
+        throttle.apply_if_due(conn, FakeCfg, st6, psutil_mod=FakePS([DenyProc(504, "ToDesk.exe")]))
+        assert deny_event_count() == n_ev + 2, "denied 集合清空后再 denied 应重新记"
+
         # ---- B4：restore 幂等（do_exit 退出路径统一调 restore 的前提）----
         n1 = throttle.restore(conn, psutil_mod=FakePS([pok]))
         assert n1 == 1 and pok._nice == NORMAL and pok._aff == list(range(16)), n1

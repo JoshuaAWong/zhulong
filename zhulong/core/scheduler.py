@@ -89,8 +89,8 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
     if evaluate:
         ctx = build_ctx(conn, cfg)
         kv_get, kv_set = state.get("_kv_get"), state.get("_kv_set")
-        # 红线告警环比抑制 · 生命周期闭环（每周期）：跌破红线/消失的进程清除通知记录，
-        # 否则回落后再涨会被永久抑制
+        # 红线告警环比抑制 · 生命周期闭环（每周期）：序列在但跌破红线的进程清除通知记录
+        # （回落后再涨可再报）；序列消失（跌出 Top5）的保留记录——回榜按环比语义不重置
         notified = _read_redline_notified(kv_get)
         pruned = anomaly.prune_redline_notified(ctx.anomaly_series, notified)
         if kv_set and pruned != notified:
