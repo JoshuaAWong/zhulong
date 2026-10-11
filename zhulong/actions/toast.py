@@ -24,9 +24,15 @@ _PSH = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifica
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('烛龙').Show([Windows.UI.Notifications.ToastNotification]::new($t))")
 
 
+def _ps_script(title, body):
+    """拼 PowerShell 脚本。注入面：进程名/cmdline 可含单引号——
+    PS 单引号字符串内 ' 必须双写（''），否则脚本被截断甚至注入。"""
+    esc = lambda s: s.replace("'", "''")
+    return _PSH.replace("{TITLE}", esc(title)).replace("{BODY}", esc(body))
+
+
 def _via_powershell(title, body):
-    script = _PSH.replace("{TITLE}", title).replace("{BODY}", body)
-    subprocess.run(["powershell", "-NoProfile", "-Command", script],
+    subprocess.run(["powershell", "-NoProfile", "-Command", _ps_script(title, body)],
                    creationflags=CREATE_NO_WINDOW, timeout=15, check=True)
 
 

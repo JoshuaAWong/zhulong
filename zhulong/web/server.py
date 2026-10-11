@@ -1,7 +1,10 @@
 """只读面板服务 + 令牌守卫的动作通道。
 红线修订：面板仍零"配置写"端点；仅 POST /api/action 一个动作端点——
-CSRF token（同源页面才可读）+ Host/Origin 校验（防 DNS rebinding）+ 动作白名单 + kill 七步安全链。"""
+CSRF token（同源页面才可读）+ Host/Origin 校验（防 DNS rebinding）+ 动作白名单 + kill 七步安全链。
+v1.5 B2：GET 系端点同样过 Host 校验（令牌端点此前无 Host 检查，DNS rebinding 可读令牌）；
+Origin 改精确比较 hostname；GET 参数钳制；静态资源内存缓存 + Cache-Control。"""
 import json
+import logging
 import secrets
 import time
 import urllib.parse
@@ -11,11 +14,14 @@ from pathlib import Path
 from zhulong import config
 from zhulong.core import storage
 
+LOG = logging.getLogger("zhulong")
 ACTION_TOKEN = secrets.token_hex(16)   # 进程级一次性动作令牌（GET /api/action_token 仅同源可读）
 
 STATIC = Path(__file__).parent / "static"
+_STATIC_NAMES = ("index.html", "chart.umd.js", "panel.css", "panel.js", "favicon.svg")
 _MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+_ALLOWED_HOSTS = ("127.0.0.1", "localhost")
 _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("memory", "commit_limit_gb"), ("memory", "mem_percent"),
                  ("memory", "mem_used_gb"), ("memory", "mem_total_gb"),
@@ -30,10 +36,32 @@ _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("proctop", "proctop4"), ("proctop", "proctop5")]
 
 
+def _clamp_int(q, name, default, lo, hi):
+    """GET 参数解析 + 钳制到 [lo, hi]；无法解析（如 hours=abc）抛 ValueError，调用方转 400。"""
+    raw = q.get(name, [None])[0]
+    if raw is None:
+        return default
+    return max(lo, min(hi, int(raw)))
+
+
 class Handler(BaseHTTPRequestHandler):
     storage_conn = None   # 由 serve() 注入
+    static_files = {}     # 由 serve() 注入：进程启动时一次性读入内存（chart.umd.js ~200KB 不再每请求读盘）
+
+    def _host_ok(self):
+        """Host 校验（防 DNS rebinding）：GET/POST 共用，远端域名直连一律 403。"""
+        return self.headers.get("Host", "").split(":")[0] in _ALLOWED_HOSTS
+
+    def _origin_ok(self):
+        """Origin 精确比较 hostname（startswith 会被 http://127.0.0.1.evil.com 绕过）；端口不强制。"""
+        origin = self.headers.get("Origin", "")
+        if not origin:
+            return True
+        return (urllib.parse.urlparse(origin).hostname or "") in _ALLOWED_HOSTS
 
     def do_GET(self):
+        if not self._host_ok():
+            return self._send(403, "text/plain", b"forbidden host")
         parsed = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(parsed.query)
         try:
@@ -84,18 +112,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":
+                try:
+                    hours = _clamp_int(q, "hours", 24, 1, 744)
+                    bucket = _clamp_int(q, "bucket", 300, 60, 86400)
+                except ValueError:
+                    return self._send(400, "text/plain", b"bad param")
                 pts = storage.query_history(self.storage_conn,
                                             q.get("collector", ["memory"])[0],
                                             q.get("key", ["commit_percent"])[0],
-                                            hours=int(q.get("hours", ["24"])[0]),
-                                            bucket_s=int(q.get("bucket", ["300"])[0]))
+                                            hours=hours, bucket_s=bucket)
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps({"points": pts}, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/events":
-                hours_q = q.get("hours", [None])[0]
-                evts = storage.query_events(self.storage_conn,
-                                            limit=int(q.get("limit", ["50"])[0]),
-                                            hours=int(hours_q) if hours_q else None)
+                try:
+                    limit = _clamp_int(q, "limit", 50, 1, 500)
+                    hours = _clamp_int(q, "hours", 0, 1, 744) if q.get("hours") else None
+                except ValueError:
+                    return self._send(400, "text/plain", b"bad param")
+                evts = storage.query_events(self.storage_conn, limit=limit, hours=hours)
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps({"events": evts}, ensure_ascii=False).encode("utf-8"))
             self._send(404, "text/plain", b"not found")
@@ -107,15 +141,16 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path != "/api/action":
             return self._send(405, "text/plain", b"read-only")
         # 三层防护：Host/Origin 校验 → CSRF token → 动作白名单
-        if self.headers.get("Host", "").split(":")[0] not in ("127.0.0.1", "localhost"):
+        if not self._host_ok():
             return self._send(403, "text/plain", b"forbidden host")
-        origin = self.headers.get("Origin", "")
-        if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
+        if not self._origin_ok():
             return self._send(403, "text/plain", b"forbidden origin")
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         except Exception:
             return self._send(400, "text/plain", b"bad json")
+        if not isinstance(body, dict):
+            return self._send(400, "text/plain", b"bad json")   # 123 / [...] 等非对象 JSON
         if body.get("token") != ACTION_TOKEN:
             return self._send(403, "application/json; charset=utf-8",
                                   json.dumps({"status": "forbidden"}).encode("utf-8"))
@@ -145,21 +180,31 @@ class Handler(BaseHTTPRequestHandler):
                           json.dumps({"status": "unknown_action"}).encode("utf-8"))
 
     def _file(self, name):
-        p = STATIC / name
-        body = p.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", _MIME[p.suffix])
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        body = self.static_files.get(name)
+        if body is None:
+            return self._send(404, "text/plain", b"not found")
+        # 静态资源可缓存 1 小时；前端更新靠 index.html 里引用 URL 的 ?v= 版本串刷新
+        self._send(200, _MIME[Path(name).suffix], body, cache="max-age=3600")
 
-    def _send(self, code, ctype, body):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
+    def _send(self, code, ctype, body, cache="no-store"):
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", cache)   # 默认 no-store：/api/* 与错误响应不缓存
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            pass   # 浏览器中断连接（WinError 10054）是常态，静默
+
+    def handle_error(self, request, client_address):
+        """浏览器中途断连不刷 traceback；其余异常记一行（不带栈）。"""
+        import sys
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            return
+        LOG.warning("面板请求处理异常：%r", exc)
 
     def log_message(self, *args):
         pass   # 面板访问不刷日志
@@ -167,5 +212,6 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(conn, port=None):
     Handler.storage_conn = conn
+    Handler.static_files = {n: (STATIC / n).read_bytes() for n in _STATIC_NAMES}
     # port=0 必须生效（测试用临时端口），不能用 `port or config.PORT`
     return ThreadingHTTPServer((config.HOST, config.PORT if port is None else port), Handler)

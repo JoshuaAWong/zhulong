@@ -84,9 +84,9 @@ def main():
     r = kill_process.run("HYPHelper.exe", cfg, state, psutil_mod=FakePS([p]))
     assert r["status"] == "killed" and p.killed and r["pid"] == 4, r
 
-    # 5) 频次熔断：10 分钟内第 3 次 → degraded
+    # 5) 频次熔断：10 分钟内第 3 次 → degraded（按进程名分桶）
     now = time.time()
-    state = {"kill_times": [now - 60, now - 30]}
+    state = {"kill_times": {"hyphelper.exe": [now - 60, now - 30]}}
     p = FakeProc(5, "HYPHelper.exe", 16 * 2**30, old, good_exe)
     r = kill_process.run("HYPHelper.exe", cfg, state, psutil_mod=FakePS([p]))
     assert r["status"] == "degraded:frequency_cap" and not p.killed, r
@@ -122,7 +122,7 @@ def main():
                          kv_get=lambda k: kv.get(k), kv_set=lambda k, v: kv.__setitem__(k, v))
     assert r["status"] == "killed" and p.killed, r
     import json as _json
-    assert len(_json.loads(kv["kill_times"])) == 1, kv
+    assert len(_json.loads(kv["kill_times"])["bigapp.exe"]) == 1, kv   # 分桶格式 {name: [ts...]}
 
     # 9b) AUTOKILL 阈值语义：19GB（<20GB 红线）不杀
     p = FakeProc(10, "BigApp.exe", 19 * 2**30, old, r"D:\\anywhere\\BigApp.exe")
@@ -149,6 +149,46 @@ def main():
     p = FakeProc(13, "notepad.exe", 30 * 2**30, old, None)
     r = kill_process.run("notepad.exe", C2, {}, psutil_mod=FakePS([p]))
     assert r["status"] == "skipped:not_whitelisted" and not p.killed, r
+
+    # 12) memory_info=None 竞态（process_iter(attrs) 途中进程退出）：跳过不炸
+    p_none = FakeProc(14, "HYPHelper.exe", 0, old, good_exe)
+    p_none.info["memory_info"] = None
+    p_ok = FakeProc(15, "HYPHelper.exe", 16 * 2**30, old, good_exe)
+    r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p_none, p_ok]))
+    assert r["status"] == "killed" and r["pid"] == 15 and not p_none.killed, r
+    r = kill_process.run("HYPHelper.exe", cfg, {}, psutil_mod=FakePS([p_none]))
+    assert r["status"] == "skipped:process_gone", r   # 全部 None → 视为无进程
+
+    # 13) 熔断按进程名分桶：A 杀满 2 次被熔断，B 不受影响
+    wA = {"name": "LeakA.exe", "max_commit_gb": 15, "min_age_s": 60, "max_kills_per_10min": 2}
+    wB = dict(wA); wB["name"] = "LeakB.exe"
+    class C5:
+        WATCH_PROCESSES = [wA, wB]
+    st5 = {}
+    for pid in (20, 21):
+        p = FakeProc(pid, "LeakA.exe", 16 * 2**30, old, None)
+        r = kill_process.run("LeakA.exe", C5, st5, psutil_mod=FakePS([p]))
+        assert r["status"] == "killed", r
+    p = FakeProc(22, "LeakA.exe", 16 * 2**30, old, None)
+    r = kill_process.run("LeakA.exe", C5, st5, psutil_mod=FakePS([p]))
+    assert r["status"] == "degraded:frequency_cap" and not p.killed, r   # A 第 3 次熔断
+    p = FakeProc(23, "LeakB.exe", 16 * 2**30, old, None)
+    r = kill_process.run("LeakB.exe", C5, st5, psutil_mod=FakePS([p]))
+    assert r["status"] == "killed" and p.killed, r   # B 额度独立
+    assert set(st5["kill_times"]) == {"leaka.exe", "leakb.exe"}, st5
+
+    # 14) kv 旧格式（批次 A 的纯列表）兼容：视为无 per-process 历史，可杀
+    kv2 = {"kill_times": _json.dumps([now - 60, now - 30])}
+    p = FakeProc(24, "LeakA.exe", 16 * 2**30, old, None)
+    r = kill_process.run("LeakA.exe", C5, {}, psutil_mod=FakePS([p]),
+                         kv_get=lambda k: kv2.get(k), kv_set=lambda k, v: kv2.__setitem__(k, v))
+    assert r["status"] == "killed", r
+    assert isinstance(_json.loads(kv2["kill_times"]), dict), kv2   # 写回即迁移为分桶格式
+
+    # 15) toast PowerShell 降级链转义：单引号双写（进程名/cmdline 可含 '，属注入面）
+    script = toast._ps_script("烛龙's", "it's a 'leak'")
+    assert "烛龙''s" in script and "it''s a ''leak''" in script, script
+    assert "{TITLE}" not in script and "{BODY}" not in script, script
     print("PASS")
 
 

@@ -1,5 +1,5 @@
 """白名单进程自动结束：安全链，任何一步不过即跳过/降级，绝不抛出未捕获异常。
-顺序：NEVER_KILL 硬阻断 → 频次熔断 → 重读水位 → 存活时长 → 路径校验(fail-closed) → create_time 竞态防护 → kill → 记账"""
+顺序：NEVER_KILL 硬阻断 → 频次熔断（按进程名分桶）→ 重读水位 → 存活时长 → 路径校验(fail-closed) → create_time 竞态防护 → kill → 记账"""
 import json
 import time
 
@@ -27,25 +27,34 @@ def _autokill_rule(process_name, cfg):
     return None
 
 
-def _load_kill_times(state, kv_get, now):
-    """熔断计数：优先 kv 表（自动通道与面板通道共用同一份），无 kv 时退回 state 字典。"""
+def _load_kill_times(state, kv_get, now, name):
+    """按进程名分桶的熔断计数：kv 里是 {name_lower: [ts...]}（自动/面板通道共用）。
+    旧格式（批次 A 的纯列表）与损坏内容一律视为无 per-process 历史（fail-open 不阻断安全链）。
+    返回 (buckets, 该进程窗口内时间戳列表)。"""
     raw = kv_get("kill_times") if kv_get else None
-    times = []
+    buckets = {}
     if raw:
         try:
-            times = [float(t) for t in json.loads(raw)]
+            d = json.loads(raw)
+            if isinstance(d, dict):
+                buckets = d
         except Exception:
-            times = []   # kv 内容损坏视为无历史，不阻断安全链
+            pass
     elif state is not None:
-        times = state.get("kill_times", [])
-    return [t for t in times if now - t < 600]
+        d = state.get("kill_times", {})
+        if isinstance(d, dict):
+            buckets = d
+    times = [t for t in buckets.get(name.lower(), []) if now - t < 600]
+    return buckets, times
 
 
-def _save_kill_times(times, state, kv_set):
+def _save_kill_times(buckets, name, times, state, kv_set):
+    buckets[name.lower()] = times
+    buckets = {k: v for k, v in buckets.items() if v}   # 清掉空桶，kv 不膨胀
     if kv_set:
-        kv_set("kill_times", json.dumps(times))
+        kv_set("kill_times", json.dumps(buckets))
     elif state is not None:
-        state["kill_times"] = times
+        state["kill_times"] = buckets
 
 
 def run(process_name, cfg, state, psutil_mod=None, kv_get=None, kv_set=None):
@@ -61,17 +70,20 @@ def run(process_name, cfg, state, psutil_mod=None, kv_get=None, kv_set=None):
     if rule is None:
         return {"status": "skipped:not_whitelisted"}
 
-    # 频次熔断：10 分钟内超限 → 降级为仅通知（先于一切进程枚举）
-    times = _load_kill_times(state, kv_get, now)
+    # 频次熔断：10 分钟内超限 → 降级为仅通知（先于一切进程枚举）；按进程名分桶，
+    # 进程 A 的额度不挤占进程 B
+    buckets, times = _load_kill_times(state, kv_get, now, process_name)
     if len(times) >= rule.get("max_kills_per_10min", 2):
-        _save_kill_times(times, state, kv_set)
+        _save_kill_times(buckets, process_name, times, state, kv_set)
         return {"status": "degraded:frequency_cap"}
 
     # 重读水位：取同名进程中 commit 最大者（Windows 上 vms=PagefileUsage=commit，回退用）
     best, best_commit, create_time = None, -1.0, None
     for p in _find(psutil_mod.process_iter(["pid", "name", "create_time", "memory_info"]),
                    process_name):
-        mi = p.info["memory_info"]
+        mi = p.info.get("memory_info")
+        if mi is None:
+            continue   # 竞态：process_iter(attrs) 途中进程退出，attrs 取到 None
         commit = getattr(mi, "commit", None)
         if not commit:
             commit = mi.vms
@@ -114,7 +126,7 @@ def run(process_name, cfg, state, psutil_mod=None, kv_get=None, kv_set=None):
     except psutil_mod.NoSuchProcess:
         return {"status": "skipped:process_gone"}
     times.append(now)
-    _save_kill_times(times, state, kv_set)
+    _save_kill_times(buckets, process_name, times, state, kv_set)
     return {"status": "killed", "pid": best.info["pid"],
             "commit_gb": round(best_commit / GB, 2)}
 
