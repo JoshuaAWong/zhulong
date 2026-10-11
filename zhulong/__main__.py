@@ -88,6 +88,16 @@ def main():
     def do_exit():
         config.STATE_DIR.mkdir(parents=True, exist_ok=True)
         intent.write_text("user exit", encoding="utf-8")
+        # 退出前还原限流：被限流进程不残留 BelowNormal+绑核。
+        # 注意：看门狗崩溃重启路径无法 restore——进程意外死亡没机会清理（已施加清单
+        # 仍在 kv 里，下次正常退出或手动「限流 恢复默认规则」时可还原）
+        try:
+            from zhulong import throttle
+            n = throttle.restore(conn)
+            if n:
+                LOG.info("退出前还原限流 %d 个进程", n)
+        except Exception:
+            LOG.exception("退出前限流还原失败")
         stop_event.set()
         if srv is not None:
             srv.shutdown()   # 面板线程退出（无面板模式跳过）

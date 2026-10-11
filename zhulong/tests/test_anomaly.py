@@ -39,14 +39,14 @@ def main():
 
     now = time.time()
 
-    # ⑦ series_from_db：混入 cpu_top_pct / io_top_mb 行不污染序列（key 过滤生效）
+    # ⑦ series_from_db：混入 cpu_top_pct / io_top_mb_s 行不污染序列（key 过滤生效）
     with tempfile.TemporaryDirectory() as td:
         conn = storage.connect(Path(td) / "t.db")
         storage.init_schema(conn)
         rows = [(iso(now - 1200 + i * 600), "proctop", f"proctop{i + 1}", 2.0 + i * 6.0,
                  "Evil.exe|100|D:\\Evil.exe") for i in range(3)]
         rows += [(iso(now - 600), "proctop", "cpu_top_pct", 999.0, "Evil.exe"),
-                 (iso(now - 600), "proctop", "io_top_mb", 888.0, "Evil.exe")]
+                 (iso(now - 600), "proctop", "io_top_mb_s", 888.0, "Evil.exe")]
         storage.insert_metrics(conn, rows)
         s = anomaly.series_from_db(conn)
         assert set(s) == {"Evil.exe|100"}, s   # 非 proctopN 的行被 key IN 过滤

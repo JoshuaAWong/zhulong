@@ -31,7 +31,7 @@ _CURRENT_KEYS = [("memory", "commit_percent"), ("memory", "commit_used_gb"),
                  ("net", "net_down_mb_s"), ("net", "net_up_mb_s"),
                  ("net", "ping_gw_ms"), ("net", "ping_net_ms"), ("net", "ping_jitter_ms"),
                  ("gpu", "gpu_temp"), ("gpu", "gpu_util"), ("gpu", "gpu_mem_used"), ("gpu", "gpu_mem_total"),
-                 ("proctop", "cpu_top_pct"), ("proctop", "io_top_mb"),
+                 ("proctop", "cpu_top_pct"), ("proctop", "io_top_mb_s"),
                  ("proctop", "proctop1"), ("proctop", "proctop2"), ("proctop", "proctop3"),
                  ("proctop", "proctop4"), ("proctop", "proctop5")]
 

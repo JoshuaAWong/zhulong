@@ -36,6 +36,24 @@ def cores_of(spec, cpu_count):
     return sorted({int(c) for c in spec if 0 <= int(c) < cpu_count})
 
 
+def validate_rules(rule_list):
+    """override.json schema 校验：name 非空字符串；priority ∈ PRIORITY 白名单；
+    cores 合法（"tail:N" 或核号列表）。非法规则跳过（调用方记一次事件），
+    不再让 ValueError/TypeError 炸掉整轮限流。返回 (合法规则, 非法规则)。"""
+    good, bad = [], []
+    for r in rule_list or []:
+        ok = isinstance(r, dict) and isinstance(r.get("name"), str) and r["name"] \
+            and r.get("priority", "below_normal") in PRIORITY
+        if ok:
+            cores = r.get("cores", "tail:2")
+            ok = (isinstance(cores, str) and cores.startswith("tail:") and cores[5:].isdigit()
+                  and int(cores[5:]) >= 1) \
+                 or (isinstance(cores, list) and cores
+                     and all(isinstance(c, int) and not isinstance(c, bool) for c in cores))
+        (good if ok else bad).append(r)
+    return good, bad
+
+
 def apply_if_due(conn, cfg, state, psutil_mod=None):
     """分频幂等应用：已是目标态跳过；状态变化才记事件；永不处理自身进程。"""
     pm = psutil_mod or psutil
@@ -50,12 +68,22 @@ def apply_if_due(conn, cfg, state, psutil_mod=None):
             return
     applied = json.loads(storage.kv_get(conn, "throttle_applied") or "{}")
     n = pm.cpu_count()
+    # 规则一次取值（此前在 process_iter 循环体内——200 进程 = 读 200 次 override.json）
+    good, bad = validate_rules(rules(cfg))
+    if bad:   # 非法规则跳过并记一次事件（内容不变不重复记，防每 2 分钟刷屏）
+        marker = json.dumps(bad, sort_keys=True, ensure_ascii=False, default=str)
+        if state.get("_bad_rules") != marker:
+            state["_bad_rules"] = marker
+            storage.insert_event(conn, _ts(), "throttle", "skip",
+                                 json.dumps({"reason": "invalid_rule", "rules": bad},
+                                            ensure_ascii=False, default=str))
     wanted = {}
     for p in pm.process_iter(["pid", "name"]):
         name = (p.info["name"] or "").lower()
-        for r in rules(cfg):
+        for r in good:
             if r["name"].lower() == name:
                 wanted[p.info["pid"]] = (p, r)
+    skipped = []
     for pid, (proc, rule) in wanted.items():
         if pid == os.getpid():
             continue
@@ -70,8 +98,14 @@ def apply_if_due(conn, cfg, state, psutil_mod=None):
             storage.insert_event(conn, _ts(), "throttle", "apply",
                                  json.dumps({"process": proc.name(), "pid": pid, "cores": cores},
                                             ensure_ascii=False))
-        except (pm.NoSuchProcess, pm.AccessDenied):
+        except pm.NoSuchProcess:
             continue
+        except pm.AccessDenied:
+            skipped.append(proc.name())   # 提权/自保护进程（如电脑管家）：不再静默
+    if skipped:
+        storage.insert_event(conn, _ts(), "throttle", "skip",
+                             json.dumps({"reason": "access_denied", "processes": skipped},
+                                        ensure_ascii=False))
     storage.kv_set(conn, "throttle_applied", json.dumps(applied, ensure_ascii=False))
 
 
@@ -83,6 +117,7 @@ def restore(conn, psutil_mod=None):
         return 0
     all_cores = list(range(pm.cpu_count()))
     done = 0
+    skipped = []
     for p in pm.process_iter(["pid", "name"]):
         name = p.info["name"] or ""
         if name in applied and p.info["pid"] != os.getpid():
@@ -92,7 +127,13 @@ def restore(conn, psutil_mod=None):
                 done += 1
                 storage.insert_event(conn, _ts(), "throttle", "restore",
                                      json.dumps({"process": name}, ensure_ascii=False))
-            except (pm.NoSuchProcess, pm.AccessDenied):
+            except pm.NoSuchProcess:
                 continue
+            except pm.AccessDenied:
+                skipped.append(name)   # 自保护进程还原被拒：记一次 skip 事件（此前静默）
+    if skipped:
+        storage.insert_event(conn, _ts(), "throttle", "skip",
+                             json.dumps({"reason": "access_denied", "processes": skipped,
+                                         "op": "restore"}, ensure_ascii=False))
     storage.kv_set(conn, "throttle_applied", "{}")
     return done

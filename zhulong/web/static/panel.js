@@ -18,7 +18,11 @@ const ADVICE = {
   "access_denied": "权限不足未能自动终结。建议：以管理员身份手动结束该进程。"
 };
 
-async function jget(url) { return (await fetch(url)).json(); }
+async function jget(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${url}`);   // 非 2xx（如 500 纯文本）显式抛出
+  return resp.json();
+}
 const CS = getComputedStyle(document.documentElement);
 const cv = k => CS.getPropertyValue(k).trim();
 function theme() {
@@ -35,6 +39,8 @@ function esc(s) {
 function zh(key) { const n = META.names[key]; return n ? n[0] : key; }
 function zhDesc(key) { const n = META.names[key]; return n ? n[1] : ""; }
 function f1(v) { return (v ?? 0).toFixed(1); }
+/* 事件时间戳 '2026-10-11T18:30:00' → '10-11 18:30'（原 slice(5) 会带裸 T） */
+function fmtTs(ts) { return `${ts.slice(5, 10)} ${ts.slice(11, 16)}`; }
 
 /* ── 干支四季（永不写死） ── */
 (function season() {
@@ -107,8 +113,7 @@ function mk(id, datasets, unit, yMax) {
     plugins: [crosshairPlugin]
   });
 }
-async function hist(collector, key) {
-  const r = RANGES[curRange];
+async function hist(collector, key, r) {
   const resp = await jget(`/api/history?collector=${collector}&key=${key}&hours=${r.hours}&bucket=${r.bucket}`);
   return resp.points.map(p => p[1]);
 }
@@ -123,17 +128,17 @@ function setPlain(id, html, cls) {
   if (z) { z.classList.remove("z-shen", "z-wei"); if (cls) z.classList.add(cls); }
 }
 function omen(k, vHtml, barPct, barCls, d) {
-  const bar = barPct == null ? "" : `<div class="bar"><i${barCls ? ` class="${barCls}"` : ""} style="width:${Math.max(0, Math.min(100, barPct)).toFixed(1)}%"></i></div>`;
+  // null/undefined/NaN 不渲染数据条（缺失值算出 width:NaN% 会画出满条假象）
+  const bar = (barPct == null || !Number.isFinite(barPct)) ? "" : `<div class="bar"><i${barCls ? ` class="${barCls}"` : ""} style="width:${Math.max(0, Math.min(100, barPct)).toFixed(1)}%"></i></div>`;
   return `<div class="omen"><div class="k">${k}</div><div class="v">${vHtml}</div>${bar}<div class="d">${d || ""}</div></div>`;
 }
 
 /* ── 各分区渲染 ── */
-async function renderZ1(cur) {
+async function renderZ1(cur, r, pts) {
   const pct = cur.commit_percent ?? 0;
   const verdict = pct < 70 ? zoneAn("安 · 内存很够用，不用担心") : pct < 85 ? zoneShen("慎 · 水位偏高，留意大户") : zoneWei("危 · 逼近上限，请即处置");
   setPlain("p1", verdict, pct < 70 ? "" : pct < 85 ? "z-shen" : "z-wei");
   const t = theme();
-  const pts = await hist("memory", "commit_percent");
   mk("c1", [
     { data: pts, borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
     { data: pts.map(() => 70), borderColor: t.ochre, borderDash: [3, 5], pointRadius: 0, borderWidth: 1 },
@@ -144,14 +149,14 @@ async function renderZ1(cur) {
     omen("提交内存上限", `${f1(cur.commit_limit_gb)} <small>GB</small>`, 100, "", zhDesc("commit_limit_gb")) +
     omen("物理内存", `${f1(cur.mem_used_gb)} / ${f1(cur.mem_total_gb)} <small>GB</small>`, cur.mem_percent ?? 0, (cur.mem_percent ?? 0) > 85 ? "danger" : "", zhDesc("mem_percent"));
 }
-async function renderZ2(cur) {
+async function renderZ2(cur, r) {
   const mc = cur.cpu_max_core ?? 0;
   const verdict = mc > 80 ? zoneShen("慎 · 单核偏高") : zoneAn("安 · 算力充裕");
   setPlain("p2", verdict, mc > 80 ? "z-shen" : "");
   const t = theme();
   mk("c2", [
-    { label: "总占用", data: await hist("cpu", "cpu_percent"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
-    { label: "单核峰值", data: await hist("cpu", "cpu_max_core"), borderColor: t.cinn, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.3 }
+    { label: "总占用", data: await hist("cpu", "cpu_percent", r), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "单核峰值", data: await hist("cpu", "cpu_max_core", r), borderColor: t.cinn, borderDash: [4, 4], tension: .3, pointRadius: 0, borderWidth: 1.3 }
   ], "%", 100);
   const top = META.labels.cpu_top_pct || "";
   $("o2").innerHTML =
@@ -159,56 +164,56 @@ async function renderZ2(cur) {
     omen("单核峰值", `${f1(cur.cpu_max_core)} <small>%</small>`, cur.cpu_max_core ?? 0, mc > 80 ? "warn" : "", zhDesc("cpu_max_core")) +
     omen("CPU 大户", top ? `${esc(top)} <small>${f1(cur.cpu_top_pct)}%</small>` : "–", cur.cpu_top_pct ?? 0, (cur.cpu_top_pct ?? 0) > 50 ? "warn" : "", zhDesc("cpu_top_pct"));
 }
-async function renderZ3(cur) {
+async function renderZ3(cur, r) {
   const mx = Math.max(cur.io_read_mb_s ?? 0, cur.io_write_mb_s ?? 0);
   const verdict = mx > 20 ? zoneShen("慎 · 读写繁忙") : zoneAn("安 · 平稳，无有扫描");
   setPlain("p3", verdict, mx > 20 ? "z-shen" : "");
   const t = theme();
   mk("c3", [
-    { label: "读取", data: await hist("diskio", "io_read_mb_s"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
-    { label: "写入", data: await hist("diskio", "io_write_mb_s"), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+    { label: "读取", data: await hist("diskio", "io_read_mb_s", r), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "写入", data: await hist("diskio", "io_write_mb_s", r), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
   ], " MB/s", 5);
-  const top = META.labels.io_top_mb || "";
+  const top = META.labels.io_top_mb_s || "";
   $("o3").innerHTML =
     omen("读取", `${f1(cur.io_read_mb_s)} <small>MB/s</small>`, (cur.io_read_mb_s ?? 0) / 5 * 100, "", zhDesc("io_read_mb_s")) +
     omen("写入", `${f1(cur.io_write_mb_s)} <small>MB/s</small>`, (cur.io_write_mb_s ?? 0) / 5 * 100, "", zhDesc("io_write_mb_s")) +
-    omen("IO 大户", top ? `${esc(top)} <small>${f1(cur.io_top_mb)}MB</small>` : "无", null, "", zhDesc("io_top_mb"));
+    omen("IO 大户", top ? `${esc(top)} <small>${f1(cur.io_top_mb_s)}MB/s</small>` : "无", null, "", zhDesc("io_top_mb_s"));
 }
-async function renderZ4(cur) {
+async function renderZ4(cur, r) {
   const jit = cur.ping_jitter_ms ?? 0;
   const verdict = jit > 10 ? zoneShen("慎 · 抖动偏大") : zoneAn("安 · 平稳");
   setPlain("p4", verdict, jit > 10 ? "z-shen" : "");
   const t = theme();
   mk("c4", [
-    { label: "下载", data: await hist("net", "net_down_mb_s"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
-    { label: "上传", data: await hist("net", "net_up_mb_s"), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
+    { label: "下载", data: await hist("net", "net_down_mb_s", r), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 },
+    { label: "上传", data: await hist("net", "net_up_mb_s", r), borderColor: t.brush, tension: .3, pointRadius: 0, borderWidth: 1.6 }
   ], " MB/s", 10);
   $("o4").innerHTML =
     omen("下载", `${f1(cur.net_down_mb_s)} <small>MB/s</small>`, (cur.net_down_mb_s ?? 0) / 10 * 100, "", zhDesc("net_down_mb_s")) +
     omen("上传", `${f1(cur.net_up_mb_s)} <small>MB/s</small>`, (cur.net_up_mb_s ?? 0) / 10 * 100, "", zhDesc("net_up_mb_s")) +
     omen("延迟 / 抖动", `${f1(cur.ping_net_ms)} / ${f1(jit)} <small>ms</small>`, Math.min(100, jit * 10), jit > 10 ? "warn" : "", zhDesc("ping_jitter_ms"));
 }
-async function renderZ5(cur) {
+async function renderZ5(cur, r) {
   const temp = cur.gpu_temp ?? 0, util = cur.gpu_util ?? 0;
   const verdict = temp > 83 ? zoneShen("慎 · 温度偏高") : util > 80 ? zoneShen("慎 · 高负载运转") : zoneAn("安 · 闲置，温度正常");
   setPlain("p5", verdict, (temp > 83 || util > 80) ? "z-shen" : "");
   const t = theme();
   mk("c5", [
-    { label: "利用率", data: await hist("gpu", "gpu_util"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+    { label: "利用率", data: await hist("gpu", "gpu_util", r), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
   ], "%", 100);
   $("o5").innerHTML =
     omen("温度", `${f1(cur.gpu_temp)} <small>°C</small>`, temp / 90 * 100, temp > 83 ? "warn" : "", zhDesc("gpu_temp")) +
     omen("利用率", `${f1(cur.gpu_util)} <small>%</small>`, util, util > 80 ? "warn" : "", zhDesc("gpu_util")) +
     omen("显存", `${f1(cur.gpu_mem_used)} / ${f1(cur.gpu_mem_total)} <small>GB</small>`, cur.gpu_mem_used / (cur.gpu_mem_total || 1) * 100, "", zhDesc("gpu_mem_used"));
 }
-async function renderZ6(cur) {
+async function renderZ6(cur, r) {
   const total = cur.pagefile_total_gb || 62;
   const ratio = (cur.pagefile_used_gb ?? 0) / total * 100;
   const verdict = ratio > 60 ? zoneShen("慎 · 物理内存吃紧") : zoneAn("安 · 占用甚微");
   setPlain("p6", verdict, ratio > 60 ? "z-shen" : "");
   const t = theme();
   mk("c6", [
-    { label: "已用", data: await hist("memory", "pagefile_used_gb"), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
+    { label: "已用", data: await hist("memory", "pagefile_used_gb", r), borderColor: t.main, tension: .3, pointRadius: 0, borderWidth: 1.8 }
   ], " GB", Math.ceil(total * 1.05));
   $("o6").innerHTML =
     omen("已用", `${f1(cur.pagefile_used_gb)} <small>GB</small>`, ratio, ratio > 60 ? "warn" : "", zhDesc("pagefile_used_gb")) +
@@ -265,7 +270,7 @@ function renderEvents(events) {
   $("events").innerHTML = events.slice(0, 20).map(([ts, rule, action, detail]) => {
     const cls = action.startsWith("degraded") ? "pi-wei" : action === "muted" ? "pi-mute" : "pi-an";
     const pi = cls === "pi-wei" ? "待人工 ◉" : cls === "pi-mute" ? "已静音" : "已处置";
-    return `<div class="ev"><span class="t">${ts.slice(5)}</span><span class="b">${RULE_CN[rule] || esc(rule)} · ${ACTION_CN(action)}：${esc((detail || "").slice(0, 80))}</span><span class="pi ${cls}">${pi}</span></div>`;
+    return `<div class="ev"><span class="t">${fmtTs(ts)}</span><span class="b">${RULE_CN[rule] || esc(rule)} · ${ACTION_CN(action)}：${esc((detail || "").slice(0, 80))}</span><span class="pi ${cls}">${pi}</span></div>`;
   }).join("") || `<div class="ev"><span class="b">本区间无事件 —— 系统安泰</span></div>`;
   renderPendline(pend);
 }
@@ -282,7 +287,7 @@ function renderPendline(pend) {
   let target = "";
   try { target = JSON.parse(detail || "{}").process || ""; } catch (e) { }
   pendTarget = target || "HYPHelper.exe";
-  $("pendBody").textContent = `${ts.slice(5)} · ${RULE_CN[rule] || rule}降级：${(detail || "").slice(0, 60)}`;
+  $("pendBody").textContent = `${fmtTs(ts)} · ${RULE_CN[rule] || rule}降级：${(detail || "").slice(0, 60)}`;
   $("pendAlt").textContent = adviceOf(detail).split("，")[0];
   $("actZone").innerHTML = `<button class="act-btn" onclick="askConfirm()">手动终结</button>`;
   $("pendline").hidden = false;
@@ -297,35 +302,58 @@ window.resetAct = function () {
 };
 window.doKill = async function () {
   $("actZone").innerHTML = `<span class="act-ask">处置中…</span>`;
-  const resp = await fetch("/api/action", {
+  const post = () => fetch("/api/action", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "kill_process", target: pendTarget, token: TOKEN })
   });
-  const result = await resp.json();
-  const ok = result.status === "killed";
-  $("actZone").innerHTML = `<button class="act-btn" disabled>${ok ? "已终结 ✓" : "未终结：" + (result.status || "失败")}</button>`;
+  try {
+    let resp = await post();
+    if (resp.status === 403) {
+      // 烛龙重启后令牌轮换：重取令牌重试一次
+      const tok = await jget("/api/action_token");
+      TOKEN = tok.token || TOKEN;
+      resp = await post();
+    }
+    const result = await resp.json();
+    const ok = result.status === "killed";
+    $("actZone").innerHTML = `<button class="act-btn" disabled>${ok ? "已终结 ✓" : "未终结：" + esc(result.status || "失败")}</button>`;
+  } catch (e) {
+    // 网络/服务异常：恢复按钮，不报死在「处置中…」
+    $("actZone").innerHTML = `<span class="act-ask">请求失败</span>` +
+      `<button class="act-btn" onclick="doKill()">重试</button> ` +
+      `<button class="act-no" onclick="resetAct()">放弃</button>`;
+  }
 };
 
 /* ── 主刷新 ── */
+let refreshing = false;   // 重入闸：30s 定时与手动切区间可能撞上慢请求
 async function refresh() {
-  const cur = await jget("/api/current");
-  META = cur._meta || META;
-  $("programPath").textContent = META.program_path || "";
-  const r = RANGES[curRange];
-  document.querySelectorAll(".rng-name").forEach(e => e.textContent = r.name);
-  renderHero(cur);
-  const evts = await jget(`/api/events?hours=${r.hours}&limit=50`);
-  mk._labels = (await jget(`/api/history?collector=memory&key=commit_percent&hours=${r.hours}&bucket=${r.bucket}`)).points.map(p => r.label(p[0]));
-  await renderZ1(cur);
-  await renderZ4(cur);
-  await renderZ2(cur);
-  await renderZ5(cur);
-  await renderZ3(cur);
-  await renderZ6(cur);
-  renderRanks(cur);
-  renderEvents(evts.events);
-  await renderThrottle();
-  state.needRebuild = false;
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const r = RANGES[curRange];   // 快照：刷新中途切区间不串数据
+    const cur = await jget("/api/current");
+    META = cur._meta || META;
+    $("programPath").textContent = META.program_path || "";
+    document.querySelectorAll(".rng-name").forEach(e => e.textContent = r.name);
+    renderHero(cur);
+    const evts = await jget(`/api/events?hours=${r.hours}&limit=50`);
+    // commit_percent 只拉一次：labels 与 Z1 曲线复用同一份 points
+    const pts0 = (await jget(`/api/history?collector=memory&key=commit_percent&hours=${r.hours}&bucket=${r.bucket}`)).points;
+    mk._labels = pts0.map(p => r.label(p[0]));
+    await renderZ1(cur, r, pts0.map(p => p[1]));
+    await renderZ4(cur, r);
+    await renderZ2(cur, r);
+    await renderZ5(cur, r);
+    await renderZ3(cur, r);
+    await renderZ6(cur, r);
+    renderRanks(cur);
+    renderEvents(evts.events);
+    await renderThrottle();
+    state.needRebuild = false;
+  } finally {
+    refreshing = false;
+  }
 }
 
 /* ── 主题与区间 ── */

@@ -84,6 +84,61 @@ def main():
         p1._nice = NORMAL
         throttle.apply_if_due(conn, FakeCfg, state, psutil_mod=pm)
         assert p1._nice == NORMAL
+
+        # ---- B4：rules() 每轮限流只取一次（此前在 process_iter 循环体内，200 进程读 200 次）----
+        storage.kv_set(conn, "throttle_enabled", "1")
+        calls = []
+        orig_rules = throttle.rules
+        throttle.rules = lambda cfg, override_path=None: calls.append(1) or orig_rules(cfg, override_path)
+        try:
+            many = [FakeProc(200 + i, f"p{i}.exe") for i in range(50)] + [FakeProc(999, "ToDesk.exe")]
+            throttle.apply_if_due(conn, FakeCfg, {}, psutil_mod=FakePS(many))
+            assert len(calls) == 1, calls
+        finally:
+            throttle.rules = orig_rules
+
+        # ---- B4：坏规则（priority 非法 / cores 格式错）跳过且记一次事件，好规则照常施加 ----
+        ovdir = Path(td) / "ov"
+        ovdir.mkdir()
+        (ovdir / "throttle_override.json").write_text(json.dumps({"rules": [
+            {"name": "bad1.exe", "priority": "high"},                 # priority 非法
+            {"name": "bad2.exe", "cores": "tail:abc"},                # cores 格式错
+            {"name": "OkProc.exe", "priority": "below_normal", "cores": "tail:2"},
+        ]}, ensure_ascii=False), encoding="utf-8")
+
+        class OvrCfg:
+            DATA_DIR = ovdir
+            THROTTLE_INTERVAL_CYCLES = 1
+            THROTTLE_DEFAULTS = FakeCfg.THROTTLE_DEFAULTS
+        pok = FakeProc(300, "OkProc.exe")
+        st = {}
+        throttle.apply_if_due(conn, OvrCfg, st, psutil_mod=FakePS([pok]))
+        assert pok._nice == BELOW and pok._aff == [14, 15], (pok._nice, pok._aff)   # 好规则生效
+        skips = [e for e in storage.query_events(conn, limit=100)
+                 if e[2] == "skip" and "invalid_rule" in e[3]]
+        assert len(skips) == 1 and "bad1.exe" in skips[0][3] and "bad2.exe" in skips[0][3], skips
+        throttle.apply_if_due(conn, OvrCfg, st, psutil_mod=FakePS([pok]))
+        skips = [e for e in storage.query_events(conn, limit=100)
+                 if e[2] == "skip" and "invalid_rule" in e[3]]
+        assert len(skips) == 1, skips   # 坏规则内容不变不重复记（防每 2 分钟刷屏）
+
+        # ---- B4：AccessDenied（自保护进程）记一次 throttle/skip 事件，不再静默 ----
+        class DenyProc(FakeProc):
+            def nice(self, v=None):
+                if v is None:
+                    return self._nice
+                raise FakePS.AccessDenied("denied")
+        pd = DenyProc(400, "ToDesk.exe")
+        throttle.apply_if_due(conn, FakeCfg, {}, psutil_mod=FakePS([pd]))
+        skips = [e for e in storage.query_events(conn, limit=100)
+                 if e[2] == "skip" and "access_denied" in e[3]]
+        assert len(skips) == 1 and "ToDesk.exe" in skips[0][3], skips
+
+        # ---- B4：restore 幂等（do_exit 退出路径统一调 restore 的前提）----
+        n1 = throttle.restore(conn, psutil_mod=FakePS([pok]))
+        assert n1 == 1 and pok._nice == NORMAL and pok._aff == list(range(16)), n1
+        n2 = throttle.restore(conn, psutil_mod=FakePS([pok]))
+        assert n2 == 0, n2   # 清单已空，再调无副作用
         conn.close()
     print("PASS")
 

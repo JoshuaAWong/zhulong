@@ -73,7 +73,7 @@ def main():
         "commit": [(31.9, "HYPHelper.exe"), (6.2, "java.exe"), (1.1, "chrome.exe")]})
     d = {k: (v, l) for k, v, l in rows}
     assert d["cpu_top_pct"] == (88.0, "evil.exe"), d
-    assert d["io_top_mb"] == (500.0, "scanner.exe"), d
+    assert d["io_top_mb_s"] == (500.0, "scanner.exe"), d   # B4：改名 io_top_mb_s（差分速率）
     assert d["proctop1"] == (31.9, "HYPHelper.exe") and d["proctop2"] == (6.2, "java.exe"), d
 
     # proctop label 截断（B3）：cmdline 超 200 字符截断加省略标记，控制 DB 写入量
@@ -89,6 +89,37 @@ def main():
         assert len(cmd) == 201 and cmd.endswith("…"), (len(cmd), cmd[-10:])
     finally:
         proctop._PROC_CACHE.pop(999, None)
+
+    # proctop IO 大户差分速率 + PID 复用防护（B4）：_scan 注入假 process_iter 与假时间
+    class ScanProc:
+        def __init__(self, pid, name, ctime, io_mb):
+            self.info = {"pid": pid, "name": name, "create_time": ctime,
+                         "memory_info": type("MI", (), {"commit": 1 * GB, "vms": 1 * GB})()}
+            self._io_mb = io_mb
+        def cpu_percent(self):
+            return 0.0
+        def io_counters(self):
+            half = self._io_mb * 1024 * 1024 / 2
+            return type("IO", (), {"read_bytes": half, "write_bytes": half})()
+    saved_cache, saved_io = dict(proctop._PROC_CACHE), dict(proctop._IO_PREV)
+    proctop._PROC_CACHE.clear(); proctop._IO_PREV.clear()
+    try:
+        pa = ScanProc(1, "writer.exe", 1000.0, 1000.0)
+        t1 = proctop._scan(None, process_iter=lambda attrs: [pa], now=1000.0)
+        assert t1["io"] == ("", 0.0), t1["io"]   # 首采只建基线不出数
+        pa._io_mb = 1600.0
+        t2 = proctop._scan(None, process_iter=lambda attrs: [pa], now=1010.0)
+        assert t2["io"][0] == "writer.exe" and abs(t2["io"][1] - 60.0) < 0.01, t2["io"]   # 600MB/10s
+        # PID 复用：同 pid 新进程（create_time 不符）丢弃旧计数，本轮不出速率
+        p_new = ScanProc(1, "writer.exe", 2000.0, 10.0)
+        t3 = proctop._scan(None, process_iter=lambda attrs: [p_new], now=1020.0)
+        assert t3["io"] == ("", 0.0) and proctop._PROC_CACHE[1] is p_new, t3["io"]
+        p_new._io_mb = 310.0
+        t4 = proctop._scan(None, process_iter=lambda attrs: [p_new], now=1030.0)
+        assert abs(t4["io"][1] - 30.0) < 0.01, t4["io"]   # 新基线正常差分
+    finally:
+        proctop._PROC_CACHE.clear(); proctop._PROC_CACHE.update(saved_cache)
+        proctop._IO_PREV.clear(); proctop._IO_PREV.update(saved_io)
 
     # net：注入 fake（速率/ping/网关）
     from zhulong.collectors import net, gpu
