@@ -9,6 +9,8 @@ ANOMALY_GROWTH_GB = 4.0
 ANOMALY_GROWTH_RATIO = 0.5
 ANOMALY_REDLINE_GB = 20.0
 ANOMALY_WINDOW_S = 30 * 60
+# 红线告警环比再报步长：current_gb 超上次通知值 +1GB 才重报（稳态红线不再每 10 分钟刷屏）
+REDLINE_RENOTIFY_STEP_GB = 1.0
 
 NEVER_KILL = {
     "system", "registry", "memory compression", "system idle process",
@@ -69,3 +71,42 @@ def series_from_db(conn, collector="proctop", keys=("proctop1", "proctop2", "pro
         skey = f"{name}|{parts[1]}" if len(parts) > 1 and parts[1] else name
         series.setdefault(skey, []).append((ts, float(value)))
     return series
+
+
+def latest_by_name(series):
+    """各进程最新值：{纯 name: gb}，同名多 pid 取最大者（与 detect 归并口径一致）。"""
+    latest = {}
+    for key, points in series.items():
+        if not points:
+            continue
+        name = key.split("|")[0]
+        gb = points[-1][1]
+        if gb > latest.get(name, float("-inf")):
+            latest[name] = gb
+    return latest
+
+
+def prune_redline_notified(series, notified, redline=ANOMALY_REDLINE_GB):
+    """红线通知状态的生命周期闭环：最新值跌破红线（≤redline）或已消失的进程清除条目——
+    否则回落后再涨会被永久抑制。series 为 None（本轮取序列失败）时不剪，防误清。"""
+    if series is None:
+        return dict(notified)
+    latest = latest_by_name(series)
+    return {n: v for n, v in notified.items() if latest.get(n, 0.0) > redline}
+
+
+def redline_notifiable(anomalies, notified, step_gb=REDLINE_RENOTIFY_STEP_GB):
+    """环比抑制：redline 仅当 current_gb > 上次通知值 + step_gb 才放行（首次越线必报，
+    notified 无记录即首次）；suspect 不受抑制（它本来就看增长）。
+    返回 (可通知列表, 新 notified 字典)——放行即把通知值更新为本次 current_gb。"""
+    out = []
+    new = dict(notified)
+    for a in anomalies:
+        if a["level"] != "redline":
+            out.append(a)
+            continue
+        prev = new.get(a["name"])
+        if prev is None or a["current_gb"] > prev + step_gb:
+            new[a["name"]] = a["current_gb"]
+            out.append(a)
+    return out, new

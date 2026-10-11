@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime
 
-from zhulong.core import storage
+from zhulong.core import anomaly, storage
 from zhulong.core.engine import MetricCtx
 
 
@@ -22,7 +22,7 @@ def write_heartbeat(state_dir):
 
 def build_ctx(conn, cfg):
     metrics, processes = {}, {}
-    anomalies = []
+    anomalies, series = [], None
     for w in cfg.WATCH_PROCESSES:
         key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
         row = storage.latest(conn, "process", key)
@@ -34,13 +34,25 @@ def build_ctx(conn, cfg):
         if row:
             metrics[c_key] = row[1]
     try:
-        from zhulong.core import anomaly
-        anomalies = anomaly.detect(anomaly.series_from_db(conn))
+        series = anomaly.series_from_db(conn)
+        anomalies = anomaly.detect(series)
     except Exception:
-        anomalies = []
+        anomalies, series = [], None   # 序列取失败：本轮不剪通知状态（防误清）
     ctx = MetricCtx(metrics, processes)
     ctx.anomalies = anomalies
+    ctx.anomaly_series = series   # 环比抑制的生命周期清理由 run_cycle 复用
     return ctx
+
+
+def _read_redline_notified(kv_get):
+    """读环比抑制状态；kv 缺失/损坏一律视为无历史（fail-open 允许通知——
+    通知缺失比通知风暴危险）。"""
+    try:
+        raw = kv_get("redline_notified") if kv_get else None
+        d = json.loads(raw) if raw else {}
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
 
 
 def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=True):
@@ -64,18 +76,39 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
     triggers = []
     if evaluate:
         ctx = build_ctx(conn, cfg)
+        kv_get, kv_set = state.get("_kv_get"), state.get("_kv_set")
+        # 红线告警环比抑制 · 生命周期闭环（每周期）：跌破红线/消失的进程清除通知记录，
+        # 否则回落后再涨会被永久抑制
+        notified = _read_redline_notified(kv_get)
+        pruned = anomaly.prune_redline_notified(ctx.anomaly_series, notified)
+        if kv_set and pruned != notified:
+            kv_set("redline_notified", json.dumps(pruned))
         for t in engine.evaluate(rules, ctx, time.monotonic()):
             triggers.append(t)
             if t["muted"]:
                 storage.insert_event(conn, ts, t["rule"], "muted", "动作已静音")
                 continue
             if t["rule"] == "anomaly_leak" and getattr(ctx, "anomalies", None):
-                a = ctx.anomalies[0]
-                t["params"]["toast_body"] = a["reason"] + "，详情见面板大户榜与朱批记事。"
-                t["params"]["_anomaly"] = a   # 事件详情用
+                # 环比抑制：事件照记（审计轨迹），仅抑制重复 toast；面板红标不受影响
+                # （面板走 server.py 自己的 detect，不经过此过滤）
+                notifiable, notified_new = anomaly.redline_notifiable(ctx.anomalies, pruned)
+                if kv_set and notified_new != pruned:
+                    kv_set("redline_notified", json.dumps(notified_new))
+                if notifiable:
+                    a = notifiable[0]
+                    t["params"]["toast_body"] = a["reason"] + "，详情见面板大户榜与朱批记事。"
+                    t["params"]["_anomaly"] = a   # 事件详情用
+                else:
+                    t["_notify_suppressed"] = True
             for action_name in t["actions"]:
                 act = actions.get(action_name)
                 if act is None:
+                    continue
+                if t.get("_notify_suppressed") and action_name == "toast":
+                    storage.insert_event(conn, now_iso(), t["rule"], action_name,
+                                         json.dumps({"status": "suppressed:redline_repeat",
+                                                     "anomaly": ctx.anomalies[0]},
+                                                    ensure_ascii=False))
                     continue
                 try:
                     result = act["run"](t.get("params", {}), cfg, state)

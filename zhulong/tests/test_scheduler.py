@@ -62,6 +62,41 @@ def main():
         before = len(storage.query_events(conn, limit=100))
         scheduler.run_cycle(conn, C, [fake_collector], [], FakeEngine(), actions, state={}, evaluate=False)
         assert len(storage.query_events(conn, limit=100)) == before, "跳过评估时不应产生新事件"
+
+        # ---- 红线告警环比抑制（B1）端到端：首报放行 → 同值重报抑制（事件照记）→ 涨超 1GB 再报 ----
+        now = time.time()
+        iso = lambda e: time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(e))
+        rows = [(iso(now - 1200 + i * 300), "proctop", "proctop1", 25.0, "Leak.exe|111|")
+                for i in range(5)]   # 30 分钟窗口内稳定 25GB（>20GB 红线）
+
+        class AnomEngine:
+            muted_until = 0
+            def evaluate(self, rules, ctx, now):
+                if getattr(ctx, "anomalies", None):
+                    return [{"rule": "anomaly_leak", "actions": ["toast"], "params": {}, "muted": False}]
+                return []
+
+        toast_calls = []
+        actions3 = {"toast": {"name": "toast",
+                              "run": lambda p, c, s: toast_calls.append(p.get("toast_body")) or {"status": "notified"}}}
+        storage.insert_metrics(conn, rows)
+        st3 = {}
+        scheduler.run_cycle(conn, C, [], [], AnomEngine(), actions3, state=st3, evaluate=True)
+        assert len(toast_calls) == 1, toast_calls   # ① 首次越线必报
+        import json as _json2
+        notified = _json2.loads(storage.kv_get(conn, "redline_notified"))
+        assert notified == {"Leak.exe": 25.0}, notified
+
+        scheduler.run_cycle(conn, C, [], [], AnomEngine(), actions3, state=st3, evaluate=True)
+        assert len(toast_calls) == 1, toast_calls   # ② 同值重报被抑制（toast 未再执行）
+        evts = storage.query_events(conn, limit=10)
+        assert any("suppressed:redline_repeat" in e[3] for e in evts), evts   # 事件照记（审计轨迹）
+
+        storage.insert_metrics(conn, [(iso(time.time()), "proctop", "proctop1", 27.0, "Leak.exe|111|")])
+        scheduler.run_cycle(conn, C, [], [], AnomEngine(), actions3, state=st3, evaluate=True)
+        assert len(toast_calls) == 2, toast_calls   # ③ 涨超 1GB 再报
+        notified = _json2.loads(storage.kv_get(conn, "redline_notified"))
+        assert notified == {"Leak.exe": 27.0}, notified
         conn.close()
     print("PASS")
 
