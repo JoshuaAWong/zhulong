@@ -26,7 +26,7 @@ def _dragon(flame_rgb):
 
 
 class Tray:
-    def __init__(self, on_pause, on_exit, on_throttle_toggle=None,
+    def __init__(self, on_pause, on_exit, on_restart=None, on_throttle_toggle=None,
                  on_throttle_reset=None, on_open_config=None):
         self._imgs = {k: _dragon(v) for k, v in _FLAME.items()}
         items = [
@@ -39,6 +39,8 @@ class Tray:
             items.append(pystray.MenuItem("限流 恢复默认规则", lambda *_: on_throttle_reset()))
         if on_open_config:
             items.append(pystray.MenuItem("打开配置文件", lambda *_: on_open_config()))
+        if on_restart:
+            items.append(pystray.MenuItem("重启烛龙", lambda *_: on_restart()))
         items.append(pystray.MenuItem("退出", lambda *_: on_exit()))
         self.icon = pystray.Icon("Zhulong", self._imgs["gray"], "烛龙 · 启动中…",
                                  menu=pystray.Menu(*items))

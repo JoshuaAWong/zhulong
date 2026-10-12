@@ -2,6 +2,7 @@
 启动序：日志 → 清除退出意图 → 单实例互斥 → schema → 扩展点发现 → daemon 线程 → 主线程托盘"""
 import ctypes
 import logging
+import subprocess
 import sys
 import threading
 import time
@@ -13,6 +14,18 @@ from zhulong.core.engine import Engine
 
 LOG = logging.getLogger("zhulong")
 WIN32_ERROR_ALREADY_EXISTS = 183
+
+
+def _spawn_restarter():
+    """分离进程延迟重启：约 5 秒后拉起新实例（ping 做延迟——分离进程没有 stdin，
+    timeout 会直接报错；ping 是 Windows 惯用的无窗口延迟法）。等本进程退出、
+    互斥锁与面板端口释放后新实例才启动；若起早撞锁，新实例自行退出，
+    未写 stopped.intent，看门狗会兜底拉起。"""
+    cmd = f'ping -n 6 127.0.0.1 >nul & "{config.PYTHONW}" -X utf8 -m zhulong'
+    LOG.info("托盘重启：已派出延迟启动器（约 5 秒后拉起新实例）")
+    subprocess.Popen(["cmd", "/c", cmd], cwd=config.PROJECT_DIR,
+                     creationflags=subprocess.DETACHED_PROCESS,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _init_logging():
@@ -85,12 +98,10 @@ def main():
         engine.mute(time.monotonic(), 300)
         LOG.info("动作静音 5 分钟")
 
-    def do_exit():
-        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        intent.write_text("user exit", encoding="utf-8")
-        # 退出前还原限流：被限流进程不残留 BelowNormal+绑核。
-        # 注意：看门狗崩溃重启路径无法 restore——进程意外死亡没机会清理（已施加清单
-        # 仍在 kv 里，下次正常退出或手动「限流 恢复默认规则」时可还原）
+    def _shutdown():
+        """退出/重启共用清理链：还原限流 → 停采集 → 停面板 → 停托盘消息循环。
+        注意：看门狗崩溃路径无法 restore——进程意外死亡没机会清理（已施加清单
+        仍在 kv 里，下次正常退出或手动「限流 恢复默认规则」时可还原）"""
         try:
             from zhulong import throttle
             n = throttle.restore(conn)
@@ -101,10 +112,25 @@ def main():
         stop_event.set()
         if srv is not None:
             srv.shutdown()   # 面板线程退出（无面板模式跳过）
-        LOG.info("用户退出：意图标记已写入")
         t = tray_holder.get("tray")   # 停掉主线程托盘消息循环，进程才能真正退出
         if t is not None:
             t.stop()
+
+    def do_exit():
+        config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        intent.write_text("user exit", encoding="utf-8")
+        _shutdown()
+        LOG.info("用户退出：意图标记已写入")
+
+    def do_restart():
+        # 先派延迟启动器再退出（不写 stopped.intent：新实例起不来时看门狗可兜底拉起）
+        try:
+            _spawn_restarter()
+        except Exception:
+            LOG.exception("延迟启动器派发失败，放弃重启")
+            return
+        _shutdown()
+        LOG.info("托盘重启：旧实例退出，等待新实例接续")
 
     def do_throttle_toggle():
         from zhulong import throttle as _th   # noqa: F401（保持导入一致性）
@@ -124,7 +150,7 @@ def main():
         import os
         os.startfile(str(config.__file__))
 
-    tray = Tray(on_pause=do_pause, on_exit=do_exit,
+    tray = Tray(on_pause=do_pause, on_exit=do_exit, on_restart=do_restart,
                 on_throttle_toggle=do_throttle_toggle,
                 on_throttle_reset=do_throttle_reset,
                 on_open_config=do_open_config)
