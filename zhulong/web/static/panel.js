@@ -263,6 +263,58 @@ async function renderThrottle() {
   if (names.length) rows.push(`<div class="set-row"><span>当前生效</span><span class="vv">${names.map(esc).join("、")}</span></div>`);
   $("throttle").innerHTML = rows.join("");
 }
+
+/* ── 温和处置（v1.6）：内存整理 / 服务重启 / 自动总开关 ── */
+function renderAutoclean() {
+  const ac = META.autoclean;
+  if (!ac) { $("autoclean").innerHTML = ""; $("acState").textContent = ""; return; }
+  $("acState").textContent = ac.enabled ? "自动 · 开" : "自动 · 关";
+  const rows = [`<div class="set-row"><span>自动整理</span><span class="vv">` +
+    `<button class="mini-btn" data-action="${ac.enabled ? "autoclean_off" : "autoclean_on"}" data-target="">${ac.enabled ? "暂停自动" : "恢复自动"}</button></span></div>`];
+  for (const name of ac.mem_trim || [])
+    rows.push(`<div class="set-row"><span>${esc(name)}</span><span class="vv">` +
+      `<button class="mini-btn" data-action="mem_trim" data-target="${esc(name)}">整理</button></span></div>`);
+  const svcs = ac.restart_services || [];
+  if (svcs.length)
+    for (const s of svcs)
+      rows.push(`<div class="set-row"><span>${esc(s)}</span><span class="vv">` +
+        `<button class="mini-btn warn" data-action="restart_service" data-target="${esc(s)}">重启</button></span></div>`);
+  else
+    rows.push(`<div class="set-row"><span>服务重启白名单为空（config.RESTART_SERVICES）</span><span class="vv">–</span></div>`);
+  $("autoclean").innerHTML = rows.join("");
+}
+/* 事件委托 + 目标走 data-target（进程/服务名不拼进 onclick，防属性逃逸）；
+   服务重启两段式确认（首点布防变「确认？」，3 秒未复点自动复原） */
+$("autoclean").addEventListener("click", async e => {
+  const btn = e.target.closest(".mini-btn");
+  if (!btn || btn.disabled) return;
+  const action = btn.dataset.action, target = btn.dataset.target || "";
+  if (action === "restart_service" && !btn.dataset.armed) {
+    btn.dataset.armed = "1";
+    btn.dataset.oldText = btn.textContent;
+    btn.textContent = "确认？";
+    setTimeout(() => { delete btn.dataset.armed; btn.textContent = btn.dataset.oldText; }, 3000);
+    return;
+  }
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const post = () => fetch("/api/action", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, target, token: TOKEN })
+    });
+    let resp = await post();
+    if (resp.status === 403) {   // 烛龙重启后令牌轮换：重取令牌重试一次
+      TOKEN = (await jget("/api/action_token")).token || TOKEN;
+      resp = await post();
+    }
+    const result = await resp.json();
+    btn.textContent = ["ok", "trimmed", "restarted"].includes(result.status) ? "✓ 已处置" : (result.status || "失败");
+  } catch (err) {
+    btn.textContent = "请求失败";
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = btn.dataset.oldText || old; }, 4000);
+});
 const ACTION_CN = a => a.startsWith("degraded") ? "降级处理" : { kill_process: "自动终结", toast: "通知", muted: "已静音", apply: "施加", restore: "还原" }[a] || a;
 function renderEvents(events) {
   const pend = events.filter(([, , a]) => a.startsWith("degraded"));
@@ -350,6 +402,7 @@ async function refresh() {
     renderRanks(cur);
     renderEvents(evts.events);
     await renderThrottle();
+    renderAutoclean();
     state.needRebuild = false;
   } finally {
     refreshing = false;

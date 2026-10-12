@@ -138,6 +138,12 @@ def run_cycle(conn, cfg, collectors, rules, engine, actions, state, evaluate=Tru
         throttle.apply_if_due(conn, cfg, state)
     except Exception:
         pass
+    # 内存回收巡检：分频幂等（同上限流器，自包含不拖垮主循环）
+    try:
+        from zhulong import memtrim
+        memtrim.apply_if_due(conn, cfg, state)
+    except Exception:
+        pass
     # 每日清理：按天做一次（用 state 里的标记）
     day = time.strftime("%Y-%m-%d")
     if state.get("last_cleanup") != day:

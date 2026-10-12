@@ -36,9 +36,32 @@ def cores_of(spec, cpu_count):
     return sorted({int(c) for c in spec if 0 <= int(c) < cpu_count})
 
 
+def assign_cores(rule_list, cpu_count):
+    """解析各规则的核组（v1.6）。tail:N / 核号列表独立解析（多规则共享同组核，即"叠核"）；
+    spread:N 按规则顺序从最高核向下各切连续 N 核块——规则间不重叠，专治多规则叠核。
+    游标下限钳在 cpu_count//2（不侵入前半核区=P 核区；小 CPU 上超量时回落共享下限块）。
+    分配只依赖规则列表顺序 → 确定性 → 幂等不变。"""
+    resolved = []
+    cursor = cpu_count
+    floor = cpu_count // 2
+    for r in rule_list:
+        spec = r.get("cores", "tail:2")
+        if isinstance(spec, str) and spec.startswith("spread:"):
+            k = max(1, min(int(spec.split(":")[1]), cpu_count))
+            lo = max(floor, cursor - k)
+            cores = list(range(lo, cursor))
+            if not cores:   # 前序规则已吃到下限：回落共享下限块（宁可共享不再下探）
+                cores = list(range(floor, min(floor + k, cpu_count)))
+            cursor = lo
+        else:
+            cores = cores_of(spec, cpu_count)
+        resolved.append(cores)
+    return resolved
+
+
 def validate_rules(rule_list):
     """override.json schema 校验：name 非空字符串；priority ∈ PRIORITY 白名单；
-    cores 合法（"tail:N" 或核号列表）。非法规则跳过（调用方记一次事件），
+    cores 合法（"tail:N" / "spread:N" / 核号列表）。非法规则跳过（调用方记一次事件），
     不再让 ValueError/TypeError 炸掉整轮限流。返回 (合法规则, 非法规则)。"""
     good, bad = [], []
     for r in rule_list or []:
@@ -46,8 +69,9 @@ def validate_rules(rule_list):
             and r.get("priority", "below_normal") in PRIORITY
         if ok:
             cores = r.get("cores", "tail:2")
-            ok = (isinstance(cores, str) and cores.startswith("tail:") and cores[5:].isdigit()
-                  and int(cores[5:]) >= 1) \
+            ok = (isinstance(cores, str)
+                  and (cores.startswith("tail:") or cores.startswith("spread:"))
+                  and cores.split(":", 1)[1].isdigit() and int(cores.split(":", 1)[1]) >= 1) \
                  or (isinstance(cores, list) and cores
                      and all(isinstance(c, int) and not isinstance(c, bool) for c in cores))
         (good if ok else bad).append(r)
@@ -78,17 +102,18 @@ def apply_if_due(conn, cfg, state, psutil_mod=None):
                                  json.dumps({"reason": "invalid_rule", "rules": bad},
                                             ensure_ascii=False, default=str))
     wanted = {}
-    for p in pm.process_iter(["pid", "name"]):
-        name = (p.info["name"] or "").lower()
-        for r in good:
-            if r["name"].lower() == name:
-                wanted[p.info["pid"]] = (p, r)
+    for ri, r in enumerate(good):
+        for p in pm.process_iter(["pid", "name"]):
+            if r["name"].lower() == (p.info["name"] or "").lower():
+                wanted[p.info["pid"]] = (p, ri)
+    resolved = assign_cores(good, n)   # spread 需跨规则分配，故按规则序统一解析核组
     skipped = []
-    for pid, (proc, rule) in wanted.items():
+    for pid, (proc, ri) in wanted.items():
         if pid == os.getpid():
             continue
+        rule = good[ri]
         prio = PRIORITY.get(rule.get("priority", "below_normal"))
-        cores = cores_of(rule.get("cores", "tail:2"), n)
+        cores = resolved[ri]
         try:
             if proc.nice() == prio and sorted(proc.cpu_affinity()) == cores:
                 continue   # 幂等：已是目标态

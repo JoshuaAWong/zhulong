@@ -124,6 +124,14 @@ def main():
     assert c.get("memory.commit_percent") == 66
     assert c.process_commit_gb("HYPHelper.exe") == 3.5
     assert c.process_commit_gb("nope.exe") is None
+
+    # ---- v1.6：single_core_hot 条件（多进程挤核识别：单核打满 + 总占用不高）----
+    r_sc = by_name(RULES, "single_core_hot")[0]
+    cpu_ctx = lambda mx, avg: MetricCtx({("cpu", "cpu_max_core"): mx, ("cpu", "cpu_percent"): avg}, {})
+    assert r_sc["condition"](cpu_ctx(96, 50)), "单核打满且总占用低：应触发"
+    assert not r_sc["condition"](cpu_ctx(60, 50)), "单核不高：不触发"
+    assert not r_sc["condition"](cpu_ctx(96, 80)), "总占用也高（全局忙非挤核）：不触发"
+    assert not r_sc["condition"](cpu_ctx(None, 50)), "缺数据：不触发"
     print("PASS")
 
 

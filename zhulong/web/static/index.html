@@ -5,7 +5,7 @@
 <title>烛龙 · 系统监控</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2">
 <script src="chart.umd.js"></script>
-<link rel="stylesheet" href="panel.css?v=4">
+<link rel="stylesheet" href="panel.css?v=5">
 </head>
 <body>
 <div class="scroll">
@@ -75,6 +75,9 @@
       <div class="sec-head" style="margin-top:14px"><span class="no">玖</span><h2>设置 · 限流</h2><span class="plain" id="thState"></span></div>
       <div id="throttle"></div>
       <div class="set-note">修改规则：编辑程序目录下 data/throttle_override.json（没有则新建，格式同出厂规则）；恢复出厂：删除该文件。开关亦可用托盘右键。</div>
+      <div class="sec-head" style="margin-top:14px"><span class="no">拾</span><h2>温和处置</h2><span class="plain" id="acState"></span></div>
+      <div id="autoclean"></div>
+      <div class="set-note">内存整理只回收白名单进程的物理内存（不杀进程不丢数据；手动整理不受总开关限制）。服务重启需在 config.RESTART_SERVICES 登记白名单（出厂为空）。系统 / 安全软件 / 前台窗口进程自动识别并跳过。</div>
     </aside>
 
     <div class="zones">
@@ -129,6 +132,6 @@
     <span class="meta">采集周期三十秒 · 数据保留三十日 · 面板只读（127.0.0.1）</span>
   </footer>
 </div>
-<script src="panel.js?v=4"></script>
+<script src="panel.js?v=5"></script>
 </body>
 </html>

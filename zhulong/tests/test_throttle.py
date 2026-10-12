@@ -171,6 +171,40 @@ def main():
                        json.dumps({"ToDesk.exe": {"priority": "below_normal", "cores": [14, 15]}}))
         n = throttle.restore(conn, psutil_mod=FakePS([self_proc]))
         assert n == 0 and self_proc._nice == NORMAL, "restore 碰了自身进程"
+
+        # ---- v1.6：spread 错峰核组（多规则叠核的根治）----
+        # 16 核 4 条 spread:2 → 从尾部向下连续切块，规则间不重叠
+        sp_rules = [{"name": f"p{i}.exe", "priority": "below_normal", "cores": "spread:2"}
+                    for i in range(4)]
+        blocks = throttle.assign_cores(sp_rules, 16)
+        assert blocks == [[14, 15], [12, 13], [10, 11], [8, 9]], blocks
+        # 混合 spec：tail 独立解析不受 spread 游标影响（向后兼容）
+        blocks = throttle.assign_cores([{"cores": "spread:2"}, {"cores": "tail:2"}, {"cores": "spread:2"}], 16)
+        assert blocks == [[14, 15], [14, 15], [12, 13]], blocks
+        # 小 CPU 钳制：4 核 3 条 spread:2 → 首块 [2,3]，其余回落共享下限块（不侵入前半核区）
+        blocks = throttle.assign_cores([{"cores": "spread:2"}] * 3, 4)
+        assert blocks == [[2, 3], [2, 3], [2, 3]], blocks
+        # 校验：spread:N 合法 / spread:abc 非法（与 tail 同规则）
+        good, bad = throttle.validate_rules([{"name": "a.exe", "cores": "spread:2"},
+                                             {"name": "b.exe", "cores": "spread:abc"}])
+        assert [r["name"] for r in good] == ["a.exe"] and len(bad) == 1, (good, bad)
+        # 施加：spread 核组真落到进程上且幂等
+        class SpreadCfg:
+            THROTTLE_INTERVAL_CYCLES = 1
+            DATA_DIR = Path(td) / "cfg"
+            THROTTLE_DEFAULTS = {"enabled": True, "rules": [
+                {"name": "Sp1.exe", "priority": "below_normal", "cores": "spread:2"},
+                {"name": "Sp2.exe", "priority": "below_normal", "cores": "spread:2"},
+            ]}
+        sp1, sp2 = FakeProc(700, "Sp1.exe"), FakeProc(701, "Sp2.exe")
+        st_sp = {}
+        throttle.apply_if_due(conn, SpreadCfg, st_sp, psutil_mod=FakePS([sp1, sp2]))
+        assert sp1._aff == [14, 15] and sp2._aff == [12, 13], (sp1._aff, sp2._aff)
+        ev0 = len(storage.query_events(conn, limit=200))
+        throttle.apply_if_due(conn, SpreadCfg, st_sp, psutil_mod=FakePS([sp1, sp2]))
+        assert len(storage.query_events(conn, limit=200)) == ev0, "spread 幂等失效"
+        throttle.restore(conn, psutil_mod=FakePS([sp1, sp2]))
+        assert sp1._aff == list(range(16)) and sp2._aff == list(range(16)), "spread 后 restore 失效"
         conn.close()
     print("PASS")
 

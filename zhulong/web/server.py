@@ -107,8 +107,16 @@ class Handler(BaseHTTPRequestHandler):
                     anomalies = anomaly.detect(anomaly.series_from_db(self.storage_conn))
                 except Exception:
                     anomalies = []
+                # 温和处置状态（v1.6）：面板卡片展示与开关回显
+                mt = getattr(config, "MEM_TRIM", {})
+                ac_kv = storage.kv_get(self.storage_conn, "autoclean_enabled")
+                autoclean = {
+                    "enabled": (ac_kv == "1") if ac_kv is not None else bool(mt.get("enabled")),
+                    "mem_trim": [w["name"] for w in mt.get("processes", [])],
+                    "restart_services": [w.get("name") for w in getattr(config, "RESTART_SERVICES", [])],
+                }
                 out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names,
-                                "labels": labels, "anomalies": anomalies}
+                                "labels": labels, "anomalies": anomalies, "autoclean": autoclean}
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":
@@ -177,6 +185,42 @@ class Handler(BaseHTTPRequestHandler):
                 storage.kv_set(self.storage_conn, "throttle_enabled", "1" if action == "throttle_on" else "0")
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps({"status": "ok", "enabled": action == "throttle_on"}).encode("utf-8"))
+            if action == "mem_trim":
+                # 目标必须在 MEM_TRIM 名单内（镜像 kill 的服务端名单比对）
+                allowed = {w["name"] for w in getattr(config, "MEM_TRIM", {}).get("processes", [])}
+                if target not in allowed:
+                    return self._send(400, "application/json; charset=utf-8",
+                                      json.dumps({"status": "skipped:not_allowed"}).encode("utf-8"))
+                from zhulong import memtrim
+                # 与自动巡检共用同一条安全链与 kv 熔断计数（面板手动不绕过熔断）
+                result = memtrim.trim_once(target, config, {},
+                                           kv_get=lambda k: storage.kv_get(self.storage_conn, k),
+                                           kv_set=lambda k, v: storage.kv_set(self.storage_conn, k, v))
+                storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "panel_action", "mem_trim",
+                                     json.dumps({"target": target, "result": result}, ensure_ascii=False))
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            if action == "restart_service":
+                allowed = {w["name"] for w in getattr(config, "RESTART_SERVICES", [])}
+                if target not in allowed:
+                    return self._send(400, "application/json; charset=utf-8",
+                                      json.dumps({"status": "skipped:not_allowed"}).encode("utf-8"))
+                from zhulong.actions import restart_service
+                result = restart_service.run({"service": target}, config, {},
+                                             kv_get=lambda k: storage.kv_get(self.storage_conn, k),
+                                             kv_set=lambda k, v: storage.kv_set(self.storage_conn, k, v))
+                storage.insert_event(self.storage_conn, time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "panel_action", "restart_service",
+                                     json.dumps({"target": target, "result": result}, ensure_ascii=False))
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            if action in ("autoclean_on", "autoclean_off"):
+                # 温和处置总开关（只闸自动通道；面板手动动作不受限）
+                storage.kv_set(self.storage_conn, "autoclean_enabled",
+                               "1" if action == "autoclean_on" else "0")
+                return self._send(200, "application/json; charset=utf-8",
+                                  json.dumps({"status": "ok", "enabled": action == "autoclean_on"}).encode("utf-8"))
             return self._send(400, "application/json; charset=utf-8",
                               json.dumps({"status": "unknown_action"}).encode("utf-8"))
         except Exception:

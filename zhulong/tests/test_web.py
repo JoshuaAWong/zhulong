@@ -128,6 +128,22 @@ def main():
             assert st == 200 and json.loads(body)["status"] == "degraded:frequency_cap", body
             st, body = post_json(port, "/api/action", {"action": "nope", "token": tok})
             assert st == 400 and json.loads(body)["status"] == "unknown_action", body
+
+            # ---- v1.6：温和处置动作通道 ----
+            st, body = post_json(port, "/api/action", {"action": "mem_trim", "target": "notepad.exe", "token": tok})
+            assert st == 400 and json.loads(body)["status"] == "skipped:not_allowed", body
+            # 白名单内目标走真实安全链（本机大概率 skipped:*，不真杀真整理）
+            st, body = post_json(port, "/api/action", {"action": "mem_trim", "target": "HYPHelper.exe", "token": tok})
+            assert st == 200 and json.loads(body)["status"].startswith(("skipped", "trimmed", "degraded", "blocked")), body
+            st, body = post_json(port, "/api/action", {"action": "restart_service", "target": "Winmgmt", "token": tok})
+            assert st == 400, body   # 出厂 RESTART_SERVICES 为空 → 白名单拒绝
+            st, body = post_json(port, "/api/action", {"action": "autoclean_off", "token": tok})
+            assert st == 200 and json.loads(body)["status"] == "ok", body
+            st, _, body = get("127.0.0.1", port, "/api/current")
+            ac = json.loads(body)["_meta"]["autoclean"]
+            assert ac["enabled"] is False and "HYPHelper.exe" in ac["mem_trim"] and ac["restart_services"] == [], ac
+            st, body = post_json(port, "/api/action", {"action": "autoclean_on", "token": tok})
+            assert st == 200 and json.loads(body)["status"] == "ok", body
             # 终审修订：do_POST 内部异常（如 sqlite 抛错）回 500 JSON，不断连无响应
             orig_kv_set = storage.kv_set
             storage.kv_set = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db gone"))

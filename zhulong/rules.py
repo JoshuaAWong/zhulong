@@ -16,6 +16,15 @@ def _has_anomaly(ctx):
     return bool(getattr(ctx, "anomalies", None))
 
 
+def _single_core_hot(ctx):
+    """单核饱和：最忙核接近打满而总占用不高——多进程挤核的特征（总值不高但一样卡）。"""
+    mx = ctx.get("cpu.cpu_max_core")
+    avg = ctx.get("cpu.cpu_percent")
+    s = config.SINGLE_CORE
+    return (mx is not None and avg is not None
+            and mx >= s["enter"] and avg < s["avg_below"])
+
+
 RULES = [
     {
         "name": "anomaly_leak",
@@ -35,6 +44,16 @@ RULES = [
         "actions": ["toast"],
         "params": {"toast_title": "烛龙：虚拟内存水位过高",
                    "toast_body": "commit 超过 85% 已持续 90 秒，点击查看面板定位占用大户。"},
+    },
+    {
+        "name": "single_core_hot",
+        "condition": _single_core_hot,
+        "for_seconds": config.SINGLE_CORE["for_seconds"],
+        "cooldown_seconds": config.COOLDOWN_S,
+        "actions": ["toast"],   # 只告警不自动绑核（非白名单进程不动，处置留给限流错峰）
+        "params": {"toast_title": "烛龙：单核饱和",
+                   "toast_body": "最忙核心接近打满而总占用不高（多进程挤核），见面板查看大户；"
+                                 "后台进程错峰绑核可分散压力。"},
     },
 ]
 
@@ -59,3 +78,28 @@ def _autokill_rules():
 
 
 RULES.extend(_autokill_rules())
+
+
+# 泄漏服务温和重启动态规则：trigger_processes 里任一进程被判异常即重启对应宿主服务
+# （镜像 AUTOKILL 模式；params 带 auto=True，动作内受总开关 kv autoclean_enabled 闸）
+def _restart_rules():
+    rules = []
+    for entry in getattr(config, "RESTART_SERVICES", []):
+        svc = entry["name"]
+        procs = tuple(p.lower() for p in entry.get("trigger_processes", []))
+        display = entry.get("display_name", svc)
+        rules.append({
+            "name": f"restart_{svc}",
+            "condition": lambda ctx, ps=procs: any(a["name"].lower() in ps
+                                                   for a in getattr(ctx, "anomalies", [])),
+            "for_seconds": 0,
+            "cooldown_seconds": config.COOLDOWN_S,
+            "actions": ["restart_service", "toast"],
+            "params": {"service": svc, "auto": True,
+                       "toast_title": "烛龙：已温和重启泄漏服务",
+                       "toast_body": f"{display} 宿主进程疑似泄漏，已自动重启服务，详情见面板事件。"},
+        })
+    return rules
+
+
+RULES.extend(_restart_rules())

@@ -16,6 +16,7 @@ NEVER_KILL = {
     "system", "registry", "memory compression", "system idle process",
     "explorer.exe", "dwm.exe", "csrss.exe", "winlogon.exe", "lsass.exe", "services.exe",
     "svchost.exe", "pythonw.exe", "python.exe", "zenlesszonezero.exe",
+    "smss.exe", "wininit.exe", "fontdrvhost.exe",   # v1.6 补漏：会话管理器等关键进程
 }
 
 

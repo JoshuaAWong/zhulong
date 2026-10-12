@@ -63,14 +63,17 @@ DISPLAY_NAMES = {
 }
 
 # 限流器出厂规则（初始状态副本，永不改动；用户覆盖见 data/throttle_override.json）
-# 红线：priority 仅 normal/below_normal；cores 支持 "tail:N"（尾部 N 核）或核号列表
+# 红线：priority 仅 normal/below_normal；cores 三种写法：
+#   "spread:N" 错峰——按规则顺序从尾部向下各切 N 核块，规则间不重叠（v1.6 起出厂默认，专治多规则叠核）
+#   "tail:N"   尾部 N 核——多条 tail 规则会共享同组核（叠核）
+#   [0,1,...]  显式核号列表
 THROTTLE_DEFAULTS = {
     "enabled": True,
     "rules": [
-        {"name": "ToDesk.exe", "priority": "below_normal", "cores": "tail:2"},
-        {"name": "QQPCTray.exe", "priority": "below_normal", "cores": "tail:4"},
-        {"name": "AweSun.exe", "priority": "below_normal", "cores": "tail:2"},
-        {"name": "sunloginclient.exe", "priority": "below_normal", "cores": "tail:2"},
+        {"name": "ToDesk.exe", "priority": "below_normal", "cores": "spread:2"},
+        {"name": "QQPCTray.exe", "priority": "below_normal", "cores": "spread:2"},
+        {"name": "AweSun.exe", "priority": "below_normal", "cores": "spread:2"},
+        {"name": "sunloginclient.exe", "priority": "below_normal", "cores": "spread:2"},
     ],
 }
 THROTTLE_INTERVAL_CYCLES = 4   # 每 4 个采集周期（2 分钟）巡检应用一次
@@ -80,6 +83,37 @@ THROTTLE_INTERVAL_CYCLES = 4   # 每 4 个采集周期（2 分钟）巡检应用
 # 名单元素允许字符串（仅按名匹配）或 dict：{"name": "x.exe", "path_contains": "路径片段"}
 # ——不配 path_contains 则无路径校验；阈值固定取 core/anomaly.ANOMALY_REDLINE_GB（20GB）
 AUTOKILL = []
+
+# ── 温和资源回收（v1.6）────────────────────────────────────────────────────
+# 内存回收：对白名单后台进程调 EmptyWorkingSet 挤出物理内存页（不杀进程不丢数据，
+# 下次访问从待备列表快速调回）。如实分工：只降物理内存（working set）不减 commit——
+# 泄漏处置仍走上面 WATCH/AUTOKILL；页面文件由系统自动回收，烛龙不做任何页面文件操作。
+# 面板总开关（自动整理 开/关）写 kv autoclean_enabled，缺省取这里的 enabled。
+# 关键进程（安全软件/系统账户/System32 路径/前台窗口进程）多重信号识别后一律不动（fail-closed）。
+MEM_TRIM = {
+    "enabled": True,           # 出厂默认开（配合压力门槛：内存不紧张时不折腾）
+    "interval_cycles": 2,      # 每 2 周期（1 分钟）巡检一次
+    "min_mem_percent": 60,     # 物理内存占用低于此值整轮跳过（无压力不折腾）
+    "processes": [
+        {"name": "HYPHelper.exe",           # 启动器挂后台时白占物理内存
+         "min_ws_gb": 2.0,                  # working set 超此值才回收
+         "min_age_s": 300,                  # 存活不足 5 分钟不动（刚启动还没稳定）
+         "path_contains": "miHoYo Launcher",
+         "max_trims_per_10min": 1},         # 频次熔断
+    ],
+}
+
+# 泄漏服务温和重启（stop→start）：出厂空 = 只告警不动手（服务重启影响面大，纯白名单）。
+# 触发：trigger_processes 里任一进程被异常检测判为泄漏（anomalies）即重启该服务。
+# 例：WmiPrvSE.exe 泄漏 → 重启宿主服务 Winmgmt（杀 WmiPrvSE 进程会连坐同宿主服务，重启服务才对）。
+# rpcss/dcomlaunch 等关键服务有硬阻断（actions/restart_service.SERVICES_NEVER_RESTART）。
+RESTART_SERVICES = [
+    # {"name": "Winmgmt", "display_name": "WMI 管理",
+    #  "trigger_processes": ["WmiPrvSE.exe"], "max_restarts_per_hour": 1},
+]
+
+# 单核饱和告警：最忙核 ≥ enter% 持续 for_seconds 且总占用 < avg_below（多进程挤核特征）
+SINGLE_CORE = {"enter": 95, "avg_below": 70, "for_seconds": 90}
 
 # 网络探测：烛龙唯一主动发包功能（每周期网关+公网各 1 个 ICMP 包）
 PING_ENABLED = True
