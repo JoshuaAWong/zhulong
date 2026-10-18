@@ -1,4 +1,5 @@
 """烛龙全局配置：所有可调参数集中于此。用户日常只需要改这个文件。"""
+import sys
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -124,5 +125,17 @@ PING_HOST = "223.5.5.5"   # 阿里公共 DNS
 TOAST_APP_ID = "Zhulong.烛龙"
 PANEL_URL = f"http://{HOST}:{PORT}/"
 
-# 部署用：锁死 3.13 解释器（本机另有 3.14，禁止误用）
-PYTHONW = Path(r"C:\Users\Administrator\AppData\Local\Programs\Python\Python313\pythonw.exe")
+def runtime_pythonw(executable=None):
+    """返回当前运行实例对应的 pythonw。
+    生产环境由计划任务用 pythonw 启动时，sys.executable 就是应复用的解释器；
+    用 python.exe 调试时优先选同目录 pythonw.exe，避免再次猜测其他安装。"""
+    exe = Path(executable or sys.executable)
+    if exe.name.lower() == "python.exe":
+        candidate = exe.with_name("pythonw.exe")
+        if candidate.is_file():
+            return candidate
+    return exe
+
+
+# 看门狗与托盘重启都复用当前实例的解释器，安装后不会因 PATH 变化换一套 Python
+PYTHONW = runtime_pythonw()

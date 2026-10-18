@@ -25,7 +25,7 @@
 ## 4. 红线（不得违反）
 
 - **面板**：零"配置写"端点；仅 `POST /api/action` 动作通道（CSRF token + Host/Origin 校验 + 动作白名单）；静态资源走字面白名单路由；只绑 127.0.0.1
-- **kill 七步安全链不得削弱**：重读水位 → 存活时长 → 路径校验（fail-closed）→ create_time 竞态 → kill → 记账降级
+- **kill 七步安全链不得削弱**：重读水位 → 存活时长 → 路径校验（配置 `path_contains` 时 fail-closed）→ create_time 竞态 → kill → 记账降级
 - **kill 白名单永不收录安全软件进程**；烛龙永不处理自身进程（限流器含自身 PID 跳过）
 - **依赖只减不增**：新增第三方包须论证（现仅 psutil / pystray / Pillow / winotify 四个纯 pip 包，面板无框架）
 - 时间纪律：规则窗口用 monotonic，落库用墙钟，两者不混用

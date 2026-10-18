@@ -1,4 +1,57 @@
-zhulong/state/
+# 运行数据与本地状态（永不提交）
 data/
+zhulong/state/
+*.log
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.jsonl
+
+# 本地配置与秘密
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa*
+id_ed25519*
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+
+# 构建与发布产物
+build/
+dist/
+out/
+*.exe
+*.msi
+*.zip
+WebView2/
+WebView2Pet/
+
+# 编辑器与本地 AI 工具配置
+.idea/
+.vscode/
+.agent/
+.agents/
+.claude/
+.codex/
+.opencode/
+.serena/
+.worktrees/
+
+# 操作系统与临时文件
+Thumbs.db
+.DS_Store
+*.tmp
+*.bak
+*~

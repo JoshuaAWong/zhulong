@@ -19,7 +19,7 @@
 - **看不见的数值持续记录**：commit charge（虚拟内存总额度水位，游戏闪退/桌面黑屏的头号预警指标）、物理内存/页面文件分层、CPU（总占用+单核峰值+大户进程）、磁盘 IO（读写速率+最忙盘+IO 大户，覆盖"安全软件扫描外接存储致卡"场景）
 - **白名单自动处置**：泄漏进程超阈值 → 七步安全链确认后自动结束 + toast + 事件落库；频次熔断防拉锯；其余异常仅通知；红线告警环比抑制（稳态超线进程不刷屏，涨超 1GB 才重报，跌破红线即复位）
 - **烛龙风面板**（127.0.0.1 只读）：睁眼/闭眼昼夜双态主题、24h/7天/30天区间切换、全中文标注、事件语义标记（处理/提醒/待处理+推荐处理思路）、悬停十字线全图联动、龙形 Logo 与朱砂印章
-- **轻量与自愈**：常驻内存 <80MB、空闲 CPU <1%、零外联；计划任务自启 + 每 5 分钟心跳看门狗；单实例互斥；托盘四态图标
+- **轻量与自愈**：常驻内存 <80MB、空闲 CPU <1%、不上传监控数据（默认仅网关与公网 DNS 的 ICMP ping，可关闭）；计划任务自启 + 每 5 分钟心跳看门狗；单实例互斥；托盘四态图标
 - **可扩展**：指标采集器/规则/动作三类扩展点，扔文件进目录即生效，schema 永不动
 
 > 边界说明：内存整理只降物理内存（working set），不减 commit（页面文件）——泄漏进程的根治仍走白名单 kill 链；页面文件由 Windows 自动回收，烛龙不做任何页面文件操作；磁盘/注册表清理属非目标，永不做。
@@ -27,7 +27,8 @@
 ## 快速开始
 
 ```bat
-:: 前提：Windows 11 + Python 3.13（脚本已写死解释器路径，与其他 Python 版本互不干扰）
+:: 前提：Windows 11 + Python 3.13+（自动发现，校验 python/pythonw 同目录）
+:: 自定义安装位置或指定版本：先设置 ZHULONG_PYTHON / ZHULONG_PYTHONW，再运行安装脚本
 :: 1. 克隆后双击安装（装依赖 + 注册开机自启与看门狗 + 立即启动）
 scripts\安装.bat
 
@@ -49,7 +50,7 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 ```
 
 - 数据：SQLite WAL 通用窄表（30 天保留自动清理），扩展指标不改表结构
-- 安全红线：面板仅一个令牌守卫的 POST /api/action 动作通道（零配置写端点）、只绑 127.0.0.1；kill fail-closed 路径校验 + PID 复用竞态防护 + NEVER_KILL 入口硬阻断；无提权、无注入
+- 安全红线：面板仅一个令牌守卫的 POST /api/action 动作通道（零配置写端点）、只绑 127.0.0.1；kill 白名单 + NEVER_KILL 入口硬阻断 + PID 复用竞态防护；配置 `path_contains` 的条目执行 fail-closed 路径校验；无提权、无注入
 - 依赖仅 4 个纯 pip 包：psutil、pystray、Pillow、winotify（面板用标准库 http.server，无 Flask）
 
 ## 文档
@@ -60,11 +61,15 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 | [docs/设计文档.md](docs/设计文档.md) | 架构、线程模型、数据模型、规则引擎、kill 安全链、部署自愈、扩展指南 |
 | [docs/实施计划.md](docs/实施计划.md) | 13 任务 TDD 实施计划 + 实施后记（终审修复与部署教训实录） |
 | [docs/原型/](docs/原型/) | 面板设计迭代原型（A/B/C/D/D2）与 Logo 候选对比页 |
+| [LICENSE](LICENSE) | 本项目采用 MIT 许可证 |
+| [PRIVACY.md](PRIVACY.md) | 本地数据、网络 ping、处置权限与数据删除说明 |
+| [SECURITY.md](SECURITY.md) | 安全边界与问题反馈说明 |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Chart.js 与 Python 依赖的许可证清单 |
 
 ## 测试
 
 ```bat
-python -X utf8 -m zhulong.tests.run_all   :: 一键全量（15 个断言式测试文件，无 pytest）
+python -X utf8 -m zhulong.tests.run_all   :: 一键全量（17 个断言式测试文件，无 pytest）
 ```
 
 ## 排障速查
