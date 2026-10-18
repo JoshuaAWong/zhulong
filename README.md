@@ -57,6 +57,7 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 
 | 文档 | 内容 |
 |---|---|
+| [docs/roadmap.md](docs/roadmap.md) | **后续路线与架构讨论记录（未实施）**：目标架构、讨论演变、垂直切片与未决问题 |
 | [docs/需求文档.md](docs/需求文档.md) | 背景事故、目标/非目标、功能需求（FR/D 系列）、验收标准 |
 | [docs/设计文档.md](docs/设计文档.md) | 架构、线程模型、数据模型、规则引擎、kill 安全链、部署自愈、扩展指南 |
 | [docs/实施计划.md](docs/实施计划.md) | 13 任务 TDD 实施计划 + 实施后记（终审修复与部署教训实录） |
