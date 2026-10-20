@@ -244,7 +244,8 @@ function renderRanks(cur) {
       const parts = raw.split("|");
       const name = parts[0], pid = parts[1] || "", cmd = parts.slice(2).join("|");
       const isAnomaly = anomalyNames.has(name.toLowerCase());
-      items.push(`<div class="rank"${isAnomaly ? ' style="color:var(--cinn)"' : ""}><span>${"①②③④⑤"[i - 1]} ${esc(name)}${pid ? ` <small>#${esc(pid)}</small>` : ""}${isAnomaly ? ' <b>⚠ 疑似泄漏</b>' : ""}</span><span class="vv">${f1(gb)} GB</span></div>` +
+      const killable = (META.kill_allowed || []).includes(name);   // v1.7：白名单进程行内泄洪入口
+      items.push(`<div class="rank"${isAnomaly ? ' style="color:var(--cinn)"' : ""}><span>${"①②③④⑤"[i - 1]} ${esc(name)}${pid ? ` <small>#${esc(pid)}</small>` : ""}${isAnomaly ? ' <b>⚠ 疑似泄漏</b>' : ""}</span><span class="vv">${f1(gb)} GB${killable ? ` <button class="mini-btn warn" data-action="pool_kill" data-target="${esc(name)}">泄洪</button>` : ""}</span></div>` +
         (cmd ? `<div class="rank-path" title="${esc(cmd)}">${esc(cmd)}</div>` : ""));
     }
   }
@@ -252,6 +253,52 @@ function renderRanks(cur) {
   const top1 = META.labels.proctop1;
   $("rankPlain").textContent = anomalyNames.size ? `危 · ${anomalyNames.size} 起疑似泄漏` : (top1 ? `榜首 ${top1.split("|")[0]}` : "");
 }
+
+/* ── 进程池（v1.7）：组聚合水位 + 手动泄洪入口（白名单进程；两段式确认）── */
+function renderPools(cur) {
+  const pools = META.pools || [];
+  if (!pools.length) { $("pools").innerHTML = ""; return; }
+  const rows = pools.map(p => {
+    const v = cur[p.key];
+    const over = v != null && v >= p.threshold;
+    return `<div class="set-row"${over ? ' style="color:var(--cinn)"' : ""}><span>${esc(p.display)}${over ? " <b>超阈</b>" : ""}</span>` +
+      `<span class="vv">${v == null ? "–" : `${f1(v)} / ${p.threshold} GB`} ` +
+      `<button class="mini-btn${over ? " warn" : ""}" data-action="pool_kill" data-target="${esc(p.name)}">泄洪</button></span></div>`;
+  });
+  $("pools").innerHTML = `<div class="set-note">进程池 · 组聚合超阈且系统高水位时自动泄洪（杀最老，熔断限速）；手动泄洪即刻杀一个</div>` + rows.join("");
+}
+/* 泄洪按钮两段式确认 + 令牌 POST（403 重取重试一次；绑定 railLeft 只认 pool_kill，
+   不与 autoclean/throttle 各自容器内的委托冲突） */
+$("railLeft").addEventListener("click", async e => {
+  const btn = e.target.closest('.mini-btn[data-action="pool_kill"]');
+  if (!btn || btn.disabled) return;
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = "1"; btn.dataset.oldText = btn.textContent;
+    btn.textContent = "确认？";
+    setTimeout(() => { delete btn.dataset.armed; btn.textContent = btn.dataset.oldText; }, 3000);
+    return;
+  }
+  const target = btn.dataset.target || "", old = btn.textContent;
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const post = () => fetch("/api/action", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "kill_process", target, token: TOKEN })
+    });
+    let resp = await post();
+    if (resp.status === 403) {
+      TOKEN = (await jget("/api/action_token")).token || TOKEN;
+      resp = await post();
+    }
+    const result = await resp.json();
+    btn.textContent = result.status === "killed" ? "已泄洪 ✓" : `未泄洪：${(result.status || "失败").replace("skipped:", "").slice(0, 12)}`;
+  } catch (err) {
+    btn.textContent = "请求失败";
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { if (btn.isConnected) btn.textContent = old; }, 5000);
+  }
+});
 async function renderThrottle() {
   const th = await jget("/api/throttle");
   const enabled = th.enabled === "default" ? "出厂默认开" : th.enabled === "1" ? "开" : "关";
@@ -400,6 +447,7 @@ async function refresh() {
     await renderZ3(cur, r);
     await renderZ6(cur, r);
     renderRanks(cur);
+    renderPools(cur);
     renderEvents(evts.events);
     await renderThrottle();
     renderAutoclean();

@@ -119,7 +119,14 @@ class Handler(BaseHTTPRequestHandler):
                     "restart_services": [w.get("name") for w in getattr(config, "RESTART_SERVICES", [])],
                 }
                 out["_meta"] = {"program_path": str(config.PROJECT_DIR), "names": names,
-                                "labels": labels, "anomalies": anomalies, "autoclean": autoclean}
+                                "labels": labels, "anomalies": anomalies, "autoclean": autoclean,
+                                # v1.7 面板泄洪入口：可终结进程名（白名单）+ 进程池结构（水位走 out[key]）
+                                "kill_allowed": sorted({w["name"] for w in config.WATCH_PROCESSES}),
+                                "pools": [{"name": w["name"], "display": w.get("display_name", w["name"]),
+                                           "key": f"{config.watch_key(w)}_commit_gb",
+                                           "threshold": w["group_commit_gb"]}
+                                          for w in config.WATCH_PROCESSES
+                                          if w.get("group_commit_gb") is not None]}
                 return self._send(200, "application/json; charset=utf-8",
                                   json.dumps(out, ensure_ascii=False).encode("utf-8"))
             if parsed.path == "/api/history":
