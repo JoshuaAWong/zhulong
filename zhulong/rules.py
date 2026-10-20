@@ -80,6 +80,38 @@ def _autokill_rules():
 RULES.extend(_autokill_rules())
 
 
+# 进程池泄洪动态规则（v1.7）：配了 group_commit_gb 的 WATCH 规则各生成一条。
+# 双保险触发：组聚合 ≥ 阈值 且 系统 commit 水位 ≥ HIGH_WATER.enter（无压力不折腾）；
+# for_seconds 沿用高水位持续判定，防瞬时尖峰。kill_process 按名取全部同名规则逐条
+# 判定（params 不带 watch_key，水位重读时自然定位到超限的组）。
+def _pool_high_rules():
+    rules = []
+    for w in getattr(config, "WATCH_PROCESSES", []):
+        if w.get("group_commit_gb") is None:
+            continue
+        wk = config.watch_key(w)
+        thr = w["group_commit_gb"]
+        display = w.get("display_name", w["name"])
+        rules.append({
+            "name": f"pool_high_{wk}",
+            "condition": lambda ctx, k=wk, t=thr: (
+                (ctx.get(f"pool.{k}_gb") or 0) >= t
+                and (ctx.get("memory.commit_percent") or 0) >= config.HIGH_WATER["enter"]
+            ),
+            "for_seconds": config.HIGH_WATER["for_seconds"],
+            "cooldown_seconds": config.COOLDOWN_S,
+            "actions": ["kill_process", "toast"],
+            "params": {"process": w["name"],
+                       "toast_title": "烛龙：进程池泄洪",
+                       "toast_body": f"{display} 聚合超 {thr}GB 且系统水位高，"
+                                     f"自动处置最老进程，详情见面板事件。"},
+        })
+    return rules
+
+
+RULES.extend(_pool_high_rules())
+
+
 # 泄漏服务温和重启动态规则：trigger_processes 里任一进程被判异常即重启对应宿主服务
 # （镜像 AUTOKILL 模式；params 带 auto=True，动作内受总开关 kv autoclean_enabled 闸）
 def _restart_rules():

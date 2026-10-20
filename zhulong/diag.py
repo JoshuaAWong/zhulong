@@ -19,10 +19,14 @@ def render(conn, hours):
         lines.append(f"commit_percent {hours}h: min={min(vals):.1f} max={max(vals):.1f} "
                      f"avg={sum(vals) / len(vals):.1f} ({len(hist)} 桶)")
     for w in config.WATCH_PROCESSES:
-        key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
+        key = f"{config.watch_key(w)}_commit_gb"
         row = storage.latest(conn, "process", key)
         if row:
-            lines.append(f"{w['name']} = {row[1]}GB ({row[2]}) | 阈值 {w['max_commit_gb']}GB")
+            if w.get("group_commit_gb") is not None:
+                lines.append(f"{w['name']}[{config.watch_key(w)}] = {row[1]}GB ({row[2]}) "
+                             f"| 组聚合阈值 {w['group_commit_gb']}GB")
+            else:
+                lines.append(f"{w['name']} = {row[1]}GB ({row[2]}) | 阈值 {w['max_commit_gb']}GB")
     lines.append("-- 最近事件 --")
     evts = storage.query_events(conn, limit=20)
     lines.extend(f"{ts} [{rule}] {action} {detail}" for ts, rule, action, detail in evts)

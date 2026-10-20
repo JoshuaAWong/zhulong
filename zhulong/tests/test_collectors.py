@@ -15,8 +15,9 @@ class FakePagefile:
 
 
 class FakeProc:
-    def __init__(self, pid, name, rss_commit_bytes):
-        self.info = {"pid": pid, "name": name, "memory_commit": rss_commit_bytes}
+    def __init__(self, pid, name, rss_commit_bytes, exe=None):
+        self.info = {"pid": pid, "name": name, "memory_commit": rss_commit_bytes,
+                     "exe": exe}   # v1.7 采集按 path_contains 分桶需读 exe
 
 
 def main():
@@ -48,7 +49,8 @@ def main():
     assert 0 < used < limit, (used, limit)
 
     # process：注入 fake process_iter
-    fake_iter = lambda: [FakeProc(111, "HYPHelper.exe", 16 * 2**30),
+    fake_iter = lambda: [FakeProc(111, "HYPHelper.exe", 16 * 2**30,
+                                  r"D:\Game\miHoYo Launcher\HYPHelper.exe"),
                          FakeProc(222, "notepad.exe", 1 * 2**30)]
     rows = process.collect(None, process_iter=fake_iter)
     d = {k: (v, l) for k, v, l in rows}

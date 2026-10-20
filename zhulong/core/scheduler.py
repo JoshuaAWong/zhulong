@@ -6,6 +6,7 @@ import os
 import time
 from datetime import datetime
 
+from zhulong import config
 from zhulong.core import anomaly, storage
 from zhulong.core.engine import MetricCtx
 
@@ -28,9 +29,15 @@ def build_ctx(conn, cfg):
     metrics, processes = {}, {}
     anomalies, series = [], None
     for w in cfg.WATCH_PROCESSES:
-        key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
+        key = f"{config.watch_key(w)}_commit_gb"
         row = storage.latest(conn, "process", key)
-        if row and row[2] != "absent":
+        if not row or row[2] == "absent":
+            continue
+        if w.get("group_commit_gb") is not None:
+            # v1.7 池泄洪：组聚合水位按 watch_key 塞 metrics（pool_high_ 规则条件用）；
+            # 不进 processes——那是按进程名的字典，同名多规则会互相覆盖
+            metrics[("pool", f"{config.watch_key(w)}_gb")] = row[1]
+        else:
             processes[w["name"].lower()] = row[1]   # MetricCtx.process_commit_gb 按 name.lower() 查
     for c_key in (("memory", "commit_percent"), ("memory", "commit_used_gb"),
                   ("memory", "commit_limit_gb"), ("memory", "mem_percent")):

@@ -96,12 +96,15 @@ class Handler(BaseHTTPRequestHandler):
                     if k in config.DISPLAY_NAMES:
                         names[k] = list(config.DISPLAY_NAMES[k])
                 for w in config.WATCH_PROCESSES:
-                    key = f"{w['name'].rsplit('.', 1)[0]}_commit_gb"
+                    key = f"{config.watch_key(w)}_commit_gb"
                     row = storage.latest(self.storage_conn, "process", key)
                     if row:
                         out[key] = row[1]
-                    names[key] = [w.get("display_name", w["name"]),
-                                  f"阈值 {w['max_commit_gb']}GB，超限自动结束（白名单进程）"]
+                    if w.get("group_commit_gb") is not None:
+                        desc = f"组聚合阈值 {w['group_commit_gb']}GB，超限且系统高水位时泄洪（从最老进程杀起）"
+                    else:
+                        desc = f"阈值 {w['max_commit_gb']}GB，超限自动结束（白名单进程）"
+                    names[key] = [w.get("display_name", w["name"]), desc]
                 try:
                     from zhulong.core import anomaly
                     anomalies = anomaly.detect(anomaly.series_from_db(self.storage_conn))

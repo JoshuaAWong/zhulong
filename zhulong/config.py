@@ -17,6 +17,16 @@ COOLDOWN_S = 600          # 规则触发冷却（秒）
 HEARTBEAT_STALE_S = 120   # 心跳过期阈值（秒），看门狗用
 
 # 白名单自动处置：仅以下进程允许被自动结束（红线：永不加入安全软件进程）
+# 字段（除 name/display_name 外全部可选，缺省即旧行为）：
+#   max_commit_gb      单进程口径：组内单进程 commit 超此值即处置（v1.3 原口径）
+#   group_commit_gb    组聚合口径（v1.7 池泄洪）：同名+同路径进程池总量超此值，且系统
+#                      commit 水位 ≥ HIGH_WATER.enter 时触发，victim_by=oldest 从最老杀起
+#   victim_by          受害者选择："commit"（缺省，组内最大者）/"oldest"（最老者，不足
+#                      min_age_s 顺延次老；全部不足龄则本轮放弃）
+#   prefer_orphan      孤儿优先（v1.7 二期占位，判定逻辑未实施，暂无效果）
+#   min_age_s          进程存活不足此时长不杀（避开启动峰值/保护活跃会话）
+#   max_kills_per_10min 频次熔断，超限降级为仅通知（按组分桶，见 watch_key）
+#   path_contains      路径校验片段（防同名假冒；多条同名规则靠它区分进程池）
 WATCH_PROCESSES = [
     {
         "name": "HYPHelper.exe",
@@ -26,7 +36,38 @@ WATCH_PROCESSES = [
         "max_kills_per_10min": 2,   # 频次熔断，超限降级为仅通知
         "path_contains": "miHoYo Launcher",   # 路径校验片段（防同名假冒）
     },
+    {
+        "name": "node.exe",
+        "display_name": "codegraph MCP 池",
+        "group_commit_gb": 3,       # 池聚合超 3GB 且系统高水位 → 泄洪
+        "victim_by": "oldest",      # 从最老的杀起（老≈残留，新≈活跃会话）
+        "min_age_s": 3600,          # 不足 1 小时的不杀（活跃会话保护）
+        "max_kills_per_10min": 2,   # 泄洪限速：每 10 分钟最多杀 2 个
+        "path_contains": "@colbymchenry",
+    },
+    {
+        "name": "node.exe",
+        "display_name": "Codex runtime 池",
+        "group_commit_gb": 4,
+        "victim_by": "oldest",
+        "min_age_s": 3600,
+        "max_kills_per_10min": 2,
+        "path_contains": "cua_node",
+    },
 ]
+
+
+def watch_key(rule):
+    """白名单规则的统一键（存储 key 前缀 + 熔断分桶）。普通规则（未配
+    group_commit_gb）保持 v1.3 旧 key——name 去扩展名、保留大小写，无论是否带
+    path_contains（HYPHelper 带 path 也不能变，历史序列与熔断兼容）；池泄洪规则
+    以路径 slug 区分同名多规则（如 node.exe×2 → node_colbymchenry/node_cua_node）。"""
+    stem = rule["name"].rsplit(".", 1)[0]
+    pc = rule.get("path_contains")
+    if rule.get("group_commit_gb") is None or not pc:
+        return stem
+    slug = "".join(ch if ch.isalnum() else "_" for ch in pc.lower()).strip("_")
+    return f"{stem}_{slug[:24]}"
 
 # 高水位告警（commit_percent 取值 0-100）
 HIGH_WATER = {"enter": 85, "exit": 80, "for_seconds": 90}
