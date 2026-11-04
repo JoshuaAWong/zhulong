@@ -1,0 +1,183 @@
+{
+  "status": "正式压力验证中断，未通过 P0-A 验收",
+  "date": "2026-10-28",
+  "sdk": "10.0.403",
+  "runtime": "10.0.14",
+  "webview_sdk": "1.0.4314.35",
+  "smoke_only": true,
+  "captured_images": true,
+  "seconds_per_phase": 8,
+  "note": "数据包含单独截图检查，不作为正式性能比较。后续 100 次测试干扰任务栏，已停止且用户确认恢复。",
+  "smoke_results": [
+    {
+      "mode": "wpf",
+      "expected_failure": false,
+      "passed": true,
+      "exit_code": 0,
+      "cycles": 2,
+      "surviving_pids": [],
+      "phases": {
+        "before": {
+          "private_mb": 10.285,
+          "working_mb": 38.898,
+          "handles": 233,
+          "processes": 1,
+          "cpu_one_core_percent": 0.0,
+          "cpu_machine_percent": 0.0
+        },
+        "open": {
+          "private_mb": 94.204,
+          "working_mb": 148.527,
+          "handles": 796,
+          "processes": 1,
+          "cpu_one_core_percent": 3.312,
+          "cpu_machine_percent": 0.207
+        },
+        "closed": {
+          "private_mb": 86.116,
+          "working_mb": 139.602,
+          "handles": 769.75,
+          "processes": 1,
+          "cpu_one_core_percent": 0.0,
+          "cpu_machine_percent": 0.0
+        },
+        "after": {
+          "private_mb": 86.099,
+          "working_mb": 143.018,
+          "handles": 745,
+          "processes": 1,
+          "cpu_one_core_percent": 12.984,
+          "cpu_machine_percent": 0.812
+        }
+      },
+      "open_ms": {
+        "count": 3,
+        "first": 1424.6462,
+        "median": 415.1827,
+        "p95": 1424.6462,
+        "max": 1424.6462
+      },
+      "refresh_ms": {
+        "count": 8,
+        "first": 119.119,
+        "median": 30.06355,
+        "p95": 119.119,
+        "max": 119.119
+      },
+      "close_ms": {
+        "count": 3,
+        "first": 146.1508,
+        "median": 142.4816,
+        "p95": 146.1508,
+        "max": 146.1508
+      }
+    },
+    {
+      "mode": "hybrid",
+      "expected_failure": false,
+      "passed": true,
+      "exit_code": 0,
+      "cycles": 2,
+      "surviving_pids": [],
+      "phases": {
+        "before": {
+          "private_mb": 10.035,
+          "working_mb": 38.895,
+          "handles": 233,
+          "processes": 1,
+          "cpu_one_core_percent": 0.0,
+          "cpu_machine_percent": 0.0
+        },
+        "open": {
+          "private_mb": 258.348,
+          "working_mb": 455.154,
+          "handles": 3896.667,
+          "processes": 7,
+          "cpu_one_core_percent": 3.169,
+          "cpu_machine_percent": 0.198
+        },
+        "closed": {
+          "private_mb": 61.016,
+          "working_mb": 103.48,
+          "handles": 656,
+          "processes": 1,
+          "cpu_one_core_percent": 0.0,
+          "cpu_machine_percent": 0.0
+        },
+        "after": {
+          "private_mb": 58.335,
+          "working_mb": 103.033,
+          "handles": 664.5,
+          "processes": 1,
+          "cpu_one_core_percent": 10.665,
+          "cpu_machine_percent": 0.667
+        }
+      },
+      "open_ms": {
+        "count": 3,
+        "first": 5469.485,
+        "median": 4062.5109,
+        "p95": 5469.485,
+        "max": 5469.485
+      },
+      "refresh_ms": {
+        "count": 8,
+        "first": 9.251,
+        "median": 18.92475,
+        "p95": 74.2486,
+        "max": 74.2486
+      },
+      "close_ms": {
+        "count": 3,
+        "first": 7917.74,
+        "median": 7968.5053,
+        "p95": 8201.443,
+        "max": 8201.443
+      }
+    },
+    {
+      "mode": "hybrid",
+      "expected_failure": true,
+      "passed": true,
+      "exit_code": 1,
+      "cycles": 0,
+      "surviving_pids": [],
+      "phases": {
+        "before": {}
+      },
+      "open_ms": {
+        "count": 0,
+        "first": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "refresh_ms": {
+        "count": 0,
+        "first": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "close_ms": {
+        "count": 0,
+        "first": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      }
+    }
+  ],
+  "environment": {
+    "kind": "environment",
+    "mode": "hybrid",
+    "runtime": "10.0.14",
+    "os": "Microsoft Windows NT 10.0.26300.0",
+    "processors": 16,
+    "points": 300,
+    "rows": 50,
+    "cycles": 2,
+    "seconds": 8
+  },
+  "webview_runtime": "150.0.4078.48"
+}
