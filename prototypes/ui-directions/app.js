@@ -147,11 +147,11 @@ $("#motionToggle").addEventListener("click", () => setMotion(root.dataset.motion
 $("#replayMotion").addEventListener("click", () => animateChange($(".page:not([hidden])")));
 $("#closeDetail").addEventListener("click", () => $("#detailDialog").close());
 $("#ackDetail").addEventListener("click", () => $("#detailDialog").close());
-$("#preferButton").addEventListener("click", () => { $("#preferenceStatus").textContent = `本页偏好：${directions[root.dataset.design].name}（回到对话告诉我即可）`; });
+$("#preferButton").addEventListener("click", () => { $("#preferenceStatus").textContent = `本页偏好：${$("#directionFoot").textContent}（回到对话告诉我即可）`; });
 document.addEventListener("visibilitychange", () => { root.dataset.paused = String(document.hidden); if (document.hidden) document.getAnimations().forEach(animation => animation.cancel()); });
 reduced.addEventListener("change", event => setMotion(!event.matches));
 const requested = new URLSearchParams(location.search).get("design");
-chooseDirection(Object.hasOwn(directions, requested) ? requested : "scroll");
+chooseDirection(Object.hasOwn(directions, requested) ? requested : root.dataset.design);
 setMotion(!reduced.matches);
 renderProcesses();
 renderChart();

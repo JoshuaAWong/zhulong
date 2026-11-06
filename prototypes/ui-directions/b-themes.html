@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN" data-design="instrument" data-theme="dark" data-motion="on" data-skin="abyss" data-ornament="on">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>烛龙 · B 版山海主题</title>
+  <link rel="icon" href="../../zhulong/web/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="b-themes.css">
+  <script src="app.js" defer></script>
+  <script src="b-themes.js" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true"><defs>
+    <symbol id="dragon" viewBox="0 0 64 64"><path d="M34 9C49 10 56 21 56 33C56 47 46 56 32 56C18 56 8 47 8 33C8 21 15 11 27 9M24 10C22 6 24 2.5 28 2.5M28 10C28 6 31 3.5 34 4.5M23 10C23 13 26 15 30 14C33 13 34 10 32 8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><circle cx="27" cy="9.5" r="1.4" fill="currentColor"/><path d="M32 21C36 26 38 29 38 33C38 38 35 41 32 41C29 41 26 38 26 33C26 29 29 25 32 21Z" fill="currentColor"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+    <symbol id="wave" viewBox="0 0 24 24"><path d="M2 13h4l3-8 5 15 3-7h5"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M3 4h6l3 2 3-2h6v15h-6l-3 2-3-2H3ZM12 6v15"/></symbol>
+    <symbol id="bell" viewBox="0 0 24 24"><path d="M5 17h14l-2-4V9a5 5 0 0 0-10 0v4ZM10 21h4M12 2v2"/></symbol>
+    <symbol id="zhulong-scene" viewBox="0 0 400 250">
+      <g class="mountain-lines" fill="none" stroke="currentColor" stroke-width="1">
+        <path d="M8 211L50 164 71 185 115 129 146 164 185 117 230 165 263 132 301 170 341 118 392 184M8 224L54 189 84 202 117 173 166 192 204 167 250 194 293 174 335 195 390 167"/>
+        <path d="M48 164L55 198M115 129L120 164 134 169M185 117L192 158 207 166M341 118L330 169 345 179M24 234Q110 217 193 233T380 228"/>
+      </g>
+      <g class="orbital-lines" fill="none" stroke="currentColor">
+        <ellipse cx="201" cy="131" rx="163" ry="72" transform="rotate(-21 201 131)"/>
+        <circle cx="201" cy="131" r="106" stroke-dasharray="2 7"/>
+        <path d="M20 88H77L102 63H166M284 194H330L358 168H389M201 12V33M201 228V247M85 131H65M317 131H337"/>
+        <path d="M47 47L68 29 90 44 124 32M316 48L339 67 367 52"/>
+        <g fill="currentColor"><circle cx="47" cy="47" r="2"/><circle cx="68" cy="29" r="2"/><circle cx="90" cy="44" r="2"/><circle cx="124" cy="32" r="2"/><circle cx="339" cy="67" r="2"/></g>
+      </g>
+      <g class="relic-frame" fill="none" stroke="currentColor" stroke-width="1">
+        <path d="M32 65V34H66M337 34H370V65M32 193V225H66M337 225H370V193"/>
+        <path d="M39 61V41H61M342 41H363V61M39 199V218H61M342 218H363V199"/>
+        <path d="M145 25H175L185 18H215L225 25H254M145 236H175L185 243H215L225 236H254"/>
+      </g>
+      <g class="celestial-disc" transform="translate(105 48)">
+        <circle r="24" fill="none" stroke="currentColor" stroke-width=".8"/>
+        <g class="sun-mark"><circle r="13" fill="currentColor" opacity=".5"/><path d="M0-31V-27M0 27V31M-31 0H-27M27 0H31" stroke="currentColor"/></g>
+        <path class="moon-mark" d="M4-17A18 18 0 1 0 13 13A21 21 0 0 1 4-17Z" fill="currentColor" opacity=".65"/>
+      </g>
+      <path class="dragon-underlay" d="M75 207C37 199 32 166 64 154C103 139 139 194 190 185C247 175 237 138 197 129C159 120 108 149 94 114C80 80 123 56 166 72C204 86 218 109 245 100C270 92 282 77 278 59" fill="none" stroke-width="20" stroke-linecap="round"/>
+      <path class="dragon-body" d="M75 207C37 199 32 166 64 154C103 139 139 194 190 185C247 175 237 138 197 129C159 120 108 149 94 114C80 80 123 56 166 72C204 86 218 109 245 100C270 92 282 77 278 59" fill="none" stroke-width="12" stroke-linecap="round"/>
+      <path class="dragon-scales" d="M75 207C37 199 32 166 64 154C103 139 139 194 190 185C247 175 237 138 197 129C159 120 108 149 94 114C80 80 123 56 166 72C204 86 218 109 245 100C270 92 282 77 278 59" fill="none" stroke-width="8" stroke-dasharray="1 7"/>
+      <g class="dragon-mask" stroke-linejoin="round">
+        <path d="M261 30Q276 17 292 30L291 48Q290 63 278 74Q263 65 260 49Z" stroke-width="1.4"/>
+        <path class="face-lines" d="M267 36L273 39M282 39L287 36M277 40V53L281 55M272 61Q278 64 284 60M262 30L254 20 255 8M292 30L302 19 302 9" fill="none" stroke-width="1.4"/>
+        <path class="dragon-eye" d="M266 44Q271 40 275 45Q271 49 266 44M281 45Q285 40 290 44Q285 49 281 45" stroke-width=".7"/>
+        <path class="dragon-whiskers" d="M261 50Q244 40 241 56Q237 73 224 67M291 49Q311 42 314 57Q319 77 337 64M266 66Q251 77 252 91M287 66Q303 79 301 95" fill="none" stroke-width="1"/>
+      </g>
+      <path class="water-lines" d="M59 229Q125 213 165 223M194 226Q270 212 319 221M288 234Q333 226 373 231" fill="none" stroke="currentColor" stroke-width=".8"/>
+    </symbol>
+  </defs></svg>
+  <svg class="realm-backdrop" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <g fill="none" stroke="currentColor" stroke-width="1">
+      <path class="realm-mountains" d="M-80 960L100 620 180 730 310 480 440 680 580 440 710 640 840 510 1030 680 1190 390 1310 560 1440 300 1670 590M-70 1000L130 790 240 880 390 650 570 850 790 690 1050 860 1220 650 1380 790 1610 560"/>
+      <g class="realm-stars"><circle cx="1300" cy="180" r="165"/><circle cx="1300" cy="180" r="210" stroke-dasharray="2 12"/><path d="M1040 180H1560M1300-80V440M30 170L80 100 180 132 230 65 340 110M38 170H155L230 245H360"/><circle cx="80" cy="100" r="4"/><circle cx="180" cy="132" r="4"/><circle cx="230" cy="65" r="4"/></g>
+      <path class="realm-clouds" d="M-100 390Q150 190 290 370T690 350M1000 870Q1290 700 1670 840M-40 900Q150 800 430 920"/>
+    </g>
+  </svg>
+  <header class="reviewbar">
+    <div class="review-title">烛龙 <span>B 版主题选型</span></div>
+    <div class="design-switch" role="group" aria-label="选择 B 版主题">
+      <button data-skin-choice="abyss" aria-pressed="true"><span>B1</span> 玄渊龙章</button>
+      <button data-skin-choice="astral" aria-pressed="false"><span>B2</span> 太虚灵枢</button>
+      <button data-skin-choice="moon" aria-pressed="false"><span>B3</span> 月白山海</button>
+    </div>
+    <span class="demo-tag">演示数据 · 不连接本机</span>
+  </header>
+  <div class="direction-note"><p id="directionDescription">玄黑古金与赤色龙纹，取古典器物的沉静。浅色换为素绢与墨金。</p><span>B 布局已选 · 三套主题 / 六种昼夜观感</span></div>
+  <main class="app-shell" id="prototype">
+    <header class="app-head">
+      <a class="brand" href="#overview" aria-label="烛龙系统总览"><svg><use href="#dragon"/></svg><div><h1>烛龙</h1><p>烛照九阴 · 观测万象</p></div></a>
+      <div class="device"><span class="dot"></span>我的电脑 <span class="device-kind">Windows · 观察版</span></div>
+      <div class="head-actions"><button class="icon-button" id="ornamentToggle" aria-pressed="true">纹饰 <span id="ornamentLabel">显</span></button><button class="icon-button" id="motionToggle" aria-pressed="true">动效 <span id="motionLabel">开</span></button><button class="icon-button" id="themeToggle" aria-label="切换为夜间"><svg class="icon"><use href="#sun"/></svg><span id="themeLabel">日间</span></button></div>
+    </header>
+    <div class="navigation-row"><nav class="tabs" aria-label="主导航">
+      <button class="tab active" data-page="overview" aria-pressed="true"><svg class="icon"><use href="#wave"/></svg>系统总览</button>
+      <button class="tab" data-page="usage" aria-pressed="false"><svg class="icon"><use href="#book"/></svg>AI 账本</button>
+      <button class="tab" data-page="events" aria-pressed="false"><svg class="icon"><use href="#bell"/></svg>事件记录 <span class="tab-count">3</span></button>
+    </nav><span class="sample-time"><span id="mythPhase">瞑为夜</span><span class="sample-divider">/</span>最近样本 14:32:00</span></div>
+    <section id="overview" class="page">
+      <section class="hero" aria-label="系统概况">
+        <div class="verdict"><span class="verdict-character">安</span><div><p class="overline">系统状态</p><h2>烛照此间，诸象平稳。</h2><p class="hero-description">提交内存保持平稳，近期一次水位提醒已回落。</p></div></div>
+        <div class="instrument-dial" aria-hidden="true"><svg viewBox="0 0 140 140"><circle class="dial-track" cx="70" cy="70" r="58"/><circle class="dial-value" cx="70" cy="70" r="58" pathLength="100" stroke-dasharray="55 100"/></svg><div><strong>55<small>%</small></strong><span>提交水位</span></div></div>
+        <div class="hero-facts"><div><span>已提交 / 系统上限</span><strong>26.4 <small>/ 48.0 GB</small></strong></div><div><span>今日提醒</span><strong>1 <small>次 · 已回落</small></strong></div></div>
+        <figure class="myth-scene" aria-hidden="true"><svg viewBox="0 0 400 250"><use href="#zhulong-scene"/></svg><figcaption id="worldCaption">钟山之下 · 昼夜有序</figcaption></figure>
+
+      </section>
+      <div class="workspace">
+        <aside class="ranking panel">
+          <div class="section-heading"><h2>大户榜</h2><span>5 个进程</span></div><p class="section-subtitle">看看资源用在了哪里</p>
+          <div class="segmented compact" role="group" aria-label="排行口径"><button class="active" data-rank="memory" aria-pressed="true">内存</button><button data-rank="cpu" aria-pressed="false">CPU</button></div>
+          <label class="search"><span aria-hidden="true">⌕</span><input id="processSearch" type="search" placeholder="查找进程" aria-label="查找进程"></label>
+          <div id="processList" class="process-list"></div><div class="rank-foot"><span id="rankUnit">口径：物理内存占用</span><p>点击进程查看详情</p></div>
+          <div class="quiet-note"><svg><use href="#dragon"/></svg><p>知其所耗，<br>方能从容。</p></div>
+        </aside>
+        <div class="monitoring">
+          <section class="trend-panel panel">
+            <div class="section-heading"><div><h2 id="chartTitle">提交内存</h2><p class="section-subtitle" id="chartMeaning">系统承诺提供的内存，不等于物理内存</p></div><span class="status-word">安 · 平稳</span></div>
+            <div class="chart-toolbar"><div class="segmented metric-tabs" role="group" aria-label="指标"><button class="active" data-metric="commit" aria-pressed="true">提交</button><button data-metric="physical" aria-pressed="false">物理</button><button data-metric="cpu" aria-pressed="false">CPU</button></div><div class="range-switch" role="group" aria-label="时间范围"><button class="active" data-range="24h" aria-pressed="true">24 小时</button><button data-range="7d" aria-pressed="false">7 天</button><button data-range="30d" aria-pressed="false">30 天</button></div></div>
+            <div class="chart-head"><strong id="chartValue">26.4 <small>GB</small></strong><span id="chartLimit">上限 48.0 GB · 当前 55%</span></div>
+            <div class="chart" id="chartContainer"></div><div class="chart-caption"><span><i class="legend-line"></i><span id="chartLegend">已提交</span></span><span id="rangeSummary">过去 24 小时</span></div>
+            <div class="chart-insight"><span class="small-seal">察</span><p id="chartInsight">14:02 水位曾达 76%，当前已回落；单次峰值不能证明进程泄漏。</p><button class="text-button" data-detail="waterline">查看记录</button></div>
+          </section>
+          <section class="resource-strip" aria-label="其他系统资源">
+            <button class="resource" data-detail="cpu"><span>处理器</span><strong>14<small>%</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 24L12 22 18 12 23 20 35 21 43 7 50 18 58 17 67 21 73 12 84 18 99 19"/></svg><span>单核峰值 32%</span></button>
+            <button class="resource" data-detail="gpu"><span>显卡</span><strong>6<small>%</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 22L12 21 19 20 29 22 38 17 46 19 56 20 64 22 76 19 89 21 99 21"/></svg><span>43°C · 显存 1.8 GB</span></button>
+            <button class="resource" data-detail="disk"><span>磁盘读写</span><strong>18.3<small>MB/s</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 24L15 24 18 6 23 23 38 22 48 13 53 24 69 24 75 8 81 23 99 23"/></svg><span>最忙磁盘 8%</span></button>
+            <button class="resource" data-detail="network"><span>网络下载</span><strong>1.8<small>MB/s</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 20L13 22 23 19 34 11 44 13 56 9 68 16 78 15 88 20 99 17"/></svg><span>上传 0.6 MB/s</span></button>
+          </section>
+          <section class="ai-summary panel"><div class="ai-icon">AI</div><div><h2>今日 AI 用量</h2><p>12 次会话 <span>186.4k tokens</span></p></div><div class="ai-price"><strong>¥3.82</strong><span>估算费用</span></div><button class="text-button" data-go="usage">查看账本</button></section>
+        </div>
+        <aside class="notes panel">
+          <div class="section-heading"><h2>朱批记事</h2><span class="small-seal">录</span></div><p class="section-subtitle">观其变，记其因</p>
+          <div class="notice"><div class="notice-top"><span class="notice-state">慎</span><time>14:02</time><span>已回落</span></div><h3>内存水位短时升高</h3><p>提交水位达到 76%，持续约 2 分钟，随后回落至正常范围。</p><button class="text-button" data-detail="waterline">查看这次变化</button></div>
+          <ol class="timeline"><li><time>13:48</time><div><strong>AI 用量已更新</strong><p>本次新增 3 条用量记录。</p></div></li><li><time>09:00</time><div><strong>开始今日观察</strong><p>系统指标与历史记录就绪。</p></div></li></ol>
+          <button class="all-events" data-go="events">全部事件 <span aria-hidden="true">›</span></button><div class="world-note"><span id="worldSeal">烛阴</span><p id="worldNote">龙章与器物纹理承接烛龙意象，界面以墨金分出主次。</p></div><div class="observer-note"><span class="dot"></span><strong>观察模式</strong><p>记录、解释与提醒。主动处置将在后续版本提供。</p></div>
+        </aside>
+      </div>
+    </section>
+    <section id="usage" class="page" hidden>
+      <div class="page-title"><div><p class="overline">用量与费用</p><h2>每一次思考，都有迹可循。</h2><p>示例工具的本地日志统计，费用为估算值。</p></div><span class="seal-square">账</span></div>
+      <div class="usage-summary"><div><span>今日用量</span><strong>186.4<small>k tokens</small></strong></div><div><span>估算费用</span><strong>¥3.82</strong></div><div><span>会话数量</span><strong>12<small>次</small></strong></div></div>
+      <div class="usage-layout"><section class="panel ledger"><div class="section-heading"><h2>最近会话</h2><span>示例工具 · 演示</span></div><div class="table-wrap"><table><thead><tr><th>会话</th><th>用量</th><th>估算费用</th><th>时间</th></tr></thead><tbody><tr><td>烛龙界面方案</td><td>48.2k</td><td>¥1.06</td><td>14:32</td></tr><tr><td>整理项目文档</td><td>36.7k</td><td>¥0.81</td><td>13:48</td></tr><tr><td>日常代码检查</td><td>25.1k</td><td>¥0.55</td><td>11:20</td></tr></tbody></table></div><p class="fine-print">仅展示 3 条示例会话，汇总包含当日全部 12 次会话。</p></section><section class="panel token-breakdown"><h2>Token 构成</h2><div class="token-bar" aria-label="输入 118.2k，输出 18.6k，缓存读取 49.6k"><i></i><i></i><i></i></div><dl><div><dt>未缓存输入</dt><dd>118.2k</dd></div><div><dt>输出</dt><dd>18.6k</dd></div><div><dt>缓存读取</dt><dd>49.6k</dd></div></dl><p class="fine-print">按互斥分类展示；实际计费以工具账单为准。</p></section></div>
+    </section>
+    <section id="events" class="page" hidden>
+      <div class="page-title"><div><p class="overline">系统观察记录</p><h2>变化有来处，回看有依据。</h2><p>提醒与实际处置分别记录，已回落不代表执行过清理。</p></div><span class="seal-square">记</span></div>
+      <div class="event-toolbar"><h3>今日记录</h3><div class="segmented" role="group" aria-label="事件筛选"><button class="active" data-filter="all" aria-pressed="true">全部</button><button data-filter="warning" aria-pressed="false">需留意</button></div></div><div class="event-list" id="eventList"></div>
+    </section>
+    <footer class="app-footer"><span><i class="dot"></i>本地优先 <b>观察版</b></span><span>演示样本，不代表本机运行状态</span><button class="text-button" id="replayMotion">重播切换动效</button></footer>
+  </main>
+  <footer class="review-footer"><span id="directionFoot">B1 / 玄渊龙章 · 深色</span><p>保留 B 布局，比较主题和装饰密度；演示数据不作性能依据。</p><button id="preferButton">标记为本页偏好</button><span id="preferenceStatus" role="status"></span></footer>
+  <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><span class="overline">观察详情 · 演示</span><button id="closeDetail" aria-label="关闭详情">×</button></div><h2 id="detailTitle"></h2><div id="detailContent"></div><button class="primary-button" id="ackDetail">知道了</button></dialog>
+</body>
+</html>
