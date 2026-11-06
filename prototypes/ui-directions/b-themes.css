@@ -111,25 +111,59 @@ body { position:relative; isolation:isolate; }
 [data-skin="astral"] .instrument-dial::before { inset:-6px; border-style:dashed; }
 [data-skin="astral"] .section-heading h2 { font-family:var(--body); font-size:16px; }
 [data-skin="astral"] .ai-icon { border-radius:1px; }
-/* 融合：山势与云水退到边缘，正文维持素纸般的清晰。 */
-[data-skin="moon"] .app-shell { border-radius:25px 25px 8px 8px; }
+/* 月白：生成插画承载山海意象，圆角按外壳、分区、控件分级。 */
+.moon-landscape,.moon-dragon,.moon-emblem { display:none; }
+[data-skin="moon"] .app-shell { border-radius:32px; }
+[data-skin="moon"] .moon-landscape { display:block; position:fixed; inset:0; width:100%; height:100%; object-fit:cover; object-position:center bottom; pointer-events:none; z-index:-1; opacity:.34; }
+[data-skin="moon"][data-theme="light"] .moon-landscape { opacity:.55; }
+[data-skin="moon"] .moon-emblem { display:block; width:64px; height:64px; object-fit:contain; }
+[data-skin="moon"] .brand>svg,[data-skin="moon"] .myth-scene>svg,[data-skin="moon"] .realm-backdrop { display:none; }
+[data-skin="moon"] .myth-scene { width:300px; margin:-12px -4px -10px 0; }
+[data-skin="moon"] .moon-dragon { display:block; width:100%; height:200px; object-fit:contain; }
+[data-skin="moon"] .myth-scene figcaption { margin-top:0; }
 [data-skin="moon"] .relic-frame,[data-skin="moon"] .orbital-lines,[data-skin="moon"] .realm-stars { display:none; }
-[data-skin="moon"] .mountain-lines { opacity:.85; }
-[data-skin="moon"] .realm-backdrop { opacity:.2; }
-[data-skin="moon"] .hero { background:var(--subtle); border:0; border-radius:10px 58px 10px 10px; padding-left:18px; padding-right:14px; margin-top:20px; }
-[data-skin="moon"] .dragon-underlay { stroke:var(--subtle); }
+[data-skin="moon"] .hero { background:var(--subtle); border:0; border-radius:28px; padding-left:22px; padding-right:18px; margin-top:20px; min-height:220px; }
+[data-skin="moon"] .hero::before { content:""; position:absolute; inset:0 0 0 62%; background:url("assets/moon-landscape-v1.png") center bottom/cover; opacity:.16; pointer-events:none; }
 [data-skin="moon"] .hero .instrument-dial::after { opacity:.4; }
-[data-skin="moon"] .ranking,[data-skin="moon"] .notes,[data-skin="moon"] .trend-panel { border-radius:12px; }
-[data-skin="moon"] .trend-panel { border-color:transparent; }
-[data-skin="moon"] .notice { border-top:1px solid var(--line); padding-top:16px; }
-[data-skin="moon"] .world-note { border-bottom:0; }
-[data-skin="moon"] .navigation-row { border-top:0; }
+[data-skin="moon"] .ranking,[data-skin="moon"] .notes,[data-skin="moon"] .trend-panel,[data-skin="moon"] .resource-strip { border-radius:22px; }
+[data-skin="moon"] .trend-panel { border-color:var(--line); }
+[data-skin="moon"] .notice { border:1px solid var(--line); padding-top:16px; border-radius:18px; }
+[data-skin="moon"] .world-note { border:0; padding:14px 0 14px 55px; position:relative; min-height:65px; }
+[data-skin="moon"] .world-note::before { content:""; position:absolute; left:0; top:12px; width:48px; height:48px; background:url("assets/moon-emblem-v1.png") center/contain no-repeat; }
+[data-skin="moon"] .world-note>span { display:none; }
+[data-skin="moon"] .navigation-row { border:0; padding:5px; background:var(--subtle); border-radius:20px; }
+[data-skin="moon"] .tabs { gap:5px; }
+[data-skin="moon"] .tab { padding:10px 16px; border-radius:16px; }
+[data-skin="moon"] .tab.active { background:var(--surface); }
+[data-skin="moon"] .tab.active::after { display:none; }
+[data-skin="moon"] .sample-time { padding-right:12px; }
+[data-skin="moon"] .segmented,[data-skin="moon"] .segmented button,[data-skin="moon"] .icon-button,[data-skin="moon"] .design-switch button,[data-skin="moon"] .primary-button,[data-skin="moon"] .review-footer>button,[data-skin="moon"] .status-word { border-radius:999px; }
+[data-skin="moon"] .search { border:1px solid var(--line); border-radius:14px; padding:7px 10px; }
+[data-skin="moon"] .process { border:0; border-radius:14px; padding:12px 8px; margin-top:4px; }
+[data-skin="moon"] .process-icon,[data-skin="moon"] .ai-icon { border-radius:10px; }
+[data-skin="moon"] .ai-summary,[data-skin="moon"] .usage-summary,[data-skin="moon"] .token-breakdown { border-radius:20px; }
+[data-skin="moon"] .resource { border-radius:12px; }
+[data-skin="moon"] .small-seal,[data-skin="moon"] .seal-square,[data-skin="moon"] .tab-count { border-radius:50%; }
+[data-skin="moon"] .all-events { border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+[data-skin="moon"] dialog { border-radius:26px; }
+/* 有限的入场由共享 animateChange 管理；悬停仅响应用户操作。 */
+[data-skin="moon"][data-motion="on"]:not([data-paused="true"]) :is(.icon-button,.tab,.process,.resource,.design-switch button,.primary-button) { transition:transform 180ms ease-out,background-color 180ms ease-out; }
+@media(hover:hover) {
+  [data-skin="moon"] :is(.process,.resource):hover { background:var(--soft); }
+  [data-skin="moon"][data-motion="on"]:not([data-paused="true"]) :is(.icon-button,.process,.resource,.design-switch button):hover { transform:translateY(-2px); }
+}
+[data-skin="moon"] :is(.icon-button,.tab,.process,.resource):active { transform:scale(.985); }
+[data-skin="moon"][data-motion="off"] :is(.icon-button,.tab,.process,.resource,.design-switch button,.primary-button) { transform:none; transition:none; }
 /* 用户可在不改变布局与数据的情况下比较去装饰版本。 */
 [data-ornament="off"] .realm-backdrop,[data-ornament="off"] .myth-scene>svg,[data-ornament="off"] .world-note { visibility:hidden; }
 [data-ornament="off"] .myth-scene figcaption { opacity:0; }
 [data-ornament="off"] .app-shell::before,[data-ornament="off"] .app-shell::after,[data-ornament="off"] .panel::before,[data-ornament="off"] .panel::after,[data-ornament="off"] .instrument-dial::before,[data-ornament="off"] .instrument-dial::after { display:none; }
 [data-ornament="off"][data-skin="astral"] .hero { background-image:none; }
+[data-ornament="off"] .moon-landscape,[data-ornament="off"] .moon-dragon { visibility:hidden; }
+[data-ornament="off"][data-skin="moon"] .hero::before { display:none; }
 @media(min-width:1600px) { [data-skin] .myth-scene { width:300px; }.myth-scene>svg { height:178px; }[data-skin] .hero { min-height:208px; } }
 @media(max-width:1190px) { [data-skin] .hero-facts { display:none; }.myth-scene { width:240px; }[data-skin] .notes { background:var(--surface); padding:20px 16px; }.world-note { grid-column:1; grid-row:3; margin:0; padding:6px 0; }.observer-note { grid-row:4; } }
 @media(max-width:800px) { .direction-note>span { display:none; }.reviewbar { padding:12px 16px; }[data-skin] .brand h1 { font-size:26px; }[data-skin] .brand>svg { width:42px; height:42px; }.brand { gap:10px; }[data-skin] .brand p { font-size:10px; letter-spacing:0; }.head-actions { gap:4px; }.icon-button { font-size:10px; padding:6px; }#themeToggle .icon { display:none; }[data-skin] .hero { padding:22px 5px; min-height:160px; margin-bottom:18px; gap:15px; }[data-skin] .instrument-dial { width:90px; height:90px; }.myth-scene { position:absolute; right:-24px; top:0; width:240px; height:160px; opacity:.12; pointer-events:none; z-index:0; }.myth-scene figcaption { display:none; }.verdict,.instrument-dial { z-index:1; }[data-skin] .verdict { min-width:0; }[data-skin] .verdict h2 { font-size:21px; }[data-skin] .hero-description { font-size:11px; }[data-skin] .notes { padding:18px; }.world-note { grid-row:auto; max-width:360px; }[data-skin="moon"] .hero { padding-left:13px; padding-right:10px; }.review-footer>button { margin-left:0; }.sample-time { display:none; } }
 @media(max-width:500px) { [data-skin] .app-head { flex-wrap:wrap; gap:13px; }.head-actions { margin-left:0; width:100%; justify-content:flex-end; }[data-skin] .navigation-row { margin-top:15px; padding-left:0; padding-right:0; }[data-skin] .tabs { gap:17px; }.design-switch { gap:2px; }.design-switch button { font-size:11px; padding:7px 4px; }.design-switch button span { margin-right:3px; }.review-title span { margin-left:6px; }[data-skin] .hero { gap:11px; }[data-skin] .verdict h2 { font-size:18px; }[data-skin] .instrument-dial { width:78px; height:78px; }.hero-description { max-width:220px; }.device { display:none; } }
+@media(max-width:1190px) { [data-skin="moon"] .myth-scene { width:260px; }[data-skin="moon"] .moon-dragon { height:180px; } }
+@media(max-width:800px) { [data-skin="moon"] .app-shell { border-radius:24px; }[data-skin="moon"] .hero { min-height:180px; border-radius:22px; }[data-skin="moon"] .myth-scene { width:220px; opacity:.2; }[data-skin="moon"] .moon-emblem { width:52px; height:52px; }[data-skin="moon"] .tabs { gap:2px; }[data-skin="moon"] .tab { padding:10px 9px; }[data-skin="moon"] .world-note { padding-left:55px; } }

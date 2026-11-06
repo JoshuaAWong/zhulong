@@ -44,6 +44,12 @@ function animateChange(element) {
   if (root.dataset.motion !== "on" || reduced.matches || document.hidden) return;
   element.getAnimations().forEach(animation => animation.cancel());
   element.animate([{ opacity: .45, transform: "translateY(3px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 230, easing: "ease-out" });
+  // 月白主题的游龙只在总览入场或主题切换时短暂舒展，复用同一动效开关。
+  if (root.dataset.skin === "moon" && root.dataset.ornament === "on" && ["prototype", "overview"].includes(element.id)) {
+    const dragon = $(".moon-dragon");
+    dragon.getAnimations().forEach(animation => animation.cancel());
+    dragon.animate([{ opacity: 0, transform: "translate(12px, 5px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 650, easing: "cubic-bezier(.2,.7,.2,1)" });
+  }
 }
 function updateThemeLabel() {
   const light = root.dataset.theme === "light";

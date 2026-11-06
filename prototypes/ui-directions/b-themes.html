@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN" data-design="instrument" data-theme="dark" data-motion="on" data-skin="abyss" data-ornament="on">
+<html lang="zh-CN" data-design="instrument" data-theme="dark" data-motion="on" data-skin="moon" data-ornament="on">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>烛龙 · B 版山海主题</title>
+  <title>烛龙 · 月白山海圆润版</title>
   <link rel="icon" href="../../zhulong/web/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="b-themes.css">
@@ -58,19 +58,20 @@
       <path class="realm-clouds" d="M-100 390Q150 190 290 370T690 350M1000 870Q1290 700 1670 840M-40 900Q150 800 430 920"/>
     </g>
   </svg>
+  <img class="moon-landscape" src="assets/moon-landscape-v1.png" width="1536" height="1024" alt="" decoding="async" aria-hidden="true">
   <header class="reviewbar">
     <div class="review-title">烛龙 <span>B 版主题选型</span></div>
     <div class="design-switch" role="group" aria-label="选择 B 版主题">
-      <button data-skin-choice="abyss" aria-pressed="true"><span>B1</span> 玄渊龙章</button>
+      <button data-skin-choice="abyss" aria-pressed="false"><span>B1</span> 玄渊龙章</button>
       <button data-skin-choice="astral" aria-pressed="false"><span>B2</span> 太虚灵枢</button>
-      <button data-skin-choice="moon" aria-pressed="false"><span>B3</span> 月白山海</button>
+      <button data-skin-choice="moon" aria-pressed="true"><span>B3</span> 月白山海</button>
     </div>
     <span class="demo-tag">演示数据 · 不连接本机</span>
   </header>
-  <div class="direction-note"><p id="directionDescription">玄黑古金与赤色龙纹，取古典器物的沉静。浅色换为素绢与墨金。</p><span>B 布局已选 · 三套主题 / 六种昼夜观感</span></div>
+  <div class="direction-note"><p id="directionDescription">月白山海：圆润分区、青玉游龙与云山留白，深青夜色和月白日色相伴。</p><span>B3 已选 · 圆润造型 / 山海绘景</span></div>
   <main class="app-shell" id="prototype">
     <header class="app-head">
-      <a class="brand" href="#overview" aria-label="烛龙系统总览"><svg><use href="#dragon"/></svg><div><h1>烛龙</h1><p>烛照九阴 · 观测万象</p></div></a>
+      <a class="brand" href="#overview" aria-label="烛龙系统总览"><svg><use href="#dragon"/></svg><img class="moon-emblem" src="assets/moon-emblem-v1.png" width="1254" height="1254" alt="" decoding="async"><div><h1>烛龙</h1><p>山海入卷 · 明晦有度</p></div></a>
       <div class="device"><span class="dot"></span>我的电脑 <span class="device-kind">Windows · 观察版</span></div>
       <div class="head-actions"><button class="icon-button" id="ornamentToggle" aria-pressed="true">纹饰 <span id="ornamentLabel">显</span></button><button class="icon-button" id="motionToggle" aria-pressed="true">动效 <span id="motionLabel">开</span></button><button class="icon-button" id="themeToggle" aria-label="切换为夜间"><svg class="icon"><use href="#sun"/></svg><span id="themeLabel">日间</span></button></div>
     </header>
@@ -84,7 +85,7 @@
         <div class="verdict"><span class="verdict-character">安</span><div><p class="overline">系统状态</p><h2>烛照此间，诸象平稳。</h2><p class="hero-description">提交内存保持平稳，近期一次水位提醒已回落。</p></div></div>
         <div class="instrument-dial" aria-hidden="true"><svg viewBox="0 0 140 140"><circle class="dial-track" cx="70" cy="70" r="58"/><circle class="dial-value" cx="70" cy="70" r="58" pathLength="100" stroke-dasharray="55 100"/></svg><div><strong>55<small>%</small></strong><span>提交水位</span></div></div>
         <div class="hero-facts"><div><span>已提交 / 系统上限</span><strong>26.4 <small>/ 48.0 GB</small></strong></div><div><span>今日提醒</span><strong>1 <small>次 · 已回落</small></strong></div></div>
-        <figure class="myth-scene" aria-hidden="true"><svg viewBox="0 0 400 250"><use href="#zhulong-scene"/></svg><figcaption id="worldCaption">钟山之下 · 昼夜有序</figcaption></figure>
+        <figure class="myth-scene" aria-hidden="true"><svg viewBox="0 0 400 250"><use href="#zhulong-scene"/></svg><img class="moon-dragon" src="assets/moon-dragon-v1.png" width="1536" height="1024" alt="" decoding="async"><figcaption id="worldCaption">山海入卷 · 昼夜相守</figcaption></figure>
 
       </section>
       <div class="workspace">
@@ -130,7 +131,7 @@
     </section>
     <footer class="app-footer"><span><i class="dot"></i>本地优先 <b>观察版</b></span><span>演示样本，不代表本机运行状态</span><button class="text-button" id="replayMotion">重播切换动效</button></footer>
   </main>
-  <footer class="review-footer"><span id="directionFoot">B1 / 玄渊龙章 · 深色</span><p>保留 B 布局，比较主题和装饰密度；演示数据不作性能依据。</p><button id="preferButton">标记为本页偏好</button><span id="preferenceStatus" role="status"></span></footer>
+  <footer class="review-footer"><span id="directionFoot">B3 / 月白山海 · 深色</span><p>B3 圆润版：游龙、云山、日月纹章；可切昼夜与纹饰。</p><button id="preferButton">标记为本页偏好</button><span id="preferenceStatus" role="status"></span></footer>
   <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><span class="overline">观察详情 · 演示</span><button id="closeDetail" aria-label="关闭详情">×</button></div><h2 id="detailTitle"></h2><div id="detailContent"></div><button class="primary-button" id="ackDetail">知道了</button></dialog>
 </body>
 </html>

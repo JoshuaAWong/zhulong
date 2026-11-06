@@ -21,12 +21,12 @@ const themes = {
   },
   moon: {
     name: "B3 / 月白山海",
-    description: "深青夜色与月白素纸，水墨山势环绕赤色长身。留白更多，古典与现代融合。",
+    description: "月白山海：圆润分区、青玉游龙与云山留白，深青夜色和月白日色相伴。",
     motto: "山海入卷 · 明晦有度",
     title: "山海无扰，诸象平稳。",
-    world: "赤水之北 · 明晦之间",
+    world: "山海入卷 · 昼夜相守",
     seal: "山海",
-    note: "山水留在边缘，龙形贯穿昼夜。正文和图表保持明净。"
+    note: "云山在远，游龙在侧。日月云纹相伴，昼夜各有清宁。"
   }
 };
 function syncMythTheme() {
@@ -62,4 +62,4 @@ $("#ornamentToggle").addEventListener("click", () => {
 const skin = new URLSearchParams(location.search).get("skin");
 const tone = new URLSearchParams(location.search).get("tone");
 root.dataset.theme = tone === "light" ? "light" : "dark";
-selectMythTheme(Object.hasOwn(themes, skin) ? skin : "abyss");
+selectMythTheme(Object.hasOwn(themes, skin) ? skin : "moon");
