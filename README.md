@@ -59,7 +59,7 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 
 ## 文档
 
-新版首版已确认为观察版，用户已选 B 布局与 B3 月白山海方向。[当前原型](prototypes/ui-directions/b-themes.html)默认打开 B3 圆润版：青玉游龙、云山背景和日月点缀由内置生图绘制，支持深浅、纹饰、动效开关及页面切换；B1/B2 保留作对照。全部为演示数据，不连接本机；[主题设计与验证边界](prototypes/ui-directions/B主题设计.md)、[素材与实际提示词](prototypes/ui-directions/assets/生成记录.md)、[首轮 A/B/C](prototypes/ui-directions/index.html)可查。
+新版首版已确认为观察版，沿用用户已选 B 布局与圆润风格。[当前原型：水墨工作台](prototypes/ui-directions/ink-ui.html)采用昼间墨隐山川、夜间寒江月照的同景长卷，强调连续笔墨、开放趋势图、紧凑进程列表、事件时间线与侧边详情。支持昼夜、山水、动效开关，三页共享烛龙主景；[设计与验收边界](prototypes/ui-directions/水墨工作台设计.md)、[素材与实际提示词](prototypes/ui-directions/assets/水墨主景生成记录.md)可查。[上一版 B3](prototypes/ui-directions/b-themes.html)及[首轮 A/B/C](prototypes/ui-directions/index.html)保留。全部为演示数据；主景仍为静态，真实龙身游动和整页视觉验收待完成。
 
 当前可运行版本仍为 Python 版。新版方向已确定为 Windows 优先的 .NET 10 统一后台，安装版与便携版将共用核心、同版本交付；更新包下载到程序目录的 updates 子目录，确认后按对应包类型更新。新版同时要求低开销和流畅动效：WPF 原生轻界面/二维动画，复杂面板才按需打开 WebView2，隐藏暂停、关闭释放；具体设计及未验收的候选目标见[动效与渲染责任](docs/重构设计文档.md#31-低开销动效与渲染责任dec-10)。三份重构文档已补充契约、数据接入、双版本目录及更新恢复方案；需要用户确定的事项集中在[重构需求第 7 节](docs/重构需求文档.md#7-待决事项唯一登记表)。旧文档保留当前实现与历史记录，未完成的规划不代表已上线。
 
