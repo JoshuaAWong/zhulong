@@ -21,7 +21,7 @@ function taijiMarkup(value, style) {
   return `<svg class="taiji-svg taiji-${style}" viewBox="0 0 120 120" aria-hidden="true">${ring}${accents}<g class="taiji-core">${core}</g></svg>`;
 }
 function renderTaiji() {
-  const style = { ridge: "ring", breath: "fish", scroll: "sector" }[root.dataset.atmosphere];
+  const style = root.dataset.taijiStyle || { ridge: "ring", breath: "fish", scroll: "sector" }[root.dataset.atmosphere];
   const dial = $(".instrument-dial");
   dial.removeAttribute("aria-hidden");
   dial.setAttribute("role", "img");

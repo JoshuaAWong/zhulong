@@ -59,7 +59,7 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 
 ## 文档
 
-新版首版已确认为观察版，保留圆润水墨风格，当前选择深化后的 A 云岫布局（DEC-17）。[上一阶段原型：水墨工作台](prototypes/ui-directions/ink-ui.html)采用两幅独立水墨长卷：日龙向左穿行层峦松瀑，夜龙向右回游江湾洲渚；保留丰富细节，以虚实墨边融入云气。开放趋势图、紧凑进程列表、事件时间线与侧边详情继续沿用。支持昼夜、山水、动效开关，三页共享烛龙主景；[设计与验收边界](prototypes/ui-directions/水墨工作台设计.md)、[素材与实际提示词](prototypes/ui-directions/assets/水墨主景生成记录.md)可查。[上一版 B3](prototypes/ui-directions/b-themes.html)及[首轮 A/B/C](prototypes/ui-directions/index.html)保留。全部为演示数据；主景仍为静态，真实龙身游动和整页视觉验收待完成。
+新版首版已确认为观察版，保留圆润水墨风格，当前选择 A 云岫布局，以及 A2 整页墨气 + A1 太极墨环组合（DEC-18）。[上一阶段原型：水墨工作台](prototypes/ui-directions/ink-ui.html)采用两幅独立水墨长卷：日龙向左穿行层峦松瀑，夜龙向右回游江湾洲渚；保留丰富细节，以虚实墨边融入云气。开放趋势图、紧凑进程列表、事件时间线与侧边详情继续沿用。支持昼夜、山水、动效开关，三页共享烛龙主景；[设计与验收边界](prototypes/ui-directions/水墨工作台设计.md)、[素材与实际提示词](prototypes/ui-directions/assets/水墨主景生成记录.md)可查。[上一版 B3](prototypes/ui-directions/b-themes.html)及[首轮 A/B/C](prototypes/ui-directions/index.html)保留。全部为演示数据；主景仍为静态，真实龙身游动和整页视觉验收待完成。
 
 当前原型已接入用户认可的 [v7 云隐左右构图](prototypes/ui-directions/assets/云隐构图v7记录.md)，外观 → 换景可对照 v3 原景。新景日间文字在左、夜间在右；窄屏文字与画面分行。整页实际视觉仍待验收。
 
@@ -81,7 +81,11 @@ collectors ──► SQLite(WAL 窄表) ──► rules ──► actions
 | [SECURITY.md](SECURITY.md) | 安全边界与问题反馈说明 |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Chart.js 与 Python 依赖的许可证清单 |
 
-## A 布局整页水墨与太极候选
+## 最新组合：整页墨气与太极
+
+打开[昼夜组合版](prototypes/ui-directions/ink-unified.html)：已组合 A2 背景与 A1 墨环，加入选中/切换墨晕、主太极 60 秒慢转、盘龙含目图标。页面下方可拖动占比，比较外环计量与现代墨面消长；试验不改变上方样本。关闭动效、减少动态效果、隐藏、离开总览或滚出主水位时停止旋转。[昼夜说明图、设计依据与验收边界](prototypes/ui-directions/太极消长与组合版说明.md)。本地浏览器 Ctrl+O 打开即可，实际排版与桌面性能待验收。
+
+## 上一轮水墨与太极候选
 
 打开 [整页水墨与太极三案](prototypes/ui-directions/ink-atmospheres.html)：固定已选 A 布局，顶部比较 A1 云岚＋太极墨环、A2 墨气＋双鱼分弧、A3 长卷＋太极扇盘，支持昼夜、换景及装饰开关。导航、选择和详情边缘采用笔墨衬底。[设计与案例来源](prototypes/ui-directions/水墨整页与太极三案.md)、[太极组件说明图](prototypes/ui-directions/assets/taiji-components.png)可查。若应用内无法预览，可在本地浏览器 Ctrl+O 打开文件；无需服务或安装依赖。固定样本未连接本机，细节尚未定版；[上一轮布局页](prototypes/ui-directions/ink-layouts.html)保留。
 
