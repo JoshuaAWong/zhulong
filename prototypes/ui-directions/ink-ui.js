@@ -11,9 +11,18 @@ function syncInkScene(page) {
   $("#sceneTitle").textContent = copy[1];
   $("#sceneDescription").textContent = copy[2];
 }
+const inkScenes = [
+  { day: "ink-day-a-v4.png", night: "ink-night-a-v4.png", light: "松崖长游", dark: "江湾回环" },
+  { day: "ink-day-b-v4.png", night: "ink-night-b-v4.png", light: "云岫盘龙", dark: "寒汀远行" }
+];
+let inkSceneIndex = 0;
 function syncInkTone() {
   const light = root.dataset.theme === "light";
-  $("#sceneCaption").textContent = light ? "墨隐山川" : "寒江月照";
+  const scene = inkScenes[inkSceneIndex];
+  $(".scene-day").src = "assets/" + scene.day;
+  $(".scene-night").src = "assets/" + scene.night;
+  $("#sceneCaption").textContent = light ? scene.light : scene.dark;
+  $("#sceneLabel").textContent = `${inkSceneIndex + 1} / ${inkScenes.length}`;
   $("#directionFoot").textContent = `水墨工作台 · ${light ? "日间" : "夜间"}`;
 }
 document.addEventListener("click", event => {
@@ -23,6 +32,10 @@ document.addEventListener("click", event => {
 });
 $(".brand").addEventListener("click", () => syncInkScene("overview"));
 $("#themeToggle").addEventListener("click", syncInkTone);
+$("#sceneToggle").addEventListener("click", () => {
+  inkSceneIndex = (inkSceneIndex + 1) % inkScenes.length;
+  syncInkTone();
+});
 $("#ornamentToggle").addEventListener("click", () => {
   const enabled = root.dataset.ornament !== "on";
   root.dataset.ornament = enabled ? "on" : "off";
@@ -30,7 +43,7 @@ $("#ornamentToggle").addEventListener("click", () => {
   $("#ornamentLabel").textContent = enabled ? "显" : "隐";
 });
 root.dataset.theme = new URLSearchParams(location.search).get("tone") === "dark" ? "dark" : "light";
-$("#directionDescription").textContent = "B 布局 · 柔墨细景 · 昼夜各有山水";
+$("#directionDescription").textContent = "B 布局 · 笔墨游龙 · 两组昼夜山水";
 updateThemeLabel();
 syncInkTone();
 syncInkScene("overview");
