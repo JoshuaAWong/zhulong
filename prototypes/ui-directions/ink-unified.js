@@ -29,17 +29,25 @@ function updateRatioPreview(value) {
     meter.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => { arc.style.strokeDasharray = value + " 100"; });
   });
   $("#balanceDemo .taiji-core").innerHTML = balanceCoreMarkup(value);
+  $("#rotationReadout").textContent = "自然 " + (60 / taijiRate(value)).toFixed(2) + " 秒/周 · 悬停 " + (60 / taijiRate(value, true)).toFixed(2) + " 秒/周";
+  syncUnifiedMotion();
 }
 $("#ratioPreview").addEventListener("input", event => updateRatioPreview(Number(event.target.value)));
-updateRatioPreview(55);
-// 只转主水位的太极与装饰墨圈；计量弧和文字保持固定朝向。
+// 外环与内圈共用旋转组，百分比读数保持水平。
 const dialSvg = $(".instrument-dial>.taiji-svg");
 const spirit = document.createElementNS("http://www.w3.org/2000/svg", "g");
 spirit.setAttribute("class", "taiji-spirit");
 spirit.innerHTML = '<path class="orbit-ink" d="M10 38A55 55 0 0 1 48 6M82 9A55 55 0 0 1 114 61M99 99A55 55 0 0 1 38 110"/>';
-spirit.append(dialSvg.querySelector(".taiji-core"));
+spirit.append(...Array.from(dialSvg.children));
 dialSvg.append(spirit);
-let spiritAnimation = null, dialInView = false, activeBloom = null;
+const demoSvg = $("#ringDemo .taiji-svg");
+const demoRotor = document.createElementNS("http://www.w3.org/2000/svg", "g");
+demoRotor.setAttribute("class", "taiji-spirit");
+demoRotor.append(...Array.from(demoSvg.children));
+demoSvg.append(demoRotor);
+let spiritAnimation = null, demoAnimation = null, dialInView = false, demoInView = false;
+let dialHovered = false, demoHovered = false, activeBloom = null;
+function taijiRate(value, hovered = false) { return (1 + 9 * value / 100) * (hovered ? 3 : 1); }
 function motionAllowed() { return root.dataset.motion === "on" && !reduced.matches && !document.hidden; }
 function clearBloom() {
   if (!activeBloom) return;
@@ -48,22 +56,29 @@ function clearBloom() {
   previous.node.remove();
   previous.animation.cancel();
 }
-function syncUnifiedMotion() {
-  const allowed = motionAllowed();
-  if (!allowed) clearBloom();
-  if (spiritAnimation?.playState === "idle") spiritAnimation = null;
-  if (!allowed || !dialInView || $("#overview").hidden) {
-    spiritAnimation?.cancel();
-    spiritAnimation = null;
-    return;
-  }
-  if (!spiritAnimation) spiritAnimation = spirit.animate([{ transform:"rotate(0deg)" }, { transform:"rotate(360deg)" }], { duration:60000, iterations:Infinity, easing:"linear" });
+function syncRotor(element, animation, value, visible, hovered) {
+  if (!motionAllowed() || !visible) { animation?.cancel(); return null; }
+  if (!animation || animation.playState === "idle") animation = element.animate([
+    { transform:"rotate(0deg)" }, { transform:"rotate(360deg)" }
+  ], { duration:60000, iterations:Infinity, easing:"linear" });
+  animation.updatePlaybackRate(taijiRate(value, hovered));
+  return animation;
 }
-const dialObserver = new IntersectionObserver(entries => {
-  dialInView = entries[0].isIntersecting;
-  syncUnifiedMotion();
-});
+function syncUnifiedMotion() {
+  if (!motionAllowed()) clearBloom();
+  const value = parseFloat(dialSvg.querySelector(".ratio-value").getAttribute("stroke-dasharray"));
+  spiritAnimation = syncRotor(spirit, spiritAnimation, value, dialInView && !$("#overview").hidden, dialHovered);
+  demoAnimation = syncRotor(demoRotor, demoAnimation, Number($("#ratioPreview").value), demoInView, demoHovered);
+  document.dispatchEvent(new window.Event("taiji-motion-sync"));
+}
+const dialObserver = new IntersectionObserver(entries => { dialInView = entries[0].isIntersecting; syncUnifiedMotion(); });
 dialObserver.observe($(".instrument-dial"));
+const demoObserver = new IntersectionObserver(entries => { demoInView = entries[0].isIntersecting; syncUnifiedMotion(); });
+demoObserver.observe($("#ringDemo"));
+dialSvg.addEventListener("pointerenter", () => { dialHovered = true; syncUnifiedMotion(); });
+dialSvg.addEventListener("pointerleave", () => { dialHovered = false; syncUnifiedMotion(); });
+demoSvg.addEventListener("pointerenter", () => { demoHovered = true; syncUnifiedMotion(); });
+demoSvg.addEventListener("pointerleave", () => { demoHovered = false; syncUnifiedMotion(); });
 function bloomInk(target) {
   clearBloom();
   if (!motionAllowed()) return;
@@ -96,7 +111,7 @@ document.addEventListener("click", event => {
   cancelSharedFade();
   syncUnifiedLabel();
   syncUnifiedMotion();
-  if (button.id === "motionToggle") return;
+  if (button.id === "motionToggle" || button.id === "themeToggle") return;
   const target = button.closest("[data-module]") ||
     (button.dataset.detail ? $("#detailDialog") :
     button.matches("#themeToggle,#sceneToggle") ? $(".scene-header") :
@@ -106,7 +121,8 @@ document.addEventListener("click", event => {
 $(".brand").addEventListener("click", () => { cancelSharedFade(); syncUnifiedMotion(); bloomInk($("#overview")); });
 document.addEventListener("visibilitychange", syncUnifiedMotion);
 reduced.addEventListener("change", syncUnifiedMotion);
-window.addEventListener("pagehide", () => { clearBloom(); spiritAnimation?.cancel(); spiritAnimation = null; });
+window.addEventListener("pagehide", () => { clearBloom(); spiritAnimation?.cancel(); demoAnimation?.cancel(); spiritAnimation = demoAnimation = null; });
 window.addEventListener("pageshow", syncUnifiedMotion);
+updateRatioPreview(55);
 cancelSharedFade();
 syncUnifiedLabel();

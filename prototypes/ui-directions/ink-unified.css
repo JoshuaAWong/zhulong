@@ -1,4 +1,4 @@
-/* 墨气组合版：只让装饰运动，数据与文字保持稳定。 */
+/* 墨气组合版：内外圈同转，数字保持水平；文字不参与水墨滤镜。 */
 .brand-seal { width:44px; height:44px; display:grid; place-items:center; color:var(--chart); }
 .brand-seal svg { width:40px; height:40px; overflow:visible; }
 .taiji-spirit { transform-box:view-box; transform-origin:60px 60px; }
@@ -28,3 +28,15 @@
 @media(max-width:900px) { .design-lab { margin:24px 12px; padding:20px; }.ratio-lab { grid-template-columns:1fr 1fr; gap:24px; }.ratio-control { grid-column:1/-1; }.mark-study { grid-template-columns:1fr; }.lab-heading { flex-wrap:wrap; } }
 @media(max-width:440px) { .demo-meter { width:116px; }.ratio-lab { gap:18px; }.design-lab h3 { font-size:16px; }.design-lab h3 small { display:block; margin:6px 0; } }
 @media(prefers-reduced-motion:reduce) { .demo-meter :is(.ratio-value,.ratio-halo) { transition:none !important; } }
+
+/* 太极颜色可点，旋转组之外的读数与提示保持水平。 */
+.instrument-dial { position:relative; overflow:visible; }
+.instrument-dial .taiji-svg { touch-action:manipulation; }
+[data-taiji-tone] { cursor:pointer; }
+[data-taiji-tone][role="button"]:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.taiji-hint { display:block; text-align:center; white-space:nowrap; font-size:10px; margin-left:-16px; margin-right:-16px; }
+.instrument-dial .bagua-field { position:absolute; left:0; top:0; width:100%; aspect-ratio:1; margin:0; pointer-events:none; z-index:3; }
+.instrument-dial .bagua-glyph { position:absolute; left:50%; top:50%; width:32px; height:32px; margin:-16px; color:var(--chart); font:32px/1 "Segoe UI Symbol","SimSun",serif; text-align:center; }
+.theme-reveal { position:fixed; inset:0; overflow:hidden; contain:paint; pointer-events:none; z-index:9999; }
+.theme-wave { position:absolute; border-radius:50%; transform-origin:center; background:radial-gradient(circle,#f6f7f2 0%,#e9eee7 84%,#e9eee7df 92%,transparent 100%); }
+.theme-reveal[data-tone="dark"] .theme-wave { background:radial-gradient(circle,#111f24 0%,#152b30 84%,#152b30df 92%,transparent 100%); }
