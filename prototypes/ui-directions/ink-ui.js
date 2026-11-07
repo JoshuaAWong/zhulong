@@ -30,7 +30,7 @@ $("#ornamentToggle").addEventListener("click", () => {
   $("#ornamentLabel").textContent = enabled ? "显" : "隐";
 });
 root.dataset.theme = new URLSearchParams(location.search).get("tone") === "dark" ? "dark" : "light";
-$("#directionDescription").textContent = "B 布局 · 连续笔墨与昼夜同景";
+$("#directionDescription").textContent = "B 布局 · 柔墨细景 · 昼夜各有山水";
 updateThemeLabel();
 syncInkTone();
 syncInkScene("overview");

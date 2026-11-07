@@ -35,7 +35,7 @@
 .sample-time { font-size:10px; }
 .scene-header { height:clamp(210px,19vw,270px); margin:0 -30px; position:relative; overflow:hidden; background:var(--scene); }
 .scene-art { position:absolute; inset:0 0 0 18%; }
-.scene-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; object-position:right center; }
+.scene-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; object-position:right center; mask-image:linear-gradient(to bottom,transparent,#000 9%,#000 91%,transparent); }
 .scene-art::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,var(--scene),transparent 30%); }
 .scene-night,[data-theme="dark"] .scene-day { display:none; }
 [data-theme="dark"] .scene-night { display:block; }
@@ -153,7 +153,7 @@ dialog h2 { font:500 23px/1.5 var(--display); margin-top:40px; }
   [data-skin="ink"] .app-shell { padding:0 20px; width:calc(100% - 24px); border-radius:19px; }
   .app-head { height:72px; }.brand-seal { width:31px; height:36px; font-size:21px; }
   [data-skin="ink"] .brand h1 { font-size:22px; }.head-actions { gap:3px; }
-  .scene-header { height:185px; margin:0 -20px; }.scene-art { inset:0 -80px 0 4%; opacity:.6; }
+  .scene-header { height:185px; margin:0 -20px; }.scene-art { inset:0 0 0 4%; opacity:.6; }
   .scene-copy { padding:36px 22px; width:65%; }.scene-copy h2 { font-size:27px; }.scene-copy p { max-width:190px; }
   .scene-caption { right:16px; bottom:12px; font-size:10px; }
   [data-skin="ink"] .hero { padding:18px 0; gap:15px; margin-bottom:22px; }
