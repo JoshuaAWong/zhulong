@@ -29,14 +29,21 @@
 @media(max-width:440px) { .demo-meter { width:116px; }.ratio-lab { gap:18px; }.design-lab h3 { font-size:16px; }.design-lab h3 small { display:block; margin:6px 0; } }
 @media(prefers-reduced-motion:reduce) { .demo-meter :is(.ratio-value,.ratio-halo) { transition:none !important; } }
 
-/* 太极颜色可点，旋转组之外的读数与提示保持水平。 */
-.instrument-dial { position:relative; overflow:visible; }
-.instrument-dial .taiji-svg { touch-action:manipulation; }
-[data-taiji-tone] { cursor:pointer; }
-[data-taiji-tone][role="button"]:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+/* 命中区域与悬停区域一致，八卦沿径向位置的切线摆放。 */
+.instrument-dial,.demo-meter { position:relative; overflow:visible; }
+[data-taiji-toggle] { touch-action:manipulation; cursor:pointer; pointer-events:all; }
+[data-taiji-toggle]:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:50%; }
 .taiji-hint { display:block; text-align:center; white-space:nowrap; font-size:10px; margin-left:-16px; margin-right:-16px; }
-.instrument-dial .bagua-field { position:absolute; left:0; top:0; width:100%; aspect-ratio:1; margin:0; pointer-events:none; z-index:3; }
-.instrument-dial .bagua-glyph { position:absolute; left:50%; top:50%; width:32px; height:32px; margin:-16px; color:var(--chart); font:32px/1 "Segoe UI Symbol","SimSun",serif; text-align:center; }
-.theme-reveal { position:fixed; inset:0; overflow:hidden; contain:paint; pointer-events:none; z-index:9999; }
-.theme-wave { position:absolute; border-radius:50%; transform-origin:center; background:radial-gradient(circle,#f6f7f2 0%,#e9eee7 84%,#e9eee7df 92%,transparent 100%); }
-.theme-reveal[data-tone="dark"] .theme-wave { background:radial-gradient(circle,#111f24 0%,#152b30 84%,#152b30df 92%,transparent 100%); }
+:is(.instrument-dial,.demo-meter) .bagua-field { position:absolute; left:0; top:0; width:100%; aspect-ratio:1; margin:0; pointer-events:none; z-index:3; }
+:is(.instrument-dial,.demo-meter) .bagua-glyph { position:absolute; left:50%; top:50%; width:32px; height:32px; margin:-16px; color:var(--chart); font:32px/1 "Segoe UI Symbol","SimSun",serif; text-align:center; }
+/* 两张真实界面快照交替，120px 的柔边波前混合配色，底下始终有内容。 */
+@property --tide-radius { syntax:"<length>"; inherits:false; initial-value:0px; }
+::view-transition { pointer-events:none; }
+::view-transition-group(root) { animation:none; }
+::view-transition-image-pair(root) { isolation:isolate; }
+::view-transition-old(root),::view-transition-new(root) { animation:none; mix-blend-mode:normal; }
+::view-transition-old(root) { opacity:1; z-index:0; }
+::view-transition-new(root) {
+  z-index:1;
+  mask-image:radial-gradient(circle at var(--tide-x) var(--tide-y),#000 max(0px,calc(var(--tide-radius) - 120px)),transparent var(--tide-radius));
+}

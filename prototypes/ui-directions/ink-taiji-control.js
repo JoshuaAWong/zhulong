@@ -1,27 +1,22 @@
 "use strict";
-// 太极颜色即昼夜入口；主题仍交给既有 themeToggle 同步各页与山水。
+// 与加速共用整块太极命中区域，切换时保留新旧界面的内容。
 const mainDial = $(".instrument-dial");
 mainDial.setAttribute("role", "group");
 mainDial.setAttribute("aria-label", "提交水位 55%，上限余量 45%；太极可切换昼夜");
-mainDial.setAttribute("title", "浅色切昼，深色切夜；悬停三倍速。当前提交水位 55%");
-dialSvg.removeAttribute("aria-hidden");
-dialSvg.setAttribute("role", "group");
-dialSvg.setAttribute("aria-label", "太极昼夜切换");
-const toneShapes = Array.from(dialSvg.querySelectorAll(".taiji-core > *"));
-toneShapes.forEach((shape, index) => {
-  const tone = shape.classList.contains("taiji-paper") ? "light" : "dark";
-  shape.setAttribute("data-taiji-tone", tone);
-  if (index < 2) {
-    shape.setAttribute("role", "button");
-    shape.setAttribute("tabindex", "0");
-    shape.setAttribute("aria-label", tone === "light" ? "切换昼间" : "切换夜间");
-  }
+mainDial.setAttribute("title", "点击切换昼夜；悬停三倍速并持续聚卦。当前提交水位 55%");
+[dialSvg, demoSvg].forEach((svg, index) => {
+  svg.removeAttribute("aria-hidden");
+  svg.setAttribute("data-taiji-toggle", "");
+  svg.setAttribute("role", "button");
+  svg.setAttribute("tabindex", "0");
+  svg.setAttribute("aria-label", index ? "演示太极，点击切换昼夜" : "太极，点击切换昼夜");
+  svg.setAttribute("id", index ? "taijiDemoToggle" : "taijiToggle");
 });
 const taijiHint = document.createElement("span");
 taijiHint.className = "taiji-hint";
-taijiHint.textContent = "浅色为昼 · 深色为夜";
+taijiHint.textContent = "点击换昼夜 · 悬停聚卦";
 mainDial.append(taijiHint);
-let themeReveal = null, applyingTone = false, baguaBurst = null;
+let themeReveal = null, applyingTone = false, baguaStream = null;
 function applyInkTone(tone) {
   if (root.dataset.theme === tone) return;
   applyingTone = true;
@@ -32,101 +27,111 @@ function clearThemeReveal(commit = false) {
   if (!themeReveal) return;
   const previous = themeReveal;
   themeReveal = null;
-  previous.layer.remove();
   previous.animation?.cancel();
+  previous.transition?.skipTransition();
+  root.style.removeProperty("--tide-x");
+  root.style.removeProperty("--tide-y");
   if (commit) applyInkTone(previous.tone);
 }
 function revealInkTheme(tone, x, y) {
   clearThemeReveal();
   if (root.dataset.theme === tone) return;
-  if (!motionAllowed()) { applyInkTone(tone); return; }
-  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y)) * 1.25;
-  const layer = document.createElement("div"), wave = document.createElement("span");
-  layer.className = "theme-reveal";
-  layer.setAttribute("aria-hidden", "true");
-  layer.dataset.tone = tone;
-  wave.className = "theme-wave";
-  Object.assign(wave.style, { width:2 * radius + "px", height:2 * radius + "px", left:x - radius + "px", top:y - radius + "px" });
-  layer.append(wave);
-  document.body.append(layer);
-  const reveal = { tone, layer, animation:null };
+  if (!motionAllowed() || !document.startViewTransition) { applyInkTone(tone); return; }
+  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  root.style.setProperty("--tide-x", x + "px");
+  root.style.setProperty("--tide-y", y + "px");
+  const reveal = { tone, transition:null, animation:null };
   themeReveal = reveal;
-  reveal.animation = wave.animate([{ transform:"scale(0)" }, { transform:"scale(1)" }], { duration:520, easing:"cubic-bezier(.2,.65,.3,1)", fill:"forwards" });
+  reveal.transition = document.startViewTransition(() => {
+    if (themeReveal === reveal) applyInkTone(tone);
+  });
   const settle = () => { if (themeReveal === reveal) clearThemeReveal(true); };
-  reveal.animation.oncancel = settle;
-  reveal.animation.onfinish = () => {
+  reveal.transition.ready.then(() => {
     if (themeReveal !== reveal) return;
-    reveal.animation.oncancel = null;
-    reveal.animation.cancel();
-    applyInkTone(tone);
-    // 覆盖全视口后再显现目标配色，避免全页在扩散之前突然跳色。
-    reveal.animation = layer.animate([{ opacity:1 }, { opacity:0 }], { duration:620, easing:"ease-out" });
+    if (!motionAllowed()) { settle(); return; }
+    // 新界面沿柔边波前铺开；旧界面完整保留在下面，没有纯色清屏阶段。
+    reveal.animation = root.animate([
+      { "--tide-radius":"0px" }, { "--tide-radius":radius + 160 + "px" }
+    ], { duration:1100, easing:"cubic-bezier(.2,.65,.3,1)", fill:"forwards", pseudoElement:"::view-transition-new(root)" });
     reveal.animation.onfinish = reveal.animation.oncancel = settle;
-  };
+  }).catch(settle);
+  reveal.transition.finished.then(settle, settle);
 }
-function taijiCenter() {
-  const rect = dialSvg.getBoundingClientRect();
+function controlCenter(control) {
+  const rect = control.getBoundingClientRect();
   return { x:rect.left + rect.width / 2, y:rect.top + rect.height / 2 };
 }
+function nextInkTone() {
+  return (themeReveal?.tone || root.dataset.theme) === "light" ? "dark" : "light";
+}
 document.addEventListener("click", event => {
-  const control = event.target.closest("[data-taiji-tone],[data-unified-tone],#themeToggle");
+  const control = event.target.closest("[data-taiji-toggle],[data-unified-tone],#themeToggle");
   if (!control || applyingTone) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  const tone = control.dataset.taijiTone || control.dataset.unifiedTone || (root.dataset.theme === "light" ? "dark" : "light");
-  const center = taijiCenter();
-  const fromFish = control.hasAttribute("data-taiji-tone") && event.detail > 0;
-  revealInkTheme(tone, fromFish ? event.clientX : center.x, fromFish ? event.clientY : center.y);
+  const tone = control.dataset.unifiedTone || nextInkTone();
+  const center = controlCenter(control);
+  revealInkTheme(tone, event.detail > 0 ? event.clientX : center.x, event.detail > 0 ? event.clientY : center.y);
 }, true);
-dialSvg.addEventListener("keydown", event => {
-  const control = event.target.closest("[data-taiji-tone][role='button']");
-  if (!control || !["Enter", " "].includes(event.key)) return;
+[dialSvg, demoSvg].forEach(svg => svg.addEventListener("keydown", event => {
+  if (!["Enter", " "].includes(event.key)) return;
   event.preventDefault();
-  const center = taijiCenter();
-  revealInkTheme(control.dataset.taijiTone, center.x, center.y);
-});
+  const center = controlCenter(svg);
+  revealInkTheme(nextInkTone(), center.x, center.y);
+}));
+function streamAllowed(svg) {
+  return motionAllowed() && (svg === dialSvg ? dialHovered && dialInView && !$("#overview").hidden : demoHovered && demoInView);
+}
 function clearBagua() {
-  if (!baguaBurst) return;
-  const previous = baguaBurst;
-  baguaBurst = null;
+  if (!baguaStream) return;
+  const previous = baguaStream;
+  baguaStream = null;
+  clearTimeout(previous.timer);
   previous.field.remove();
   previous.animations.forEach(animation => animation.cancel());
 }
-function gatherBagua() {
+function emitBagua(stream) {
+  if (baguaStream !== stream) return;
+  if (!streamAllowed(stream.svg)) { clearBagua(); return; }
+  // 每次随机独立发射；最多十枚，只有悬停期间保留一个待执行计时器。
+  if (stream.animations.size < 10) {
+    const glyph = document.createElement("span");
+    glyph.className = "bagua-glyph";
+    glyph.textContent = Array.from("☰☱☲☳☴☵☶☷")[Math.floor(Math.random() * 8)];
+    stream.field.append(glyph);
+    const angle = Math.random() * 360, turn = 18 + Math.random() * 42;
+    const radius = Math.min(150, window.innerWidth * .18) * (.8 + Math.random() * .45);
+    const size = .85 + Math.random() * .65, duration = 950 + Math.random() * 650;
+    const frames = [[0,1,0],[.18,.84,.58],[.72,.24,.42],[1,0,0]].map(([offset, distance, opacity]) => {
+      const degrees = angle + turn * offset, radians = degrees * Math.PI / 180;
+      return { offset, opacity, transform:"translate(" + Math.cos(radians) * radius * distance + "px," + Math.sin(radians) * radius * distance + "px) rotate(" + (degrees + 90) + "deg) scale(" + (size * (1 - offset) + .08 * offset) + ")" };
+    });
+    const animation = glyph.animate(frames, { duration, easing:"linear" });
+    stream.animations.add(animation);
+    animation.onfinish = animation.oncancel = () => { glyph.remove(); stream.animations.delete(animation); };
+  }
+  stream.timer = setTimeout(() => emitBagua(stream), 170 + Math.random() * 220);
+}
+function gatherBagua(svg) {
+  if (baguaStream?.svg === svg) return;
   clearBagua();
-  if (!motionAllowed() || !dialInView || $("#overview").hidden) return;
+  if (!streamAllowed(svg)) return;
   const field = document.createElement("span");
   field.className = "bagua-field";
   field.setAttribute("aria-hidden", "true");
-  mainDial.append(field);
-  const burst = { field, animations:[] };
-  baguaBurst = burst;
-  const radius = Math.min(140, window.innerWidth * .14);
-  // 对向符号同速同起点距离，不错开延迟，保持中心对称。
-  Array.from("☰☱☲☳☷☶☵☴").forEach((symbol, index) => {
-    const angle = (index * 45 - 90) * Math.PI / 180;
-    const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius;
-    const glyph = document.createElement("span");
-    glyph.className = "bagua-glyph";
-    glyph.textContent = symbol;
-    field.append(glyph);
-    const animation = glyph.animate([
-      { transform:"translate(" + x + "px," + y + "px) scale(1.3)", opacity:0 },
-      { transform:"translate(" + x * .85 + "px," + y * .85 + "px) scale(1.05)", opacity:.64, offset:.18 },
-      { transform:"translate(0,0) scale(.1)", opacity:0 }
-    ], { duration:1150, easing:"cubic-bezier(.35,.1,.25,1)" });
-    burst.animations.push(animation);
-    animation.onfinish = animation.oncancel = () => {
-      glyph.remove();
-      if (baguaBurst === burst && !field.childElementCount) { field.remove(); baguaBurst = null; }
-    };
-  });
+  svg.parentElement.append(field);
+  baguaStream = { svg, field, timer:null, animations:new Set() };
+  emitBagua(baguaStream);
 }
-dialSvg.addEventListener("pointerenter", gatherBagua);
-dialSvg.addEventListener("pointerleave", clearBagua);
+[dialSvg, demoSvg].forEach(svg => {
+  svg.addEventListener("pointerenter", () => gatherBagua(svg));
+  svg.addEventListener("pointerleave", () => { if (baguaStream?.svg === svg) clearBagua(); });
+});
 document.addEventListener("taiji-motion-sync", () => {
   if (!motionAllowed()) clearThemeReveal(true);
-  if (!motionAllowed() || !dialInView || $("#overview").hidden) clearBagua();
+  if (baguaStream && !streamAllowed(baguaStream.svg)) clearBagua();
+  if (streamAllowed(dialSvg)) gatherBagua(dialSvg);
+  else if (streamAllowed(demoSvg)) gatherBagua(demoSvg);
 });
 window.addEventListener("resize", () => clearThemeReveal(true));
 window.addEventListener("pagehide", () => { clearThemeReveal(); clearBagua(); });

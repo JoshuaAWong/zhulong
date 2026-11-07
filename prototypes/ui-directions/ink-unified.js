@@ -24,7 +24,7 @@ function updateRatioPreview(value) {
   $("#ratioRemainder").textContent = "占用 " + value + "% · 余量 " + (100 - value) + "%";
   markButtons("[data-ratio]", "ratio", String(value));
   all(".demo-meter").forEach(meter => {
-    meter.setAttribute("role", "img");
+    meter.setAttribute("role", meter.id === "ringDemo" ? "group" : "img");
     meter.setAttribute("aria-label", "占用 " + value + "%，余量 " + (100 - value) + "%");
     meter.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => { arc.style.strokeDasharray = value + " 100"; });
   });
