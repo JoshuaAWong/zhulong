@@ -1,0 +1,10 @@
+{
+  "name": "zhulong-p0-ui-experiment",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "esbuild web/main.tsx --bundle --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=web-dist/app.js && node -e \"require('fs').copyFileSync('web/index.html','web-dist/index.html')\""
+  },
+  "dependencies": { "react": "19.3.1", "react-dom": "19.3.1" },
+  "devDependencies": { "esbuild": "0.28.2" }
+}
