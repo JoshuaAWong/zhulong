@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN" data-design="instrument" data-theme="light" data-motion="on" data-skin="ink" data-ornament="on" data-scene-layout="balanced" data-scene-copy="left" data-layout="mist" data-atmosphere="ridge">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>烛龙 · A 布局整页水墨</title>
+  <link rel="icon" href="../../zhulong/web/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ink-ui.css">
+  <link rel="stylesheet" href="ink-layouts.css">
+  <link rel="stylesheet" href="ink-atmospheres.css">
+  <link rel="stylesheet" href="ink-taiji.css">
+  <script src="app.js" defer></script>
+  <script src="ink-ui.js" defer></script>
+  <script src="ink-layouts.js" defer></script>
+  <script src="ink-atmospheres.js" defer></script>
+  <script src="ink-taiji.js" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true"><defs>
+    <symbol id="dragon" viewBox="0 0 64 64"><path d="M34 9C49 10 56 21 56 33C56 47 46 56 32 56C18 56 8 47 8 33C8 21 15 11 27 9M24 10C22 6 24 2.5 28 2.5M28 10C28 6 31 3.5 34 4.5M23 10C23 13 26 15 30 14C33 13 34 10 32 8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><circle cx="27" cy="9.5" r="1.4" fill="currentColor"/><path d="M32 21C36 26 38 29 38 33C38 38 35 41 32 41C29 41 26 38 26 33C26 29 29 25 32 21Z" fill="currentColor"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+    <symbol id="wave" viewBox="0 0 24 24"><path d="M2 13h4l3-8 5 15 3-7h5"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M3 4h6l3 2 3-2h6v15h-6l-3 2-3-2H3ZM12 6v15"/></symbol>
+    <symbol id="bell" viewBox="0 0 24 24"><path d="M5 17h14l-2-4V9a5 5 0 0 0-10 0v4ZM10 21h4M12 2v2"/></symbol>
+  </defs></svg>
+  <header class="reviewbar"><span>烛龙 · A 布局整页水墨</span><div class="layout-switch" role="group" aria-label="整页水墨方案"><button data-atmosphere-choice="ridge" aria-pressed="true">A1 云岚 · 太极墨环</button><button data-atmosphere-choice="breath" aria-pressed="false">A2 墨气 · 双鱼分弧</button><button data-atmosphere-choice="scroll" aria-pressed="false">A3 长卷 · 太极扇盘</button></div><a href="ink-layouts.html">上一轮布局对照</a></header>
+  <div class="layout-note"><p id="directionDescription">山势沿侧边延伸，云气接入内容，远岸收在页尾。</p><span>已选 A 布局 · 比较整页延展 · 可切昼夜</span></div>
+  <main class="app-shell" id="prototype">
+    <div class="page-ink" aria-hidden="true">
+      <svg class="ink-mountain" viewBox="1450 0 722 724" preserveAspectRatio="xMidYMid slice"><image data-tone="light" href="assets/ink-day-v7.png" width="2172" height="724"/><image data-tone="dark" href="assets/ink-night-v7.png" width="2172" height="724"/></svg>
+      <svg class="ink-shore" viewBox="0 400 2172 324" preserveAspectRatio="xMidYMax slice"><image data-tone="light" href="assets/ink-day-v7.png" width="2172" height="724"/><image data-tone="dark" href="assets/ink-night-v7.png" width="2172" height="724"/></svg>
+      <div class="ink-clouds"></div><div class="ink-current"></div>
+    </div>
+    <header class="app-head">
+      <a class="brand" href="#overview" aria-label="烛龙系统总览"><span class="brand-seal" aria-hidden="true">烛</span><div><h1>烛龙</h1><p>本地系统观察</p></div></a>
+      <div class="device"><span class="dot"></span>我的电脑 <span class="device-kind">Windows · 观察版</span></div>
+      <div class="head-actions"><button class="icon-button" id="themeToggle" aria-label="切换为夜间"><svg class="icon"><use href="#sun"/></svg><span id="themeLabel">日间</span></button><details class="appearance"><summary>外观</summary><div class="appearance-panel"><p>显示偏好</p><button class="icon-button" id="ornamentToggle" aria-pressed="true">山水 <span id="ornamentLabel">显</span></button><button class="icon-button" id="sceneToggle">换景 <span id="sceneLabel">云隐 · 1 / 2</span></button><button class="icon-button" id="motionToggle" aria-pressed="true">动效 <span id="motionLabel">开</span></button><span>尊重系统减少动态效果设置</span></div></details></div>
+    </header>
+    <div class="concept-body"><div class="navigation-row"><nav class="tabs" aria-label="主导航">
+      <button class="tab active" data-page="overview" aria-pressed="true"><svg class="icon"><use href="#wave"/></svg>系统总览</button>
+      <button class="tab" data-page="usage" aria-pressed="false"><svg class="icon"><use href="#book"/></svg>AI 账本</button>
+      <button class="tab" data-page="events" aria-pressed="false"><svg class="icon"><use href="#bell"/></svg>事件记录 <span class="tab-count">3</span></button>
+    </nav><span class="sample-time">演示样本 14:32:00</span></div>
+    <div class="concept-main"><section class="scene-header" aria-labelledby="sceneTitle"><div class="scene-art" aria-hidden="true"><img class="scene-day" src="assets/ink-day-v7.png" width="2172" height="724" alt="" decoding="async"><img class="scene-night" src="assets/ink-night-v7.png" width="2172" height="724" alt="" decoding="async"></div><div class="scene-copy"><span class="scene-index" id="sceneIndex">本机观察</span><h2 id="sceneTitle">系统总览</h2><p id="sceneDescription">先看水位，再看资源用在哪里。</p></div><span class="scene-caption" id="sceneCaption" aria-live="polite">云隐松崖</span></section>
+    <section id="overview" class="page">
+      <section class="hero" aria-label="系统概况">
+        <div class="verdict"><span class="verdict-character">安</span><div><p class="overline">提交内存</p><h2>当前平稳</h2><p class="hero-description">提交内存保持平稳，近期一次水位提醒已回落。</p></div></div>
+        <div class="instrument-dial" aria-hidden="true"><svg viewBox="0 0 140 140"><circle class="dial-track" cx="70" cy="70" r="58"/><circle class="dial-value" cx="70" cy="70" r="58" pathLength="100" stroke-dasharray="55 100"/></svg><div><strong>55<small>%</small></strong><span>提交水位</span></div></div>
+        <div class="hero-facts"><div><span>已提交 / 系统上限</span><strong>26.4 <small>/ 48.0 GB</small></strong></div><div><span>今日提醒</span><strong>1 <small>次 · 已回落</small></strong></div></div>
+
+      </section>
+      <div class="workspace">
+        <aside class="ranking panel" data-module="进程占用">
+          <div class="section-heading"><h2>进程占用</h2><button class="module-pick" aria-pressed="false" aria-label="关注进程占用">关注</button></div><p class="section-subtitle">按应用汇总演示进程</p>
+          <div class="segmented compact" role="group" aria-label="排行口径"><button class="active" data-rank="memory" aria-pressed="true">内存</button><button data-rank="cpu" aria-pressed="false">CPU</button></div>
+          <label class="search"><span aria-hidden="true">⌕</span><input id="processSearch" type="search" placeholder="查找进程" aria-label="查找进程"></label>
+          <div id="processList" class="process-list"></div><div class="rank-foot"><span id="rankUnit">口径：物理内存占用</span><p>点击进程查看详情</p></div>
+        </aside>
+        <div class="monitoring">
+          <section class="trend-panel panel" data-module="资源趋势">
+            <div class="section-heading"><div><h2 id="chartTitle">提交内存</h2><p class="section-subtitle" id="chartMeaning">系统承诺提供的内存，不等于物理内存</p></div><button class="module-pick" aria-pressed="true" aria-label="关注资源趋势">已关注</button></div>
+            <div class="chart-toolbar"><div class="segmented metric-tabs" role="group" aria-label="指标"><button class="active" data-metric="commit" aria-pressed="true">提交</button><button data-metric="physical" aria-pressed="false">物理</button><button data-metric="cpu" aria-pressed="false">CPU</button></div><div class="range-switch" role="group" aria-label="时间范围"><button class="active" data-range="24h" aria-pressed="true">24 小时</button><button data-range="7d" aria-pressed="false">7 天</button><button data-range="30d" aria-pressed="false">30 天</button></div></div>
+            <div class="chart-head"><strong id="chartValue">26.4 <small>GB</small></strong><span id="chartLimit">上限 48.0 GB · 当前 55%</span></div>
+            <div class="chart" id="chartContainer"></div><div class="chart-caption"><span><i class="legend-line"></i><span id="chartLegend">已提交</span></span><span id="rangeSummary">过去 24 小时</span></div>
+            <div class="chart-insight"><span class="small-seal">察</span><p id="chartInsight">14:02 水位曾达 76%，当前已回落；单次峰值不能证明进程泄漏。</p><button class="text-button" data-detail="waterline">查看记录</button></div>
+          </section>
+          <section class="resource-strip" aria-label="其他系统资源">
+            <button class="resource" data-detail="cpu"><span>处理器</span><strong>14<small>%</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 24L12 22 18 12 23 20 35 21 43 7 50 18 58 17 67 21 73 12 84 18 99 19"/></svg><span>单核峰值 32%</span></button>
+            <button class="resource" data-detail="gpu"><span>显卡</span><strong>6<small>%</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 22L12 21 19 20 29 22 38 17 46 19 56 20 64 22 76 19 89 21 99 21"/></svg><span>43°C · 显存 1.8 GB</span></button>
+            <button class="resource" data-detail="disk"><span>磁盘读写</span><strong>18.3<small>MB/s</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 24L15 24 18 6 23 23 38 22 48 13 53 24 69 24 75 8 81 23 99 23"/></svg><span>最忙磁盘 8%</span></button>
+            <button class="resource" data-detail="network"><span>网络下载</span><strong>1.8<small>MB/s</small></strong><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M1 20L13 22 23 19 34 11 44 13 56 9 68 16 78 15 88 20 99 17"/></svg><span>上传 0.6 MB/s</span></button>
+          </section>
+          <section class="ai-summary panel"><div class="ai-icon" aria-hidden="true"><svg class="icon"><use href="#book"/></svg></div><div><h2>今日 AI 用量</h2><p>12 次会话 <span>186.4k tokens</span></p></div><div class="ai-price"><strong>¥3.82</strong><span>估算费用</span></div><button class="text-button" data-go="usage">查看账本</button></section>
+        </div>
+        <aside class="notes panel" data-module="最近事件">
+          <div class="section-heading"><h2>最近事件</h2><button class="module-pick" aria-pressed="false" aria-label="关注最近事件">关注</button></div><p class="section-subtitle">提醒与变化按时间记录</p>
+          <div class="notice"><div class="notice-top"><span class="notice-state">慎</span><time>14:02</time><span>已回落</span></div><h3>内存水位短时升高</h3><p>提交水位达到 76%，持续约 2 分钟，随后回落至正常范围。</p><button class="text-button" data-detail="waterline">查看这次变化</button></div>
+          <ol class="timeline"><li><time>13:48</time><div><strong>AI 用量已更新</strong><p>本次新增 3 条用量记录。</p></div></li><li><time>09:00</time><div><strong>开始今日观察</strong><p>系统指标与历史记录就绪。</p></div></li></ol>
+          <button class="all-events" data-go="events">全部事件 <span aria-hidden="true">›</span></button>
+        </aside>
+      </div>
+    </section>
+    <section id="usage" class="page" hidden>
+      <div class="page-title"><div><p class="overline">用量与费用</p><h2>今日用量</h2><p>示例工具的本地日志统计，费用为估算值。</p></div><span class="seal-square">账</span></div>
+      <div class="usage-summary"><div><span>今日用量</span><strong>186.4<small>k tokens</small></strong></div><div><span>估算费用</span><strong>¥3.82</strong></div><div><span>会话数量</span><strong>12<small>次</small></strong></div></div>
+      <div class="usage-layout"><section class="panel ledger"><div class="section-heading"><h2>最近会话</h2><span>示例工具 · 演示</span></div><div class="table-wrap"><table><thead><tr><th>会话</th><th>用量</th><th>估算费用</th><th>时间</th></tr></thead><tbody><tr><td>烛龙界面方案</td><td>48.2k</td><td>¥1.06</td><td>14:32</td></tr><tr><td>整理项目文档</td><td>36.7k</td><td>¥0.81</td><td>13:48</td></tr><tr><td>日常代码检查</td><td>25.1k</td><td>¥0.55</td><td>11:20</td></tr></tbody></table></div><p class="fine-print">仅展示 3 条示例会话，汇总包含当日全部 12 次会话。</p></section><section class="panel token-breakdown"><h2>Token 构成</h2><div class="token-bar" aria-label="输入 118.2k，输出 18.6k，缓存读取 49.6k"><i></i><i></i><i></i></div><dl><div><dt>未缓存输入</dt><dd>118.2k</dd></div><div><dt>输出</dt><dd>18.6k</dd></div><div><dt>缓存读取</dt><dd>49.6k</dd></div></dl><p class="fine-print">按互斥分类展示；实际计费以工具账单为准。</p></section></div>
+    </section>
+    <section id="events" class="page" hidden>
+      <div class="page-title"><div><p class="overline">系统观察记录</p><h2>今日事件</h2><p>提醒与实际处置分别记录，已回落不代表执行过清理。</p></div><span class="seal-square">记</span></div>
+      <div class="event-toolbar"><h3>今日记录</h3><div class="segmented" role="group" aria-label="事件筛选"><button class="active" data-filter="all" aria-pressed="true">全部</button><button data-filter="warning" aria-pressed="false">需留意</button></div></div><div class="event-list" id="eventList"></div>
+    </section>
+    <footer class="app-footer"><span><i class="dot"></i>观察版 <b>仅记录与提醒</b></span><span id="selectionStatus" role="status">当前关注：资源趋势</span><button class="text-button" id="replayMotion">重播切换动效</button></footer>
+    </div></div>
+  </main>
+  <footer class="review-footer"><span id="directionFoot">水墨工作台 · 日间</span><p>固定演示数据，未连接本机；A 布局已选，整页水墨方案待选择</p><button id="preferButton">记录此版偏好</button><span id="preferenceStatus" role="status"></span></footer>
+  <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><span class="overline">观察详情 · 演示</span><button id="closeDetail" aria-label="关闭详情">×</button></div><h2 id="detailTitle"></h2><div id="detailContent"></div><button class="primary-button" id="ackDetail">知道了</button></dialog>
+</body>
+</html>

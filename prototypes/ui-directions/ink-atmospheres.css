@@ -1,0 +1,86 @@
+/* 装饰跨越整张工作面；文字、图表和焦点永不进入滤镜图层。 */
+:root[data-theme="light"] {
+  --mist-color:246 247 242; --ink-air:86 117 101; --air-strength:.16;
+  --mountain-strength:.27; --shore-strength:.22;
+}
+:root[data-theme="dark"] {
+  --mist-color:17 31 36; --ink-air:134 179 161; --air-strength:.13;
+  --mountain-strength:.4; --shore-strength:.35;
+}
+[data-skin="ink"] .app-shell { position:relative; isolation:isolate; }
+.app-shell>.app-head,.app-shell>.concept-body { position:relative; z-index:1; }
+.page-ink { position:absolute; inset:0; overflow:hidden; border-radius:inherit; pointer-events:none; z-index:0; }
+.page-ink svg { position:absolute; display:block; overflow:hidden; }
+.page-ink image[data-tone="dark"],[data-theme="dark"] .page-ink image[data-tone="light"] { display:none; }
+[data-theme="dark"] .page-ink image[data-tone="dark"] { display:block; }
+.ink-mountain {
+  left:-145px; top:270px; width:490px; height:740px; opacity:var(--mountain-strength);
+  filter:blur(1.6px); mask-image:radial-gradient(ellipse at 30% 48%,#000 10%,#0009 44%,transparent 73%);
+}
+.ink-shore {
+  left:0; bottom:-18px; width:100%; height:285px; opacity:var(--shore-strength);
+  filter:blur(2.3px); mask-image:linear-gradient(transparent,#0008 37%,#000 82%,transparent);
+}
+.ink-clouds {
+  position:absolute; inset:100px -80px 0;
+  background:radial-gradient(ellipse at 0 38%,rgb(var(--ink-air)/var(--air-strength)),transparent 45%),radial-gradient(ellipse at 100% 75%,rgb(var(--ink-air)/.13),transparent 42%);
+}
+.ink-current {
+  position:absolute; left:-8%; right:-8%; top:310px; height:50%;
+  background:linear-gradient(160deg,transparent 23%,rgb(var(--ink-air)/.1) 38%,rgb(var(--mist-color)/.6) 44%,transparent 62%);
+  filter:blur(24px); opacity:.4;
+}
+[data-skin="ink"] .scene-header { background:transparent; height:190px; overflow:visible; }
+.scene-art { mask-image:linear-gradient(transparent,#000 13%,#000 48%,transparent 100%); }
+.scene-art::after { background:linear-gradient(90deg,rgb(var(--mist-color)/.86),transparent 38%); }
+[data-scene-copy="right"] .scene-art::after { background:linear-gradient(270deg,rgb(var(--mist-color)/.86),transparent 38%); }
+.scene-copy { padding-top:34px; }.scene-caption { bottom:23px; opacity:.8; }
+.concept-main { min-height:850px; }
+[data-skin="ink"] .hero { background:radial-gradient(ellipse,rgb(var(--mist-color)/.82),transparent 76%); }
+/* 阅读留白随文字分区存在，但没有可见的卡片轮廓。 */
+[data-skin="ink"] :is(.ranking,.notes,.trend-panel),.ledger,.token-breakdown,.event-list {
+  background:radial-gradient(ellipse at 48% 42%,rgb(var(--mist-color)/.97) 29%,rgb(var(--mist-color)/.85) 57%,rgb(var(--mist-color)/0) 78%);
+}
+[data-module]::before { inset:-10px; border-radius:43% 47% 39% 46%; }
+[data-module].is-selected::before { background:radial-gradient(ellipse at 45% 35%,rgb(var(--ink-air)/.19),transparent 76%); }
+.module-pick[aria-pressed="true"] { background:rgb(var(--mist-color)/.76); }
+[data-skin="ink"] .resource-strip { background:linear-gradient(100deg,transparent,rgb(var(--ink-air)/.10) 16%,rgb(var(--ink-air)/.12) 78%,transparent); }
+.chart-insight { background:linear-gradient(100deg,rgb(var(--ink-air)/.1),rgb(var(--ink-air)/.04),transparent); }
+.ai-summary { background:radial-gradient(ellipse,rgb(var(--mist-color)/.8),transparent 76%); }
+.app-footer { position:relative; background:radial-gradient(ellipse,rgb(var(--mist-color)/.9),transparent 80%); }
+.app-footer::before { content:""; position:absolute; left:4%; right:4%; top:0; height:2px; background:linear-gradient(90deg,transparent,rgb(var(--ink-air)/.16),transparent); }
+.brand-seal,.process-icon { background:radial-gradient(ellipse,rgb(var(--ink-air)/.18),transparent 77%); }
+.tab.active::before { inset:-2px -12px; background:radial-gradient(ellipse,rgb(var(--ink-air)/.3),rgb(var(--ink-air)/.1) 50%,transparent 74%); }
+.usage-summary { background:linear-gradient(110deg,transparent,rgb(var(--ink-air)/.12),transparent); }
+.event-item:nth-child(odd) { background:linear-gradient(100deg,rgb(var(--ink-air)/.1),transparent 88%); }
+dialog { background:radial-gradient(ellipse at 100% 100%,rgb(var(--ink-air)/.14),transparent 58%),var(--surface); }
+dialog::after { content:"烛"; position:absolute; right:28px; bottom:20px; color:var(--chart); opacity:.055; font:100px var(--display); pointer-events:none; }
+/* A2：以宽而轻的墨气连接分区，山体退到远处。 */
+[data-atmosphere="breath"] .ink-mountain { left:auto; right:-155px; top:340px; width:600px; height:650px; filter:blur(7px); opacity:calc(var(--mountain-strength) * .65); }
+[data-atmosphere="breath"] .ink-shore { left:-4%; width:108%; height:340px; filter:blur(7px); opacity:calc(var(--shore-strength) * .7); }
+[data-atmosphere="breath"] .ink-clouds {
+  background:radial-gradient(ellipse at 18% 42%,rgb(var(--ink-air)/.2),transparent 42%),radial-gradient(ellipse at 82% 61%,rgb(var(--ink-air)/.18),transparent 42%),radial-gradient(ellipse at 40% 88%,rgb(var(--ink-air)/.13),transparent 34%);
+}
+[data-atmosphere="breath"] .ink-current { opacity:1; top:245px; height:64%; transform:rotate(-7deg); }
+[data-atmosphere="breath"] [data-module].is-selected::before { inset:-23px; background:radial-gradient(ellipse at 52% 46%,rgb(var(--ink-air)/.22),transparent 73%); }
+/* A3：下半页山水展开，向数据阅读区淡出，不复制龙首。 */
+[data-atmosphere="scroll"] .ink-mountain { left:auto; right:-190px; top:210px; width:560px; opacity:calc(var(--mountain-strength) * .65); filter:blur(3px); }
+[data-atmosphere="scroll"] .ink-shore { bottom:-35px; height:440px; filter:blur(1px); opacity:calc(var(--shore-strength) * 1.5); mask-image:linear-gradient(transparent,#0007 25%,#000 70%,transparent); }
+[data-atmosphere="scroll"] .ink-clouds { background:radial-gradient(ellipse at 50% 82%,rgb(var(--ink-air)/.2),transparent 64%); }
+[data-atmosphere="scroll"] .ink-current { top:200px; height:65%; opacity:.65; transform:rotate(9deg); }
+[data-ornament="off"] .page-ink { display:none; }
+[data-ornament="off"] .app-footer::before,[data-ornament="off"] dialog::after { display:none; }
+@media(max-width:1190px) {
+  .ink-mountain { left:-210px; width:500px; }
+  [data-atmosphere="breath"] .ink-mountain { right:-240px; }
+  [data-atmosphere="scroll"] .ink-mountain { right:-280px; }
+}
+@media(max-width:800px) {
+  [data-skin="ink"] .scene-header { height:auto; }.scene-copy { padding-top:23px; }
+  .concept-main { min-height:0; }.ink-clouds { inset:100px -20px 0; }
+  .ink-mountain { top:360px; left:-210px; height:650px; opacity:calc(var(--mountain-strength) * .65); }
+  .ink-current { top:400px; height:40%; filter:blur(14px); }
+  .ink-shore,[data-atmosphere="breath"] .ink-shore { height:200px; }
+  [data-atmosphere="scroll"] .ink-shore { height:280px; }
+  [data-atmosphere="breath"] .ink-current,[data-atmosphere="scroll"] .ink-current { top:350px; height:45%; }
+}
