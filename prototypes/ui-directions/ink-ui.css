@@ -44,6 +44,11 @@
 .scene-copy h2 { font:500 31px/1.4 var(--display); letter-spacing:2px; }
 .scene-copy p { color:var(--muted); font-size:11px; margin-top:11px; line-height:1.9; max-width:230px; }
 .scene-caption { position:absolute; right:29px; bottom:14px; color:var(--muted); font:11px var(--display); letter-spacing:2px; }
+[data-scene-layout="balanced"] .scene-art { inset:0; }
+[data-scene-layout="balanced"] .scene-art img { object-fit:cover; object-position:center 38%; }
+[data-scene-copy="right"] .scene-copy { margin-left:auto; }
+[data-scene-copy="right"] .scene-art::after { background:linear-gradient(270deg,var(--scene),transparent 30%); }
+[data-scene-copy="right"] .scene-caption { right:auto; left:29px; }
 [data-ornament="off"] .scene-art,[data-ornament="off"] .scene-caption { visibility:hidden; }
 [data-skin="ink"] .hero { padding:22px 0; gap:17px; border-bottom:1px solid var(--line); margin-bottom:26px; }
 [data-skin="ink"] .instrument-dial { width:86px; height:86px; }
@@ -153,8 +158,12 @@ dialog h2 { font:500 23px/1.5 var(--display); margin-top:40px; }
   [data-skin="ink"] .app-shell { padding:0 20px; width:calc(100% - 24px); border-radius:19px; }
   .app-head { height:72px; }.brand-seal { width:31px; height:36px; font-size:21px; }
   [data-skin="ink"] .brand h1 { font-size:22px; }.head-actions { gap:3px; }
-  .scene-header { height:185px; margin:0 -20px; }.scene-art { inset:0 0 0 4%; opacity:.6; }
-  .scene-copy { padding:36px 22px; width:65%; }.scene-copy h2 { font-size:27px; }.scene-copy p { max-width:190px; }
+  .scene-header { height:auto; margin:0 -20px; display:flex; flex-direction:column; }
+  .scene-art,[data-scene-layout="balanced"] .scene-art { position:relative; inset:auto; width:100%; aspect-ratio:3/1; order:1; }
+  .scene-art img,[data-scene-layout="balanced"] .scene-art img { object-fit:contain; object-position:center; }
+  .scene-art::after { display:none; }
+  [data-ornament="off"] .scene-art { display:none; }
+  .scene-copy { padding:22px; width:100%; }.scene-copy h2 { font-size:27px; }.scene-copy p { max-width:190px; }
   .scene-caption { right:16px; bottom:12px; font-size:10px; }
   [data-skin="ink"] .hero { padding:18px 0; gap:15px; margin-bottom:22px; }
   [data-skin="ink"] .instrument-dial { width:76px; height:76px; }
@@ -167,8 +176,8 @@ dialog h2 { font:500 23px/1.5 var(--display); margin-top:40px; }
 }
 @media(max-width:440px) {
   [data-skin="ink"] .app-shell { padding:0 15px; }.scene-header { margin:0 -15px; }
-  .scene-copy { padding-left:18px; width:76%; }.scene-copy p { max-width:170px; }
-  .scene-art { opacity:.38; }.scene-caption { display:none; }.brand { gap:8px; }
+  .scene-copy { padding:20px 18px; width:100%; }.scene-copy p { max-width:170px; }
+  .scene-caption { display:none; }.brand { gap:8px; }
   [data-skin="ink"] .tab { font-size:11px; }.tabs { gap:17px; }
   .chart-head>strong { font-size:31px; }.chart-head>span { font-size:9px; }
   .resource-strip { grid-template-columns:repeat(2,1fr); gap:16px 0; }.resource:nth-child(3) { border-left:0; }

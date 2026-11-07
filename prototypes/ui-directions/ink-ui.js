@@ -12,17 +12,19 @@ function syncInkScene(page) {
   $("#sceneDescription").textContent = copy[2];
 }
 const inkScenes = [
-  { day: "ink-day-a-v4.png", night: "ink-night-a-v4.png", light: "松崖长游", dark: "江湾回环" },
-  { day: "ink-day-b-v4.png", night: "ink-night-b-v4.png", light: "云岫盘龙", dark: "寒汀远行" }
+  { day: "ink-day-v7.png", night: "ink-night-v7.png", light: "云隐松崖", dark: "雾锁江湾", balanced: true },
+  { day: "ink-header-day-v3.png", night: "ink-header-night-v3.png", light: "松崖原景", dark: "江湾原景", balanced: false }
 ];
 let inkSceneIndex = 0;
 function syncInkTone() {
   const light = root.dataset.theme === "light";
   const scene = inkScenes[inkSceneIndex];
+  root.dataset.sceneLayout = scene.balanced ? "balanced" : "original";
+  root.dataset.sceneCopy = scene.balanced && !light ? "right" : "left";
   $(".scene-day").src = "assets/" + scene.day;
   $(".scene-night").src = "assets/" + scene.night;
   $("#sceneCaption").textContent = light ? scene.light : scene.dark;
-  $("#sceneLabel").textContent = `${inkSceneIndex + 1} / ${inkScenes.length}`;
+  $("#sceneLabel").textContent = `${scene.balanced ? "云隐" : "原景"} · ${inkSceneIndex + 1} / ${inkScenes.length}`;
   $("#directionFoot").textContent = `水墨工作台 · ${light ? "日间" : "夜间"}`;
 }
 document.addEventListener("click", event => {
