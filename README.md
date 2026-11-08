@@ -121,6 +121,10 @@ python -X utf8 -m zhulong.tests.run_all   :: 一键全量（17 个断言式测�
 
 ### 重构对账进展（2026-11-08）
 
-已确认 AI 接入顺序 Codex → Kimi → ZCode（GLM），首版先做 Codex。参考[TokenTracker 用量统计源码核查](docs/AI用量采集源码核查.md)，以会话展示、请求用量记账；这些提供器尚未接入。
+已确认 AI 接入顺序 Codex → Kimi → ZCode（GLM），首版先做 Codex。参考[TokenTracker 用量统计源码核查](docs/AI用量采集源码核查.md)，以会话展示、请求用量记账；Codex 已建立独立[采集与验收切片](prototypes/p0-ai/README.md)，尚未接入生产面板；Kimi/ZCode 待实现。
 
 [P0-B 现状对账](docs/P0现状对账.md)记录代码与配置索引、本地进程池差异及已复现的单核告警上下文缺失，后者尚未修复。浏览器原型与资源验收继续待完成。
+
+### Codex 会话统计与套餐重置试验
+
+[独立CLI说明](prototypes/p0-ai/README.md)提供有界扫描、会话统计和套餐窗口倒计时。来源为本地rollout，用量包含缓存/推理子集；总览按唯一事件去重。额度标明日志快照时间，到期等待更新，缺失保持未知；部分Codex桌面任务无rollout，不能视作账户完整账单。参见[Token Monitor对比](docs/TokenMonitor统计与额度设计对比.md)与[验证记录](docs/P0Codex统计切片.md)。
