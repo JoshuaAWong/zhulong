@@ -63,6 +63,9 @@ internal static class DesktopSelfTests
                 Check(bounded.RootElement.EnumerateArray().All(row => row.GetProperty("value").GetDouble() == 50), "时间桶应保留人工核定的物理内存比例");
             }
             CheckOversizedLog(outputDirectory, Check);
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico");
+            using (var icon = new System.Drawing.Icon(iconPath, 16, 16)) Check(icon.Width == 16 && icon.Height == 16, "运行包应包含可加载的16像素托盘图标");
+            using (var icon = new System.Drawing.Icon(iconPath, 32, 32)) Check(icon.Width == 32 && icon.Height == 32, "运行包应包含可加载的32像素窗口图标");
             var monitor = new SystemMonitor();
             var first = monitor.Collect();
             Thread.Sleep(150);

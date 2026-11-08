@@ -22,7 +22,8 @@ internal sealed class DesktopWindow : Window
         this.hub = hub;
         this.webDirectory = webDirectory;
         this.profileDirectory = profileDirectory;
-        Title = "烛龙 · 水墨观察版";
+        Title = "烛龙新版 · 朱印 · 水墨观察版";
+        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico")));
         Width = 1440; Height = 960; MinWidth = 1000; MinHeight = 680;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = System.Windows.Media.Brushes.WhiteSmoke;

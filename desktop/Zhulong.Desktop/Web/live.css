@@ -22,3 +22,7 @@ html[data-live] .ledger>h2:not(:first-child) { margin-top:28px; }
 html[data-live] .resource-strip .resource { min-height:112px; }
 html[data-live] .hero-description { max-width:410px; }
 @media(max-width:1000px) { html[data-live] .sample-time { max-width:260px; font-size:11px; } }
+
+/* 新版朱印标识：与旧托盘透明龙环用色和轮廓区分。 */
+html[data-live] .brand-seal { background:transparent; box-shadow:none; padding:0; }
+html[data-live] .brand-seal>img { width:100%; height:100%; display:block; object-fit:contain; }

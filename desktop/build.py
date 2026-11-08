@@ -40,15 +40,18 @@ def main():
     # 仅当前已选两组昼夜图和品牌，不分发候选图、源工程或设计记录。
     for name in ["ink-day-v7.png", "ink-night-v7.png", "ink-header-day-v3.png", "ink-header-night-v3.png", "zhulong-coiled-mark.svg"]:
         shutil.copy2(PROTOTYPE / "assets" / name, assets / name)
+    shutil.copy2(PROJECT / "Assets" / "zhulong-next.svg", assets / "zhulong-next.svg")
+    html = html.replace("assets/zhulong-coiled-mark.svg", "assets/zhulong-next.svg")
+    html = re.sub(r'(<span class="brand-seal"[^>]*>).*?(</span>)', r'\1<img src="assets/zhulong-next.svg" alt="" aria-hidden="true">\2', html, flags=re.S)
     for name in ("live.js", "live.css"):
         shutil.copy2(PROJECT / "Web" / name, web / name)
     html = html.replace("</head>", '<link rel="stylesheet" href="live.css"><script src="live.js" defer></script></head>')
-    html = html.replace("<title>烛龙 · 墨气与太极</title>", "<title>烛龙 · 水墨观察版</title>")
+    html = html.replace("<title>烛龙 · 墨气与太极</title>", "<title>烛龙新版 · 朱印 · 水墨观察版</title>")
     (web / "index.html").write_text(html, encoding="utf-8", newline="\n")
     shutil.copy2(ROOT / "prototypes/p0-ai/THIRD_PARTY_NOTICES.md", output / "THIRD_PARTY_NOTICES.md")
     shutil.copy2(ROOT / "LICENSE", output / "LICENSE")
     (output / "使用说明.txt").write_text(
-        "烛龙新版观察版（便携）\n双击 Zhulong.exe；关闭窗口后留在托盘，托盘菜单可打开或彻底退出。\n"
+        "烛龙新版观察版（朱红方印图标，便携）\n双击 Zhulong.exe；关闭窗口后留在托盘，托盘菜单可打开或彻底退出。\n"
         "数据在data目录，升级保留该目录；运行无需源码、Python或Node。\n"
         "需要系统已有Microsoft Edge WebView2 Runtime；本包不会自动安装。\n"
         "本程序独立采样，不连接旧烛龙；尚未迁移的指标显示未接入。\n", encoding="utf-8", newline="\n")
