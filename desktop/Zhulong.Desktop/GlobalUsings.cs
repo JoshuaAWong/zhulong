@@ -4,3 +4,7 @@ global using System.Linq;
 global using System.Collections.Generic;
 global using System.Threading;
 global using System.Threading.Tasks;
+global using Zhulong.Core;
+global using Zhulong.Runtime.Collectors;
+global using Zhulong.Runtime.Storage;
+global using DataHub = Zhulong.Runtime.Application.RuntimeHost;

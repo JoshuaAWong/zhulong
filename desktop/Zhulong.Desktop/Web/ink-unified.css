@@ -1,0 +1,55 @@
+/* 墨气组合版：内外圈同转，数字保持水平；文字不参与水墨滤镜。 */
+.brand-seal { width:44px; height:44px; display:grid; place-items:center; color:var(--chart); }
+.brand-seal svg { width:40px; height:40px; overflow:visible; }
+.taiji-spirit { transform-box:view-box; transform-origin:60px 60px; }
+.taiji-svg .orbit-ink { fill:none; stroke:var(--chart); stroke-width:1.6; stroke-linecap:round; opacity:.36; }
+.page,.scene-header,dialog { position:relative; isolation:isolate; }
+.ink-bloom {
+  position:absolute; z-index:-1; pointer-events:none; inset:-8px; max-width:850px;
+  background:radial-gradient(ellipse at 40% 50%,rgb(var(--ink-air)/.9),rgb(var(--ink-air)/.5) 28%,transparent 72%);
+  mask-image:var(--brush-edge); mask-size:100% 100%; filter:blur(3px); border-radius:42% 51% 45% 49%;
+}
+.scene-header>.ink-bloom { z-index:0; }.scene-header .scene-copy { z-index:1; }
+.design-lab { max-width:1424px; margin:42px auto; padding:32px; color:var(--ink); background:radial-gradient(ellipse,var(--surface),transparent 86%); }
+.lab-heading { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+.design-lab h2 { font:500 26px var(--display); margin:0 0 10px; }.design-lab h3 { font:500 19px var(--display); margin:0 0 12px; }
+.design-lab h3 small { font:11px var(--body); color:var(--muted); margin-left:12px; }
+.design-lab p { color:var(--muted); font-size:13px; line-height:1.8; margin:8px 0; }
+.design-lab a { color:var(--chart); font-size:12px; }.ratio-lab { display:grid; grid-template-columns:1fr 1fr 1.2fr; gap:48px; margin:30px 0; align-items:center; }
+.demo-meter { width:156px; margin:8px 0; }.ratio-control label { display:flex; justify-content:space-between; align-items:baseline; font-size:14px; }
+.ratio-control output { font:32px var(--number); }.ratio-control input { width:100%; accent-color:var(--chart); margin:20px 0; cursor:pointer; }
+.ratio-presets { display:flex; flex-wrap:wrap; gap:6px; }.ratio-presets button { padding:7px 12px; border-radius:40%; background:var(--wash); color:var(--ink); }
+.ratio-presets [aria-pressed="true"] { background:var(--wash-strong); }
+[data-motion="on"] .demo-meter :is(.ratio-value,.ratio-halo) { transition:stroke-dasharray 360ms ease-out; }
+.season-note { padding:16px 0; border-top:1px solid var(--line); }.season-note strong { font:500 17px var(--display); }
+.mark-study { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:40px; margin-top:24px; }
+.mark-sizes { display:flex; align-items:baseline; gap:36px; color:var(--chart); }.mark-sizes figure { margin:0; text-align:center; }
+.mark-sizes figcaption { font-size:11px; color:var(--muted); margin-top:12px; }
+@media(max-width:900px) { .design-lab { margin:24px 12px; padding:20px; }.ratio-lab { grid-template-columns:1fr 1fr; gap:24px; }.ratio-control { grid-column:1/-1; }.mark-study { grid-template-columns:1fr; }.lab-heading { flex-wrap:wrap; } }
+@media(max-width:440px) { .demo-meter { width:116px; }.ratio-lab { gap:18px; }.design-lab h3 { font-size:16px; }.design-lab h3 small { display:block; margin:6px 0; } }
+@media(prefers-reduced-motion:reduce) { .demo-meter :is(.ratio-value,.ratio-halo) { transition:none !important; } }
+
+/* 命中区域与悬停区域一致，八卦沿径向位置的切线摆放。 */
+.instrument-dial,.demo-meter { position:relative; overflow:visible; }
+[data-taiji-toggle] { touch-action:manipulation; cursor:pointer; pointer-events:all; }
+/* 阴阳鱼扩至计量环内缘（44.5 / 28），让外环弧长始终可读。 */
+[data-taiji-toggle] .taiji-core { transform-box:view-box; transform-origin:60px 60px; }
+@media (prefers-reduced-motion:no-preference) {
+  [data-motion="on"] [data-taiji-toggle] .taiji-core { transition:transform 360ms ease-in-out; }
+  [data-motion="on"] [data-taiji-toggle]:hover .taiji-core { transform:scale(1.5892857143); }
+}
+[data-taiji-toggle]:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:50%; }
+.taiji-hint { display:block; text-align:center; white-space:nowrap; font-size:10px; margin-left:-16px; margin-right:-16px; }
+:is(.instrument-dial,.demo-meter) .bagua-field { position:absolute; left:0; top:0; width:100%; aspect-ratio:1; margin:0; pointer-events:none; z-index:3; }
+:is(.instrument-dial,.demo-meter) .bagua-glyph { position:absolute; left:50%; top:50%; width:32px; height:32px; margin:-16px; color:var(--chart); font:32px/1 "Segoe UI Symbol","SimSun",serif; text-align:center; }
+/* 两张真实界面快照交替，120px 的柔边波前混合配色，底下始终有内容。 */
+@property --tide-radius { syntax:"<length>"; inherits:false; initial-value:0px; }
+::view-transition { pointer-events:none; }
+::view-transition-group(root) { animation:none; }
+::view-transition-image-pair(root) { isolation:isolate; }
+::view-transition-old(root),::view-transition-new(root) { animation:none; mix-blend-mode:normal; }
+::view-transition-old(root) { opacity:1; z-index:0; }
+::view-transition-new(root) {
+  z-index:1;
+  mask-image:radial-gradient(circle at var(--tide-x) var(--tide-y),#000 max(0px,calc(var(--tide-radius) - 120px)),transparent var(--tide-radius));
+}

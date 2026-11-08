@@ -1,0 +1,47 @@
+/* 细小起伏和外缘洇化只作用于控件衬底，保持文字及占比弧长清晰。 */
+:root {
+  --brush-edge:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 80'%3E%3Cdefs%3E%3Cfilter id='s' x='-5%25' y='-10%25' width='110%25' height='120%25'%3E%3CfeGaussianBlur stdDeviation='.65'/%3E%3C/filter%3E%3C/defs%3E%3Cpath fill='white' filter='url(%23s)' d='M5 10Q24 3 49 5T100 3Q142 6 178 4T232 9Q238 23 235 39T236 65Q222 75 188 74T130 77Q91 74 56 76T6 70Q1 55 4 39T5 10Z'/%3E%3C/svg%3E");
+}
+[data-theme="light"] { --taiji-paper:#f6f7f2; --taiji-ink:#304e43; --taiji-rest:#ccd6c9; }
+[data-theme="dark"] { --taiji-paper:#dbe5d8; --taiji-ink:#203c33; --taiji-rest:#4e665d; }
+.taiji-svg { display:block; width:100%; height:auto; overflow:visible; }
+.taiji-svg .taiji-paper { fill:var(--taiji-paper); stroke:none; }.taiji-svg .taiji-ink { fill:var(--taiji-ink); stroke:none; }
+.taiji-svg .ratio-track { fill:none; stroke:var(--taiji-rest); stroke-width:5; }
+.taiji-svg .ratio-value { fill:none; stroke:var(--chart); stroke-width:5; stroke-linecap:butt; }
+.taiji-fish :is(.ratio-track,.ratio-value) { stroke-width:12; }
+.taiji-sector :is(.ratio-track,.ratio-value) { stroke-width:19; }
+.taiji-svg .ratio-halo { fill:none; stroke:var(--chart); stroke-width:11; opacity:.22; filter:blur(1.4px); }
+.taiji-svg .ratio-ticks { fill:none; stroke:var(--muted); stroke-width:1; opacity:.6; }
+.taiji-fish .taiji-core { transform:translate(60px,60px) scale(.87) translate(-60px,-60px); }
+.taiji-sector .taiji-core { transform:translate(60px,60px) scale(.8) translate(-60px,-60px); }
+[data-skin="ink"] .instrument-dial { width:92px; height:auto; flex-shrink:0; }
+.instrument-dial>.taiji-svg { transform:none; height:92px; }
+.instrument-dial>.dial-caption { position:static; inset:auto; margin-top:0; }
+.dial-caption strong { font:500 25px/1.25 var(--number); }.dial-caption span { font-size:10px; }
+.resource { position:relative; min-height:80px; }
+[data-skin="ink"] .resource>.taiji-svg { position:absolute; right:4px; top:4px; width:34px; height:34px; margin:0; }
+.resource[data-detail="cpu"]>span:first-child,.resource[data-detail="gpu"]>span:first-child { padding-right:38px; }
+.resource[data-detail="cpu"]>span:last-child,.resource[data-detail="gpu"]>span:last-child { margin-top:22px; }
+.tab::before,[data-module]::before { mask-image:var(--brush-edge); mask-size:100% 100%; mask-repeat:no-repeat; }
+.tab.active::before { background:rgb(var(--ink-air)/.22); filter:blur(.5px); }
+[data-module].is-selected::before { background:rgb(var(--ink-air)/.12); filter:blur(2px); inset:-8px; }
+[data-atmosphere="breath"] [data-module].is-selected::before { background:rgb(var(--ink-air)/.16); inset:-14px; filter:blur(4px); }
+[data-atmosphere="scroll"] [data-module].is-selected::before { background:rgb(var(--ink-air)/.12); filter:blur(1.2px); }
+/* 用背景伪元素承载笔墨；正文不经过 mask 或 blur。 */
+.segmented button,.range-switch button,.process,.module-pick,.icon-button,.primary-button { position:relative; isolation:isolate; }
+.segmented .active,.range-switch .active,.module-pick[aria-pressed="true"],.process:hover,.process.is-inspected,.icon-button,.primary-button { background:transparent; box-shadow:none; }
+.segmented button::before,.range-switch button::before,.process::before,.module-pick::before,.icon-button::before,.primary-button::before {
+  content:""; position:absolute; z-index:-1; inset:-2px; background:rgb(var(--ink-air)/.14);
+  mask-image:var(--brush-edge); mask-size:100% 100%; mask-repeat:no-repeat; opacity:0; pointer-events:none;
+}
+.segmented .active::before,.range-switch .active::before,.process:hover::before,.process.is-inspected::before,.module-pick[aria-pressed="true"]::before,.icon-button::before,.primary-button::before { opacity:1; }
+.segmented .active::before { background:var(--surface); }
+.primary-button::before { background:var(--chart); }
+.process-meter,.process-meter i { border-radius:50% 35% 45% 50%; }
+.search { background:radial-gradient(ellipse,rgb(var(--ink-air)/.12),transparent 76%); }
+.appearance-panel { background:transparent; box-shadow:none; isolation:isolate; }
+.appearance-panel::before { content:""; position:absolute; z-index:-1; inset:-8px; background:var(--surface); mask-image:var(--brush-edge); mask-size:100% 100%; filter:drop-shadow(0 8px 12px #0002); pointer-events:none; }
+dialog { background:transparent; isolation:isolate; overflow:auto; box-shadow:0 10px 70px #0002; }
+dialog::before { content:""; position:absolute; inset:0; z-index:-1; background:var(--surface); mask-image:var(--brush-edge); mask-size:100% 100%; filter:blur(.6px); pointer-events:none; }
+[data-motion="on"] :is(.segmented button,.range-switch button,.process,.module-pick,.icon-button,.primary-button)::before { transition:opacity 180ms ease-out; }
+@media(max-width:800px) { [data-skin="ink"] .instrument-dial { width:78px; }.instrument-dial>.taiji-svg { height:78px; }.dial-caption strong { font-size:22px; } }

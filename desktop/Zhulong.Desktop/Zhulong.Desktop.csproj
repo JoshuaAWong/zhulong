@@ -7,18 +7,15 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Zhulong</AssemblyName>
+    <Version>0.2.0</Version>
+    <Product>烛龙新版</Product>
     <ApplicationIcon>Assets/zhulong-next.ico</ApplicationIcon>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Zhulong.Runtime/Zhulong.Runtime.csproj" />
     <Content Include="Assets/zhulong-next.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-    <Compile Include="../../prototypes/p0-ai/CodexParser.cs" Link="AI/CodexParser.cs" />
-    <Compile Include="../../prototypes/p0-ai/CodexScanner.cs" Link="AI/CodexScanner.cs" />
-    <Compile Include="../../prototypes/p0-ai/CodexSessionSnapshots.cs" Link="AI/CodexSessionSnapshots.cs" />
-    <Compile Include="../../prototypes/p0-ai/UsageModels.cs" Link="AI/UsageModels.cs" />
-    <Compile Include="../../prototypes/p0-ai/UsageStore.cs" Link="AI/UsageStore.cs" />
   </ItemGroup>
 </Project>

@@ -26,3 +26,41 @@ html[data-live] .hero-description { max-width:410px; }
 /* 新版朱印标识：与旧托盘透明龙环用色和轮廓区分。 */
 html[data-live] .brand-seal { background:transparent; box-shadow:none; padding:0; }
 html[data-live] .brand-seal>img { width:100%; height:100%; display:block; object-fit:contain; }
+
+/* 延用宣纸留白与柔边，真实状态以文字标识，不添加装饰动画。 */
+.live-metric-select { max-width:155px; min-height:34px; padding:5px 9px; border:0; border-radius:12px 8px 11px 9px; background:color-mix(in srgb,var(--surface) 88%,transparent); color:var(--ink); font:inherit; font-size:12px; }
+html[data-live] .chart-toolbar { flex-wrap:wrap; gap:10px; }
+html[data-live] .chart-toolbar .range-switch { margin-left:auto; }
+.live-metric-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 18px; padding:2px 8px 14px; }
+.live-metric-strip button { display:flex; flex-direction:column; gap:7px; align-items:flex-start; min-width:0; padding:14px 8px; border:0; border-bottom:1px solid color-mix(in srgb,currentColor 11%,transparent); border-radius:10px 12px 9px 14px; background:transparent; color:var(--ink); text-align:left; cursor:pointer; }
+.live-metric-strip span { color:var(--muted); font-size:12px; }
+.live-metric-strip strong { font-size:14px; font-weight:500; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.live-metric-strip button.active { background:color-mix(in srgb,var(--accent) 7%,transparent); }
+.live-metric-strip button[data-state="旧采样"] strong { color:var(--muted); }
+.live-runtime-health { margin:8px 30px 0; color:var(--muted); font-size:12px; line-height:1.7; }
+.live-runtime-health[data-state="error"] { color:var(--accent); }
+.live-runtime-failures { margin:5px 30px 10px; padding-left:18px; max-height:120px; overflow:auto; color:var(--accent); font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.live-actions { margin:20px 0; }
+.live-actions h3 { margin:0 0 10px; font-size:14px; font-weight:500; }
+.live-actions-list { display:grid; gap:12px; max-height:400px; overflow:auto; }
+.live-action-item { padding:12px 10px; border-bottom:1px solid color-mix(in srgb,currentColor 10%,transparent); }
+.live-action-item strong { font-size:13px; font-weight:500; }
+.live-action-item p { margin:7px 0; color:var(--muted); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.live-action-item button { margin-top:3px; }
+.live-action-status { margin-top:10px; line-height:1.7; overflow-wrap:anywhere; }
+.live-event-ranges { display:flex; gap:14px; flex-wrap:wrap; }
+.live-event-ranges button[aria-pressed="true"] { color:var(--accent); text-decoration:underline; text-underline-offset:5px; }
+html[data-live] .event-toolbar { flex-wrap:wrap; gap:16px; }
+.live-metric-strip button:focus-visible,.live-metric-select:focus-visible,.live-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:1000px) { .live-metric-strip { gap:0 8px; } .live-runtime-health,.live-runtime-failures { margin-left:20px; margin-right:20px; } }
+
+.live-metric-strip { order:1; }
+@media(min-width:801px) and (max-width:1400px) { html[data-live] .notes>.live-actions { grid-column:1; grid-row:3 / span 4; } }
+
+/* 历史点读数只随指针事件更新，沿用当前曲线与水墨配色。 */
+html[data-live] #chartContainer { position:relative; }
+.live-history-crosshair { pointer-events:none; }
+.live-history-crosshair path { fill:none; stroke:var(--muted); stroke-width:.8; stroke-dasharray:3 4; }
+.live-history-crosshair circle { fill:var(--surface); stroke:var(--chart); stroke-width:1.5; }
+.live-history-tooltip { position:absolute; z-index:2; max-width:min(300px,calc(100% - 16px)); padding:9px 12px; border-radius:14px 11px 13px 10px; background:color-mix(in srgb,var(--surface) 96%,transparent); box-shadow:0 3px 16px color-mix(in srgb,var(--ink) 10%,transparent); color:var(--ink); font-size:11px; line-height:1.7; white-space:pre-line; pointer-events:none; font-variant-numeric:tabular-nums; }
+.live-history-tooltip[hidden] { display:none; }
