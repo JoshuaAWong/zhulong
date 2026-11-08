@@ -51,7 +51,7 @@ try
     Console.WriteLine(store.ReportJson(DateTimeOffset.UtcNow));
     return 0;
 }
-catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or ArgumentException)
+catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or ArgumentException)
 {
     Console.Error.WriteLine(exception.GetType().Name + ": " + exception.Message);
     return 1;

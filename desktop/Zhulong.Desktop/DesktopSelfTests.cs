@@ -62,6 +62,7 @@ internal static class DesktopSelfTests
                 Check(bounded.RootElement.GetArrayLength() is > 0 and <= 288, "历史输出必须有界");
                 Check(bounded.RootElement.EnumerateArray().All(row => row.GetProperty("value").GetDouble() == 50), "时间桶应保留人工核定的物理内存比例");
             }
+            CheckOversizedLog(outputDirectory, Check);
             var monitor = new SystemMonitor();
             var first = monitor.Collect();
             Thread.Sleep(150);
@@ -91,4 +92,48 @@ internal static class DesktopSelfTests
             return 1;
         }
     }
+    static void CheckOversizedLog(string output, Action<bool, string> check)
+    {
+        var test = Path.GetFullPath(Path.Combine(output, "oversized-" + Guid.NewGuid().ToString("N")));
+        var home = Path.Combine(test, "codex");
+        var logs = Path.Combine(home, "sessions");
+        Directory.CreateDirectory(logs);
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        var meta = JsonSerializer.Serialize(new { timestamp = now, type = "session_meta", payload = new { id = "oversized-fixture" } }) + "\n";
+        var bad = Path.Combine(logs, "z.jsonl");
+        File.WriteAllText(bad, meta + new string('x', 4 * 1024 * 1024 + 1024) + "\n");
+        var normal = JsonSerializer.Serialize(new { timestamp = now, type = "event_msg", payload = new
+        {
+            type = "token_count", info = new { total_token_usage = new { input_tokens = 10, output_tokens = 2, total_tokens = 12 },
+                last_token_usage = new { input_tokens = 10, output_tokens = 2, total_tokens = 12 } }
+        } });
+        File.WriteAllText(Path.Combine(logs, "a.jsonl"), meta + normal + "\n");
+        var priorHome = Environment.GetEnvironmentVariable("CODEX_HOME");
+        Environment.SetEnvironmentVariable("CODEX_HOME", home);
+        using var hub = new DataHub(Path.Combine(test, "data"));
+        try
+        {
+            var failed = hub.QueryAsync("refresh-usage").WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+            using var failure = JsonDocument.Parse(JsonSerializer.Serialize(failed));
+            check(!string.IsNullOrWhiteSpace(failure.RootElement.GetProperty("error").GetString()), "超限行必须发布可见错误而非抛到界面");
+            check(!failure.RootElement.GetProperty("scanning").GetBoolean(), "失败后必须释放刷新锁");
+            using (var connection = new SqliteConnection("Data Source=" + Path.Combine(test, "data", "ai.db")))
+            {
+                connection.Open(); using var command = connection.CreateCommand();
+                command.CommandText = "SELECT offset FROM source_cursors WHERE path=$path";
+                command.Parameters.AddWithValue("$path", bad);
+                check(Convert.ToInt64(command.ExecuteScalar()) == System.Text.Encoding.UTF8.GetByteCount(meta), "游标不能越过超限行");
+            }
+            var retried = hub.QueryAsync("refresh-usage").WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+            using var success = JsonDocument.Parse(JsonSerializer.Serialize(retried));
+            check(success.RootElement.GetProperty("error").ValueKind == JsonValueKind.Null, "后续正常来源应恢复读取");
+            check(success.RootElement.GetProperty("report").GetProperty("totals").GetProperty("total_tokens").GetInt64() == 12, "异常来源不能阻塞下一份正常用量");
+        }
+        finally
+        {
+            hub.StopAsync().GetAwaiter().GetResult();
+            Environment.SetEnvironmentVariable("CODEX_HOME", priorHome);
+        }
+    }
+
 }

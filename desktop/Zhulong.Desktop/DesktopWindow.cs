@@ -97,7 +97,7 @@ internal sealed class DesktopWindow : Window
             Reply(new { id, result });
         }
         catch (OperationCanceledException) { if (!closed && id.HasValue) Reply(new { id, error = "读取已取消" }); }
-        catch (Exception error) when (error is FormatException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException or Microsoft.Data.Sqlite.SqliteException or IOException)
+        catch (Exception error) when (error is InvalidDataException or FormatException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException or Microsoft.Data.Sqlite.SqliteException or IOException)
         { if (id.HasValue) Reply(new { id, error = error.Message }); }
     }
 

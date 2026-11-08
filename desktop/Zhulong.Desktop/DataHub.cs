@@ -104,7 +104,7 @@ internal sealed class DataHub : IDisposable
                 lock (usageGate) { usageReport = report.RootElement.Clone(); UsageError = null; }
             }, stopped.Token).ConfigureAwait(false);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
         {
             // 错误保留上次快照及可见状态，不把失败发布成零。
             lock (usageGate) UsageError = error.Message;

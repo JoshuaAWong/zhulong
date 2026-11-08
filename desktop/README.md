@@ -33,3 +33,7 @@ build.py生成自包含win-x64运行目录、SHA256资源清单与便携ZIP，�
 当前已部署的独立目录：C:/Users/Administrator/AppData/Local/Programs/Zhulong。默认构建输出与实际运行目录分开；如需要重建覆盖，请先退出新版，保留data，不在运行时覆盖DLL。
 
 [方案、验证与未完成项](../docs/桌面运行版方案.md)。[TokenTracker算法许可](../prototypes/p0-ai/THIRD_PARTY_NOTICES.md)。
+
+## 实际检查与超限日志
+
+已实际观察日夜界面、系统数据、账本和额度快照；关闭窗口后6个WebView子进程退出，原主进程继续采样。超4MiB单条日志保持读取限制，失败显示错误、不推进该行游标，下一份正常日志可继续；未解析部分仍为覆盖缺口。托盘重开/正常退出和长期资源边界以[实际记录](../docs/桌面运行验收.md)为准。
