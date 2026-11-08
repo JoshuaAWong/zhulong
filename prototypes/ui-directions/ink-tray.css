@@ -1,0 +1,24 @@
+/* 托盘小景沿用整页墨色；只在打开时有一次短反馈。 */
+.tray-demo-dock { position:fixed; right:24px; bottom:14px; z-index:5; display:flex; align-items:center; gap:12px; color:var(--muted); font:11px var(--body); }
+.tray-demo-dock button { display:flex; align-items:center; gap:6px; padding:9px 14px; border-radius:24px; color:var(--ink); background:var(--surface); box-shadow:0 3px 18px #0002; }
+.tray-demo-dock svg { width:24px; height:24px; fill:currentColor; }
+.ink-tray { position:fixed; inset:auto 24px 66px auto; margin:0; width:350px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 100px); overflow:auto; padding:26px; border:0; border-radius:28px 24px 30px 22px; background:var(--surface); color:var(--ink); box-shadow:0 12px 48px #0003; font:13px var(--body); isolation:isolate; }
+.ink-tray::before { content:""; position:absolute; inset:0; z-index:-1; background:radial-gradient(ellipse at 10% 50%,rgb(var(--ink-air)/.17),transparent 75%); pointer-events:none; }
+.tray-landscape { position:absolute; inset:0 0 auto; height:170px; z-index:-1; pointer-events:none; background:url("assets/ink-day-v7.png") 80% 30% / auto 220px; opacity:.18; mask-image:linear-gradient(#0008,#0004 45%,transparent); }
+[data-theme="dark"] .tray-landscape { background-image:url("assets/ink-night-v7.png"); }
+[data-ornament="off"] .tray-landscape { display:none; }
+.tray-heading { display:flex; justify-content:space-between; align-items:flex-start; }
+.tray-heading p { margin:0 0 6px; color:var(--muted); font-size:11px; }.tray-heading h2 { margin:0; font:500 26px var(--display); }
+.tray-close { width:32px; height:32px; background:transparent; color:var(--muted); font-size:23px; border-radius:50%; }
+.tray-waterline { display:flex; gap:18px; align-items:center; margin:25px 0 20px; }.tray-waterline strong { display:block; font:42px/1.2 var(--number); }.tray-waterline small { font-size:16px; margin-left:3px; }.tray-waterline p { margin:6px 0 0; color:var(--muted); font-size:11px; }
+.tray-seal { display:grid; place-items:center; width:68px; height:68px; flex-shrink:0; font:34px var(--display); color:var(--chart); background:radial-gradient(ellipse,rgb(var(--ink-air)/.26),transparent 72%); }
+.tray-resources { display:flex; justify-content:space-between; gap:12px; margin:0 0 20px; }.tray-resources dt { color:var(--muted); font-size:11px; }.tray-resources dd { margin:6px 0 0; font:20px var(--number); }.tray-resources small { font:10px var(--body); margin-left:3px; }
+.tray-row { display:flex; align-items:center; justify-content:space-between; text-align:left; width:100%; padding:13px 0; background:transparent; color:var(--ink); position:relative; }
+.tray-row::before { content:""; position:absolute; inset:2px -9px; z-index:-1; opacity:0; background:var(--wash); mask-image:var(--brush-edge); mask-size:100% 100%; }
+.tray-row:hover::before,.tray-row:focus-visible::before { opacity:1; }.tray-row b { font-weight:500; }.tray-row small { display:block; color:var(--muted); font-size:11px; margin-top:6px; }
+.ink-tray footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:18px; color:var(--muted); font-size:11px; }
+.tray-open { color:var(--chart); background:transparent; padding:8px 0; font:13px var(--body); }
+.ink-tray button:focus-visible,.tray-demo-dock button:focus-visible { outline:2px solid var(--chart); outline-offset:3px; }
+@keyframes tray-unfold { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:no-preference) { [data-motion="on"] .ink-tray:popover-open { animation:tray-unfold 220ms ease-out; } }
+@media(max-width:440px) { .ink-tray { right:16px; padding:22px; }.tray-demo-dock { right:16px; }.tray-demo-dock>span { display:none; } }
