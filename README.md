@@ -128,3 +128,7 @@ python -X utf8 -m zhulong.tests.run_all   :: 一键全量（17 个断言式测�
 ### Codex 会话统计与套餐重置试验
 
 [独立CLI说明](prototypes/p0-ai/README.md)提供有界扫描、会话统计和套餐窗口倒计时。来源为本地rollout，用量包含缓存/推理子集；总览按唯一事件去重。额度标明日志快照时间，到期等待更新，缺失保持未知；部分Codex桌面任务无rollout，不能视作账户完整账单。参见[Token Monitor对比](docs/TokenMonitor统计与额度设计对比.md)与[验证记录](docs/P0Codex统计切片.md)。
+
+## 新独立桌面观察预览
+
+[桌面运行版](desktop/README.md)可从独立程序目录双击Zhulong.exe启动，关窗后留托盘，从托盘退出。纯.NET自包含运行包，运行无需源码、Python或Node；使用系统WebView2。新旧程序分别运行，新版使用自己的数据，不连接或修改旧版。已接提交/物理内存、整机CPU、工作集排行和Codex统计，未迁移指标显示未知。[方案与验收](docs/桌面运行版方案.md)。当前为便携预览，安装器及完整迁移尚未完成。

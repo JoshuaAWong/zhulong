@@ -1,0 +1,24 @@
+/* 桌面运行版保留水墨整体与动效，隐藏方案评审及演示入口。 */
+.reviewbar,.layout-note,.review-footer,.design-lab,.tray-demo-dock,.ink-tray { display:none!important; }
+html[data-live] body { padding:0; min-width:720px; }
+html[data-live] .app-shell { max-width:none; width:100%; margin:0; min-height:100vh; border:0; border-radius:0; }
+html[data-live] .app-head { padding-top:22px; }
+html[data-live] .sample-time { max-width:430px; text-align:right; font-variant-numeric:tabular-nums; }
+html[data-live] .chart .live-empty { display:grid; place-items:center; height:100%; min-height:150px; }
+html[data-live] .chart svg { width:100%; height:100%; }
+.live-empty { padding:24px 0; color:var(--muted); }
+.live-refresh { margin-top:12px; }
+.live-usage-status { margin-top:8px; max-width:680px; }
+.live-session-table { max-height:340px; overflow:auto; margin:16px 0 10px; }
+.live-session-table th { position:sticky; top:0; background:var(--surface); z-index:1; }
+.live-session-table td:first-child { font-family:Consolas,monospace; font-size:12px; }
+html[data-live] .ledger>h2:not(:first-child) { margin-top:28px; }
+.live-quota { margin-top:22px; padding:24px; }
+.live-quota-group { padding:20px 0; border-bottom:1px solid color-mix(in srgb,currentColor 10%,transparent); }
+.live-quota-group:last-child { border-bottom:0; padding-bottom:0; }
+.live-quota-window { margin-top:14px; padding:16px 18px; background:color-mix(in srgb,var(--accent) 5%,transparent); border-radius:24px 17px 22px 19px; }
+.live-quota-window p { margin:7px 0 0; }
+.live-countdown { color:var(--accent); font-variant-numeric:tabular-nums; }
+html[data-live] .resource-strip .resource { min-height:112px; }
+html[data-live] .hero-description { max-width:410px; }
+@media(max-width:1000px) { html[data-live] .sample-time { max-width:260px; font-size:11px; } }
