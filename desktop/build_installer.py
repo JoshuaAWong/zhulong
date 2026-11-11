@@ -4,9 +4,9 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+from build import VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "0.2.0-replacement"
 SOURCE_SUFFIXES = {".cs", ".csproj", ".sln", ".py", ".pyc", ".pdb"}
 
 

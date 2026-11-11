@@ -20,6 +20,7 @@ internal static class Program
     static SettingsWindow? settingsWindow;
     static readonly object logGate = new();
     static readonly SemaphoreSlim portalOperation=new(1,1);
+    const string InstanceMutexName = "Local\\ZhulongNextInstance";
 
     [STAThread]
     static int Main(string[] args)
@@ -29,6 +30,8 @@ internal static class Program
         if(args.Length==3&&args[0]=="--runtime-probe")return RuntimeProbe.Run(args[1],int.Parse(args[2]));
         if(args.Length==1&&args[0]=="--uninstall-tasks"){StartupTasks.RemoveOwnedAsync(Path.Combine(AppContext.BaseDirectory,"data")).GetAwaiter().GetResult();return 0;}
         if(args.Length==2&&args[0]=="--diagnose")return WriteDiagnostics(args[1]);
+        if (args.Length > 0 && (args[0] == "--enable-logon-startup" || args[0] == "--disable-logon-startup"))
+            return args.Length == 1 ? ConfigureLogonFromCommandLine(args[0] == "--enable-logon-startup") : 2;
         var dataIndex=Array.IndexOf(args,"--data-dir");
         if(dataIndex>=0&&(dataIndex+1>=args.Length||args[dataIndex+1].StartsWith("--",StringComparison.Ordinal)))return 2;
         directory = dataIndex>=0 ? Path.GetFullPath(args[dataIndex+1]) : Path.Combine(AppContext.BaseDirectory, "data");
@@ -39,7 +42,7 @@ internal static class Program
 
         // 新版使用独立名字，不接管或改动旧烛龙。
         using var wake = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\ZhulongNextOpen");
-        using var singleton = new Mutex(true, "Local\\ZhulongNextInstance", out var first);
+        using var singleton = new Mutex(true, InstanceMutexName, out var first);
         var owns=first;
         if(owns&&args.Contains("--watchdog")){var reserved=WatchdogRecovery.ReserveStartup(directory,Environment.ProcessPath!);WriteLifecycle("watchdog_startup",reserved);if(!reserved.Recovered){singleton.ReleaseMutex();return reserved.Status.StartsWith("degraded:")||reserved.Status.StartsWith("blocked:")?1:0;}}
         if(!owns&&args.Contains("--watchdog"))
@@ -68,7 +71,8 @@ internal static class Program
                 menu.Items.Add("新版设置", null, async (_, _) => await NativeAsync(()=>{OpenSettings();return Task.CompletedTask;}));
                 menu.Items.Add("导入旧版历史…", null, async (_, _) => await NativeAsync(ImportAsync));
                 menu.Items.Add("导出诊断…", null, async (_, _) => await NativeAsync(()=>{ExportDiagnostics();return Task.CompletedTask;}));
-                menu.Items.Add("自启与守护设置…", null, async (_, _) => await NativeAsync(ConfigureStartupAsync));
+                menu.Items.Add("登录后后台自启…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Logon)));
+                menu.Items.Add("5 分钟存活守护…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Watchdog)));
                 menu.Items.Add("重启新版烛龙", null, async (_, _) => {restartRequested=true;await QuitAsync();});
                 menu.Items.Add("退出新版烛龙", null, async (_, _) => await QuitAsync());
                 trayIcon = CreateIcon();
@@ -213,12 +217,39 @@ internal static class Program
         var save=new Microsoft.Win32.SaveFileDialog{Title="导出新版诊断",Filter="JSON|*.json",FileName="zhulong-diagnostics.json"};
         if(save.ShowDialog()==true)File.WriteAllText(save.FileName,JsonSerializer.Serialize(hub!.Diagnostics(),new JsonSerializerOptions(Json){WriteIndented=true}),System.Text.Encoding.UTF8);
     }
-    static async Task ConfigureStartupAsync()
+    static async Task ConfigureStartupAsync(StartupTasks.Kind kind)
     {
-        var enabled=await StartupTasks.IsEnabledAsync();
-        if(quitting)return;
-        if(MessageBox.Show(enabled?"当前已设置自启。"+StartupTasks.StateWarning+"是否关闭新版自启与5分钟存活守护？":"是否设置新版登录自启与5分钟存活守护？任务使用当前用户权限；正常退出后守护不会自动重开。", "新版自启与守护",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-        await StartupTasks.SetEnabledAsync(!enabled,directory);if(!quitting)MessageBox.Show(enabled?"已关闭新版自启与守护。":"新版任务已创建并回读确认。","烛龙新版");
+        var logon = kind == StartupTasks.Kind.Logon;
+        var title = logon ? "登录后后台自启" : "5 分钟存活守护";
+        var detail = logon ? "Windows 登录后以当前用户权限在托盘后台启动。"
+            : "每 5 分钟以当前用户权限检查新版。主动退出会保留退出意图。";
+        var enabled = await StartupTasks.IsEnabledAsync(kind);
+        if (quitting) return;
+        var question = enabled ? "当前已启用。是否关闭" + title + "？" : "是否开启" + title + "？\n" + detail;
+        if (MessageBox.Show(question, title, MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        await StartupTasks.SetEnabledAsync(kind, !enabled, directory);
+        if (!quitting) MessageBox.Show((enabled ? "已关闭" : "已开启") + title + "，并已回读确认。", "烛龙新版");
+    }
+
+    static int ConfigureLogonFromCommandLine(bool enabled)
+    {
+        using var singleton = new Mutex(true, InstanceMutexName, out var owns);
+        if (!owns)
+        {
+            Console.Error.WriteLine("新版正在运行，请使用托盘中的登录自启设置。");
+            return 2;
+        }
+        try
+        {
+            StartupTasks.SetEnabledAsync(StartupTasks.Kind.Logon, enabled, Path.Combine(AppContext.BaseDirectory, "data")).GetAwaiter().GetResult();
+            return 0;
+        }
+        catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
+        {
+            Console.Error.WriteLine(error.Message);
+            return 1;
+        }
+        finally { singleton.ReleaseMutex(); }
     }
 
     static System.Drawing.Icon CreateIcon() =>

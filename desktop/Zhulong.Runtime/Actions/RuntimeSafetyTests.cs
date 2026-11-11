@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Zhulong.Core;
 using Zhulong.Runtime.Rules;
 
@@ -86,18 +87,34 @@ public static partial class RuntimeSafetyTests
         await using (var coordinator = new ActionCoordinator(serviceSettings, Fake(), services, monotonic: () => mono,
             utcNow: () => now, delay: (duration, _) => { mono += duration.TotalSeconds; return Task.CompletedTask; }))
         {
-            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, CancellationToken.None)).Status == "restarted" && services.Starts == 1, "服务stop/start完整链");
+            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, CancellationToken.None)).Status == "restarted" &&
+                services.Opens == 1 && services.Stops == 1 && services.Starts == 1 && services.Closes == 1, "服务停止、启动复用同一会话并关闭");
             Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, CancellationToken.None)).Status == "degraded:frequency_cap", "服务发起即限额");
+        }
+        foreach (var (code, status) in new[] { (5, "degraded:access_denied"), (1060, "skipped:service_not_found") })
+        {
+            services = new FakeServices { OpenError = code };
+            await using var coordinator = new ActionCoordinator(serviceSettings, Fake(), services, utcNow: () => now);
+            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, CancellationToken.None)).Status == status &&
+                services.Opens == 1 && services.Stops == 0 && services.Starts == 0, "无法取得完整重启权限或服务不存在时不得启停");
         }
         services = new FakeServices { NeverStops = true }; mono = 0;
         await using (var coordinator = new ActionCoordinator(serviceSettings, Fake(), services, monotonic: () => mono,
             utcNow: () => now, delay: (duration, _) => { mono += duration.TotalSeconds; return Task.CompletedTask; }))
             Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, CancellationToken.None)).Status == "degraded:stop_timeout" && services.Starts == 0, "停止超时不杀宿主或强启");
         using var cancellation = new CancellationTokenSource();
-        services = new FakeServices { AfterStop = cancellation.Cancel }; mono = 0;
+        services = new FakeServices { NeverStops = true, AfterStop = cancellation.Cancel }; mono = 0;
         await using (var coordinator = new ActionCoordinator(serviceSettings, Fake(), services, monotonic: () => mono,
-            utcNow: () => now, delay: (duration, _) => { mono += duration.TotalSeconds; return Task.CompletedTask; }))
-            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, cancellation.Token)).Status == "cancelled:restored_running" && services.Current == ServiceState.Running, "服务停止后取消必须补偿恢复");
+            utcNow: () => now, delay: (duration, _) => { mono += duration.TotalSeconds; services.Current = ServiceState.Stopped; return Task.CompletedTask; }))
+            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, cancellation.Token)).Status == "cancelled:restored_running" &&
+                services.Current == ServiceState.Running && services.Opens == 1 && services.Closes == 1 && services.Starts == 1, "正在停止时取消必须等待并复用会话恢复");
+        using var startCancellation = new CancellationTokenSource();
+        services = new FakeServices(); mono = 0;
+        services.AfterStart = () => { services.Current = ServiceState.StartPending; startCancellation.Cancel(); };
+        await using (var coordinator = new ActionCoordinator(serviceSettings, Fake(), services, monotonic: () => mono,
+            utcNow: () => now, delay: (duration, _) => { mono += duration.TotalSeconds; services.Current = ServiceState.Running; return Task.CompletedTask; }))
+            Check((await coordinator.ExecuteAsync("restart_service", serviceDecision, startCancellation.Token)).Status == "cancelled:running" &&
+                services.Current == ServiceState.Running && services.Opens == 1 && services.Closes == 1 && services.Starts == 1, "正在启动时取消须确认自然恢复，避免重复启动");
 
         var stateDirectory = Path.Combine(Path.GetTempPath(), "zhulong-safety-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stateDirectory);
@@ -210,14 +227,21 @@ public static partial class RuntimeSafetyTests
         public ProcessLimits ReadLimits(ProcessIdentity expected) => Limits;
         public void SetLimits(ProcessIdentity expected, uint priority, ulong affinity) { Sets++; Limits = Limits with { Priority = priority, Affinity = affinity }; }
     }
-    sealed class FakeServices : IServiceBoundary
+    sealed class FakeServices : IServiceBoundary, IServiceSession
     {
         public ServiceState Current = ServiceState.Running;
         public bool NeverStops, NeverStarts;
-        public int Starts;
-        public Action? AfterStop;
-        public ServiceState Status(string service) => Current;
-        public void Stop(string service) { Current = NeverStops ? ServiceState.StopPending : ServiceState.Stopped; AfterStop?.Invoke(); }
-        public void Start(string service) { Starts++; Current = NeverStarts ? ServiceState.Stopped : ServiceState.Running; }
+        public int OpenError, Opens, Closes, Stops, Starts;
+        public Action? AfterStop, AfterStart;
+        public IServiceSession OpenForRestart(string service)
+        {
+            Opens++;
+            if (OpenError != 0) throw new Win32Exception(OpenError);
+            return this;
+        }
+        public ServiceState Status() => Current;
+        public void Stop() { Stops++; Current = NeverStops ? ServiceState.StopPending : ServiceState.Stopped; AfterStop?.Invoke(); }
+        public void Start() { Starts++; Current = NeverStarts ? ServiceState.Stopped : ServiceState.Running; AfterStart?.Invoke(); }
+        public void Dispose() => Closes++;
     }
 }

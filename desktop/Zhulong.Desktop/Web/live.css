@@ -1,8 +1,7 @@
 /* 桌面运行版保留水墨整体与动效，隐藏方案评审及演示入口。 */
 .reviewbar,.layout-note,.review-footer,.design-lab,.tray-demo-dock,.ink-tray { display:none!important; }
-html[data-live] body { padding:0; min-width:720px; }
-html[data-live] .app-shell { max-width:none; width:100%; margin:0; min-height:100vh; border:0; border-radius:0; }
-html[data-live] .app-head { padding-top:22px; }
+html[data-live] body { padding:0; min-width:0; }
+html[data-live] .app-shell { max-width:none; width:100%; margin:0; min-height:100dvh; border:0; border-radius:0; box-shadow:none; }
 html[data-live] .sample-time { max-width:430px; text-align:right; font-variant-numeric:tabular-nums; }
 html[data-live] .chart .live-empty { display:grid; place-items:center; height:100%; min-height:150px; }
 html[data-live] .chart svg { width:100%; height:100%; }
@@ -19,7 +18,6 @@ html[data-live] .ledger>h2:not(:first-child) { margin-top:28px; }
 .live-quota-window { margin-top:14px; padding:16px 18px; background:color-mix(in srgb,var(--accent) 5%,transparent); border-radius:24px 17px 22px 19px; }
 .live-quota-window p { margin:7px 0 0; }
 .live-countdown { color:var(--accent); font-variant-numeric:tabular-nums; }
-html[data-live] .resource-strip .resource { min-height:112px; }
 html[data-live] .hero-description { max-width:410px; }
 @media(max-width:1000px) { html[data-live] .sample-time { max-width:260px; font-size:11px; } }
 
@@ -55,7 +53,6 @@ html[data-live] .event-toolbar { flex-wrap:wrap; gap:16px; }
 @media(max-width:1000px) { .live-metric-strip { gap:0 8px; } .live-runtime-health,.live-runtime-failures { margin-left:20px; margin-right:20px; } }
 
 .live-metric-strip { order:1; }
-@media(min-width:801px) and (max-width:1400px) { html[data-live] .notes>.live-actions { grid-column:1; grid-row:3 / span 4; } }
 
 /* 历史点读数只随指针事件更新，沿用当前曲线与水墨配色。 */
 html[data-live] #chartContainer { position:relative; }
@@ -64,3 +61,120 @@ html[data-live] #chartContainer { position:relative; }
 .live-history-crosshair circle { fill:var(--surface); stroke:var(--chart); stroke-width:1.5; }
 .live-history-tooltip { position:absolute; z-index:2; max-width:min(300px,calc(100% - 16px)); padding:9px 12px; border-radius:14px 11px 13px 10px; background:color-mix(in srgb,var(--surface) 96%,transparent); box-shadow:0 3px 16px color-mix(in srgb,var(--ink) 10%,transparent); color:var(--ink); font-size:11px; line-height:1.7; white-space:pre-line; pointer-events:none; font-variant-numeric:tabular-nums; }
 .live-history-tooltip[hidden] { display:none; }
+
+/* 首屏保留总览，列表增长时在对应分区内阅读。 */
+html[data-live] {
+  --live-gutter:24px;
+  --live-scroll-thumb:color-mix(in srgb,var(--muted) 53%,var(--surface));
+  scrollbar-width:thin;
+  scrollbar-color:var(--live-scroll-thumb) var(--surface);
+  background:var(--surface);
+}
+html[data-live] :is(.ranking,.monitoring,.notes,.process-list,.notice,.live-actions-list,.live-runtime-failures,.table-wrap,.event-list,dialog,.navigation-row) {
+  scrollbar-width:thin;
+  scrollbar-color:var(--live-scroll-thumb) var(--surface);
+}
+html[data-live] .app-shell { display:flex; flex-direction:column; padding:0 var(--live-gutter); }
+html[data-live] .app-head {
+  height:62px;
+  margin-inline:calc(-1 * var(--live-gutter));
+  padding-top:8px;
+  padding-inline:var(--live-gutter);
+  background:var(--surface);
+}
+html[data-live] .concept-body,html[data-live] .concept-main { display:flex; flex:1; flex-direction:column; min-height:0; }
+html[data-live] .concept-main { position:relative; }
+html[data-live] .navigation-row { padding:3px 0 6px; gap:16px; }
+html[data-live] .sample-time { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+html[data-live] .app-footer { margin-top:auto; padding:10px 5px; min-height:40px; }
+html[data-live] .live-runtime-health { margin:0 5px 6px; font-size:11px; }
+html[data-live] .live-runtime-failures { margin:0 5px 8px; max-height:64px; }
+html[data-live] .live-metric-strip,html[data-live] .ai-summary { display:none; }
+html[data-live] .resource-strip { margin:0; padding:7px 4px; }
+html[data-live] .resource-strip .resource { min-height:0; padding:4px 8px!important; }
+html[data-live] .resource-strip .resource strong { display:block; font-size:15px; margin-top:3px; }
+html[data-live] .resource-strip .resource span:last-child { display:block; font-size:10px; line-height:1.45; }
+html[data-live] .live-metric-select { min-height:28px; max-width:118px; }
+html[data-live] .notice { overflow-wrap:anywhere; }
+html[data-live] :is(.notice,.event-list):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+@media(min-width:920px) {
+  html[data-live] .concept-main:has(#overview:not([hidden])) { --live-hero-height:clamp(118px,16vh,152px); }
+  html[data-live] .concept-main:has(#overview:not([hidden]))>.scene-header {
+    position:absolute;
+    inset:0 calc(-1 * var(--live-gutter)) auto;
+    margin:0;
+    height:var(--live-hero-height);
+    pointer-events:none;
+  }
+  html[data-live] .concept-main:has(#overview:not([hidden]))>.scene-header :is(.scene-copy,.scene-caption) { visibility:hidden; }
+  html[data-live] #overview:not([hidden]) { display:flex; flex:1; flex-direction:column; }
+  html[data-live] #overview .hero {
+    min-height:var(--live-hero-height);
+    margin:0 0 10px;
+    padding:6px 24px;
+    background:linear-gradient(90deg,rgb(var(--mist-color)/.9),rgb(var(--mist-color)/.39) 42%,rgb(var(--mist-color)/.39) 65%,rgb(var(--mist-color)/.85));
+  }
+  html[data-live] .hero-facts { gap:18px; }
+  html[data-live] .hero-facts strong { font-size:19px; }
+  html[data-live] .workspace {
+    flex:1;
+    grid-template-columns:clamp(166px,16vw,220px) minmax(0,1fr) clamp(192px,18vw,254px);
+    gap:14px;
+    align-items:stretch;
+  }
+  html[data-live] :is(.ranking,.notes,.trend-panel) { min-width:0; padding:13px; }
+  html[data-live] .ranking { grid-column:1; grid-row:1; }
+  html[data-live] .monitoring { min-width:0; grid-column:2; grid-row:1; gap:8px; }
+  html[data-live] .notes { display:flex; flex-direction:column; grid-column:3; grid-row:1; gap:7px; }
+  html[data-live] .ranking .compact { margin:9px 0 7px; }
+  html[data-live] .ranking .search { padding-block:2px 5px; }
+  html[data-live] .process-list { max-height:clamp(170px,31vh,290px); overflow:auto; padding:2px; }
+  html[data-live] .process { padding:9px 2px 8px; }
+  html[data-live] .process-meter { margin-top:6px; }
+  html[data-live] .rank-foot { margin-top:7px; }
+  html[data-live] .rank-foot p { display:none; }
+  html[data-live] .chart-toolbar { margin:9px 0 7px; gap:6px; }
+  html[data-live] .chart-head { margin-bottom:3px; }
+  html[data-live] #chartContainer { height:clamp(130px,20dvh,208px); }
+  html[data-live] #chartContainer .live-empty { min-height:0; }
+  html[data-live] .chart-caption { margin:4px 0 7px; }
+  html[data-live] .chart-insight { padding:6px 0; }
+  html[data-live] .notes .notice { margin:0; padding:9px 11px; max-height:105px; overflow:auto; border-top:1px solid var(--line); border-radius:13px; }
+  html[data-live] .notice h3 { margin:6px 0 4px; }
+  html[data-live] .notes .timeline:empty { display:none; }
+  html[data-live] .notes .live-actions { margin:5px 0 0; }
+  html[data-live] .live-actions h3 { margin-bottom:5px; }
+  html[data-live] .live-actions-list { max-height:clamp(105px,21vh,190px); gap:4px; padding:2px; }
+  html[data-live] .live-action-item { padding:5px 3px; }
+  html[data-live] .live-action-status { margin-top:5px; max-height:55px; overflow:auto; }
+  html[data-live] .all-events { padding:6px 0; margin-top:auto; }
+}
+
+@media(min-width:920px) and (min-height:700px) {
+  html[data-live] .app-shell:has(#overview:not([hidden])) { height:100dvh; }
+  html[data-live] #overview:not([hidden]) { min-height:0; }
+  html[data-live] #overview .workspace { min-height:0; grid-template-rows:minmax(0,1fr); }
+  html[data-live] #overview .workspace>:is(.ranking,.monitoring,.notes) { min-height:0; overflow:hidden auto; }
+  html[data-live] #overview .workspace [data-module]::before,
+  html[data-live] #overview .workspace .ink-bloom { inset:0; }
+}
+
+@media(max-width:919px) {
+  html[data-live] { --live-gutter:16px; }
+  html[data-live] .scene-header { margin-inline:calc(-1 * var(--live-gutter)); }
+  html[data-live] .navigation-row { flex-wrap:wrap; }
+}
+
+/* 账本和事件以记录为主，沿用顶部导航。 */
+html[data-live] .concept-main:not(:has(#overview:not([hidden])))>.scene-header { display:none; }
+html[data-live] :is(#usage,#events) .page-title { padding:12px 0 14px; }
+html[data-live] :is(#usage,#events) .page-title h2 { font-size:18px; }
+html[data-live] #usage .usage-summary { padding:12px 18px; }
+html[data-live] #usage .usage-summary strong { font-size:25px; line-height:1.5; }
+html[data-live] #usage .usage-layout { margin:16px 0 10px; gap:18px; }
+html[data-live] #usage .live-quota { margin:12px 0; padding:16px 18px; }
+html[data-live] #events .event-toolbar { padding-bottom:8px; }
+html[data-live] #events .event-list { min-height:0; max-height:clamp(240px,calc(100dvh - 230px),640px); overflow:auto; padding:4px; }
+html[data-live] #events .event-item { padding:13px 8px; }
+@media(max-width:919px) { html[data-live] #events .event-list { max-height:none; } }

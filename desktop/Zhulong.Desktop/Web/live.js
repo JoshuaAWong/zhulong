@@ -1,7 +1,8 @@
 "use strict";
 // 独立桌面数据层：只通过受限宿主桥读取新版数据，不连接旧面板。
 (() => {
-  const bridge = window.chrome?.webview || window.zhulongPortalBridge;
+  const nativeBridge = window.chrome?.webview;
+  const bridge = nativeBridge || window.zhulongPortalBridge;
   const pending = new Map(), histories = new Map();
   let token = null, sequence = 0, refreshTimer = null, quotaTimer = null;
   let latest = null, usage = null, lastUsageRead = 0, refreshing = false;
@@ -30,7 +31,17 @@
     pending.forEach(item => { clearTimeout(item.timer); item.reject(new Error("页面已暂停")); });
     pending.clear();
   }
-  function status(value) { text(".sample-time", value); }
+  function status(value) { text(".sample-time", value); $(".sample-time").title = value; }
+  let sentTheme;
+  function syncWindowTheme() {
+    const theme = root.dataset.theme;
+    if (!nativeBridge || !token || theme === sentTheme || !["light", "dark"].includes(theme)) return;
+    nativeBridge.postMessage({ kind: "theme", token, theme });
+    sentTheme = theme;
+  }
+  if (nativeBridge && typeof MutationObserver === "function") {
+    new MutationObserver(syncWindowTheme).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  }
   const metricsByName = {
     pagefile_used_gb: ["分页文件已用", "分页文件承载的内存，结合提交水位观察", "GB"],
     pagefile_total_gb: ["分页文件总量", "Windows 报告的分页文件容量", "GB"],
@@ -280,7 +291,7 @@
   actionsSection.append(node("h3", "操作与待处置"));
   const actionsList = node("div", undefined, "live-actions-list"); actionsSection.append(actionsList);
   const actionStatus = node("p", undefined, "fine-print live-action-status"); actionStatus.setAttribute("role", "status"); actionsSection.append(actionStatus);
-  $(".notes .section-subtitle").after(actionsSection);
+  $(".notice").after(actionsSection);
   function applyActions(value) {
     const rows = Array.isArray(value) ? value : value?.actions;
     actionsList.replaceChildren();
@@ -438,7 +449,7 @@
   window.addEventListener("pagehide", () => { clearChartHover(); clearInterval(refreshTimer); clearInterval(quotaTimer); cancelPending(); });
   bridge?.addEventListener("message", event => {
     const message = event.data;
-    if (message?.kind === "init") { token = message.token; timers(); refresh(); return; }
+    if (message?.kind === "init") { token = message.token; sentTheme = null; syncWindowTheme(); timers(); refresh(); return; }
     const item = pending.get(message?.id);
     if (!item) return;
     clearTimeout(item.timer); pending.delete(message.id);
@@ -450,7 +461,7 @@
   }
   root.dataset.live = "true";
   text(".brand p", "本地系统守护"); text(".device-kind", "Windows · 本机运行");
-  text(".ranking .section-subtitle", "当前提交内存最高的5个单进程");
+  text(".ranking .section-subtitle", "单进程排行 · 前五项");
   text(".app-footer>span:first-child", "烛龙 · 本机监控与受限处置");
   text("#events .page-title p:last-of-type", "按范围查看资源提醒、后台异常和操作结果。");
   text("#events .page-title h2", "事件与处置记录");

@@ -62,7 +62,18 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
             }, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { result = new("cancelled", action, target); }
-        catch (Win32Exception error) { result = new("degraded:access_denied", action, target, "Win32 " + error.NativeErrorCode); }
+        catch (Win32Exception error)
+        {
+            var status = "degraded:access_denied";
+            if (action == "restart_service")
+                status = error.NativeErrorCode switch
+                {
+                    5 => "degraded:access_denied",
+                    1060 => "skipped:service_not_found",
+                    _ => "degraded:service_error"
+                };
+            result = new(status, action, target, "Win32 " + error.NativeErrorCode);
+        }
         catch (InvalidOperationException error) { result = new("skipped:" + error.Message, action, target); }
         catch (Exception error) { result = new("degraded:exception", action, target, error.Message); }
         // 未取得gate的取消请求没有执行动作，退出后不能再触碰审计数据库。

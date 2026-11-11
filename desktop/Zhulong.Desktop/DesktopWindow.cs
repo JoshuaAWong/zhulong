@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -10,6 +12,7 @@ namespace Zhulong.Desktop;
 internal sealed class DesktopWindow : Window
 {
     const string Address = "https://desktop.zhulong.invalid/index.html";
+    const int BorderColor = 34, CaptionColor = 35, TextColor = 36;
     readonly DataHub hub;
     readonly string webDirectory, profileDirectory, sessionToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
     WebView2? view;
@@ -29,6 +32,7 @@ internal sealed class DesktopWindow : Window
         Width = 1440; Height = 960; MinWidth = 1000; MinHeight = 680;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = System.Windows.Media.Brushes.WhiteSmoke;
+        SourceInitialized += (_, _) => ApplyFrameTheme("light");
         PreviewKeyDown += (_,args) => {if(args.Key==System.Windows.Input.Key.Q&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;ExitRequested?.Invoke();}
             else if(args.Key==System.Windows.Input.Key.OemComma&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;SettingsRequested?.Invoke();}};
         Loaded += async (_, _) => await InitializeAsync();
@@ -78,6 +82,27 @@ internal sealed class DesktopWindow : Window
     internal static bool IsTrustedSource(string source) =>
         source.Split('#')[0] == Address;
 
+    void ApplyFrameTheme(string? theme)
+    {
+        if (theme is not ("light" or "dark") || SystemParameters.HighContrast ||
+            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+        var dark = theme == "dark";
+        var handle = new WindowInteropHelper(this).Handle;
+        SetFrameColor(handle, CaptionColor, dark ? 0x111f24 : 0xf6f7f2);
+        SetFrameColor(handle, BorderColor, dark ? 0x2b3f42 : 0xd6dfd5);
+        SetFrameColor(handle, TextColor, dark ? 0xe0e8df : 0x273d37);
+    }
+
+    static void SetFrameColor(IntPtr handle, int attribute, int rgb)
+    {
+        // DWM 使用 COLORREF，字节顺序是红、绿、蓝。
+        var colorRef = ((rgb & 0xff) << 16) | (rgb & 0xff00) | (rgb >> 16);
+        DwmSetWindowAttribute(handle, attribute, ref colorRef, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr handle, int attribute, ref int value, int size);
+
     void ProcessFailed(object? sender,CoreWebView2ProcessFailedEventArgs args)
     {
         Dispatcher.BeginInvoke(()=>{if(closed)return;Lifecycle?.Invoke("webview_process_failed",args.ProcessFailedKind.ToString());DisposeView();Content=new System.Windows.Controls.TextBlock{Text="界面进程已停止，后台仍继续采样。请关闭窗口后从朱印托盘重新打开。",Margin=new Thickness(36),TextWrapping=TextWrapping.Wrap};});
@@ -99,7 +124,9 @@ internal sealed class DesktopWindow : Window
             var message = document.RootElement;
             var kind = message.GetProperty("kind").GetString();
             if (kind == "ready") { Reply(new { kind = "init", token = sessionToken }); return; }
-            if (kind != "query" || message.GetProperty("token").GetString() != sessionToken) return;
+            if (message.GetProperty("token").GetString() != sessionToken) return;
+            if (kind == "theme") { ApplyFrameTheme(message.GetProperty("theme").GetString()); return; }
+            if (kind != "query") return;
             id = message.GetProperty("id").GetInt32();
             var api = message.GetProperty("api").GetString()!;
             var metric = message.TryGetProperty("metric", out var metricValue) ? metricValue.GetString() : null;

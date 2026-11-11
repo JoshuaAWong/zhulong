@@ -12,6 +12,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "desktop" / "Zhulong.Desktop"
 WEB_SOURCE = PROJECT / "Web"
+VERSION = "0.2.1-replacement"
 
 
 def main():
@@ -59,8 +60,8 @@ def main():
     for file in output.rglob("*"):
         if file.is_file() and "data" not in file.relative_to(output).parts and file.name != "runtime-manifest.json":
             files[file.relative_to(output).as_posix()] = {"size": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
-    (output / "runtime-manifest.json").write_text(json.dumps({"version": "0.2.0-replacement", "mode": "portable", "files": files}, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
-    archive = output.parent / "Zhulong-0.2.0-replacement-win-x64.zip"
+    (output / "runtime-manifest.json").write_text(json.dumps({"version": VERSION, "mode": "portable", "files": files}, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+    archive = output.parent / f"Zhulong-{VERSION}-win-x64.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as package:
         for file in output.rglob("*"):
             if file.is_file() and "data" not in file.relative_to(output).parts:

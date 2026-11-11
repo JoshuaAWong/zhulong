@@ -10,34 +10,33 @@ namespace Zhulong.Desktop;
 
 internal static class StartupTasks
 {
+    internal enum Kind { Logon, Watchdog }
+
     static readonly SemaphoreSlim operation = new(1, 1);
     static readonly XNamespace Ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
     static readonly IRunner runner = new ProcessRunner();
     static string CurrentSid {get{using var user=WindowsIdentity.GetCurrent();return user.User!.Value;}}
     static string Prefix => "ZhulongNext-" + CurrentSid;
-    public static string? StateWarning { get; private set; }
-
-    public static async Task<bool> IsEnabledAsync()
+    public static async Task<bool> IsEnabledAsync(Kind kind)
     {
         if (!await operation.WaitAsync(0).ConfigureAwait(false)) throw new IOException("自启设置正在处理中，请稍后再试。");
         try
         {
-            var pair = await ReadPairAsync(runner, Prefix).ConfigureAwait(false);
-            var count = pair.Count(value => value.Value is not null);
-            StateWarning = count == 1 ? "新版自启与守护任务不完整；关闭可清理两项，重新开启可重建。" : null;
-            return count > 0;
+            var xml = await ReadTaskAsync(runner, Prefix + "-" + kind).ConfigureAwait(false);
+            EnsureOwned(xml, Environment.ProcessPath!);
+            return xml is not null && TaskIsEnabled(XDocument.Parse(xml), kind);
         }
         finally { operation.Release(); }
     }
 
-    public static async Task SetEnabledAsync(bool enabled, string directory)
+    public static async Task SetEnabledAsync(Kind kind, bool enabled, string directory)
     {
         if (!await operation.WaitAsync(0).ConfigureAwait(false)) throw new IOException("自启设置正在处理中，请稍后再试。");
         try
         {
             await ChangeAsync(enabled, Path.GetFullPath(directory), runner, Prefix,
-                Environment.ProcessPath!, CurrentSid, AppContext.BaseDirectory).ConfigureAwait(false);
-            StateWarning = null;
+                sid: CurrentSid, executable: Environment.ProcessPath!, workingDirectory: AppContext.BaseDirectory,
+                selected: kind).ConfigureAwait(false);
         }
         finally { operation.Release(); }
     }
@@ -48,7 +47,7 @@ internal static class StartupTasks
         try
         {
             await ChangeAsync(false, Path.GetFullPath(directory), runner, Prefix,
-                Environment.ProcessPath!, CurrentSid, AppContext.BaseDirectory,
+                sid: CurrentSid, executable: Environment.ProcessPath!, workingDirectory: AppContext.BaseDirectory,
                 removeOwnedExecutable: Environment.ProcessPath!).ConfigureAwait(false);
         }
         finally { operation.Release(); }
@@ -61,14 +60,34 @@ internal static class StartupTasks
         var commands = XDocument.Parse(xml).Descendants(Ns + "Command").ToArray();
         return commands.Length == 1 && string.Equals(Path.GetFullPath(commands[0].Value), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase);
     }
-    static async Task ChangeAsync(bool enabled, string directory, IRunner commands, string prefix, string sid, string executable, string workingDirectory,
-        string? removeOwnedExecutable = null)
+    static void EnsureOwned(string? xml, string executable)
     {
-        var original = await ReadPairAsync(commands, prefix).ConfigureAwait(false);
+        if (xml is not null && !OwnsCommand(xml, executable))
+            throw new IOException("该任务属于另一安装目录，请在对应程序中修改。");
+    }
+    static bool TaskIsEnabled(XDocument document, Kind kind)
+    {
+        var task = document.Root;
+        var trigger = task?.Element(Ns + "Triggers")?.Element(Ns + (kind == Kind.Logon ? "LogonTrigger" : "TimeTrigger"));
+        return (bool?)task?.Element(Ns + "Settings")?.Element(Ns + "Enabled") != false &&
+            trigger is not null && (bool?)trigger.Element(Ns + "Enabled") != false;
+    }
+    static async Task ChangeAsync(bool enabled, string directory, IRunner commands, string prefix, string sid, string executable, string workingDirectory,
+        string? removeOwnedExecutable = null, Kind? selected = null)
+    {
+        Dictionary<string, string?> original;
+        if (selected is { } selection)
+        {
+            var name = prefix + "-" + selection;
+            var xml = await ReadTaskAsync(commands, name).ConfigureAwait(false);
+            EnsureOwned(xml, executable);
+            original = new(StringComparer.OrdinalIgnoreCase) { [name] = xml };
+        }
+        else original = await ReadPairAsync(commands, prefix).ConfigureAwait(false);
         if (removeOwnedExecutable is not null) original = original.Where(pair => pair.Value is not null && OwnsCommand(pair.Value, removeOwnedExecutable)).ToDictionary(pair => pair.Key, pair => pair.Value);
         try
         {
-            foreach (var kind in new[] { "Logon", "Watchdog" })
+            foreach (var kind in new[] { Kind.Logon, Kind.Watchdog })
             {
                 var name = prefix + "-" + kind;
                 if (!original.ContainsKey(name)) continue;
@@ -79,15 +98,18 @@ internal static class StartupTasks
                     if (await ReadTaskAsync(commands, name).ConfigureAwait(false) is not null) throw new IOException("删除后回读仍存在：" + name);
                     continue;
                 }
-                var arguments = BuildArguments(directory, kind == "Logon" ? "--background" : "--watchdog");
-                await CreateAsync(commands, name, Definition(kind, sid, executable, arguments, workingDirectory)).ConfigureAwait(false);
+                var arguments = BuildArguments(directory, kind == Kind.Logon ? "--background" : "--watchdog");
+                await CreateAsync(commands, name, Definition(kind.ToString(), sid, executable, arguments, workingDirectory)).ConfigureAwait(false);
                 var readback = await ReadTaskAsync(commands, name).ConfigureAwait(false) ?? throw new IOException("创建后回读不存在：" + name);
                 var document = XDocument.Parse(readback);
+                var principal = document.Descendants(Ns + "Principal").Single();
+                // Windows 回读可能省略默认运行级别，登录触发器的用户也可能写成帐户名。
                 if (document.Descendants(Ns + "Command").Single().Value != executable ||
                     document.Descendants(Ns + "Arguments").Single().Value != arguments ||
                     document.Descendants(Ns + "WorkingDirectory").Single().Value != workingDirectory ||
-                    document.Descendants(Ns + "RunLevel").Single().Value != "LeastPrivilege" ||
-                    document.Descendants(Ns + "UserId").Last().Value != sid)
+                    (string?)principal.Element(Ns + "RunLevel") is not (null or "LeastPrivilege") ||
+                    (string?)principal.Element(Ns + "UserId") != sid ||
+                    (string?)principal.Element(Ns + "LogonType") != "InteractiveToken" || !TaskIsEnabled(document, kind))
                     throw new IOException("自启任务回读不一致：" + name);
             }
         }
@@ -107,7 +129,7 @@ internal static class StartupTasks
                 catch (Exception failure) when (failure is not (OutOfMemoryException or StackOverflowException)) { failures.Add(failure); }
             }
             if (failures.Count > 0) throw new IOException("自启修改失败，部分任务未能恢复，请检查新版任务状态。", new AggregateException(new[] { error }.Concat(failures)));
-            throw new IOException("自启修改未完成；两项任务已恢复原状态。", error);
+            throw new IOException("自启修改未完成，受影响的任务已恢复原状态。", error);
         }
     }
 
@@ -304,12 +326,57 @@ internal static class StartupTasks
         await ChangeAsync(false, paths[0], other, prefix, sid, executable, working, executable).ConfigureAwait(false);
         Check(other.Mutations == 0 && other.Tasks.Count == 1, "只有其他目录任务时不应有任何变更");
         Check(OwnsCommand(original[prefix + "-Logon"], executable.ToUpperInvariant()), "EXE归属应按Windows完整路径比较");
+
+        var logonName = prefix + "-Logon";
+        var watchdogName = prefix + "-Watchdog";
+        var loginOnly = new FakeRunner([]);
+        await ChangeAsync(true, paths[0], loginOnly, prefix, sid, executable, working, selected: Kind.Logon).ConfigureAwait(false);
+        Check(loginOnly.Tasks.Count == 1 && loginOnly.Tasks.ContainsKey(logonName), "仅登录自启应只注册登录任务");
+        var logonXml = loginOnly.Tasks[logonName];
+        Check(TaskIsEnabled(XDocument.Parse(logonXml), Kind.Logon) &&
+            XDocument.Parse(logonXml).Descendants(Ns + "Arguments").Single().Value == BuildArguments(paths[0], "--background"),
+            "登录任务须处于启用状态并使用后台入口");
+        var normalized = new FakeRunner([]) { NormalizeLogonXml = true };
+        await ChangeAsync(true, paths[0], normalized, prefix, sid, executable, working, selected: Kind.Logon).ConfigureAwait(false);
+        Check(normalized.Tasks.ContainsKey(logonName), "接受 Windows 默认运行级别与规范化后的触发器用户");
+
+        await ChangeAsync(true, paths[0], loginOnly, prefix, sid, executable, working, selected: Kind.Watchdog).ConfigureAwait(false);
+        Check(loginOnly.Tasks.Count == 2 && loginOnly.Tasks[logonName] == logonXml && loginOnly.Mutations == 2,
+            "开启守护应保留登录任务的原XML");
+        await ChangeAsync(false, paths[0], loginOnly, prefix, sid, executable, working, selected: Kind.Watchdog).ConfigureAwait(false);
+        Check(loginOnly.Tasks.Count == 1 && loginOnly.Tasks[logonName] == logonXml && loginOnly.Mutations == 3,
+            "已有两项任务时可独立关闭守护");
+
+        var watchdogOnly = new FakeRunner(original);
+        await ChangeAsync(false, paths[0], watchdogOnly, prefix, sid, executable, working, selected: Kind.Logon).ConfigureAwait(false);
+        Check(watchdogOnly.Tasks.Count == 1 && watchdogOnly.Tasks[watchdogName] == original[watchdogName] && watchdogOnly.Mutations == 1,
+            "关闭登录自启应保留守护的原XML");
+
+        var selectedFailure = new FakeRunner(original) { FailReadback = true };
+        var selectedRejected = false;
+        try { await ChangeAsync(true, paths[0], selectedFailure, prefix, sid, executable, working, selected: Kind.Logon).ConfigureAwait(false); }
+        catch (IOException) { selectedRejected = true; }
+        Check(selectedRejected && selectedFailure.Mutations == 2 && original.All(pair => selectedFailure.Tasks.GetValueOrDefault(pair.Key) == pair.Value),
+            "单项回读失败只补偿所选任务，另一任务不应有写入");
+
+        var foreign = new FakeRunner(mixed);
+        var foreignRejected = false;
+        try { await ChangeAsync(true, paths[0], foreign, prefix, sid, executable, working, selected: Kind.Watchdog).ConfigureAwait(false); }
+        catch (IOException) { foreignRejected = true; }
+        Check(foreignRejected && foreign.Mutations == 0, "其他安装目录的同名任务不得改写");
+
+        var disabledTask = XDocument.Parse(logonXml);
+        disabledTask.Root!.Element(Ns + "Settings")!.Add(new XElement(Ns + "Enabled", false));
+        Check(!TaskIsEnabled(disabledTask, Kind.Logon), "存在但已禁用的任务不应显示已启用");
+        disabledTask.Root.Element(Ns + "Settings")!.Element(Ns + "Enabled")!.Remove();
+        disabledTask.Descendants(Ns + "LogonTrigger").Single().Element(Ns + "Enabled")!.SetValue(false);
+        Check(!TaskIsEnabled(disabledTask, Kind.Logon), "触发器已禁用时不应显示已启用");
         return assertions;
     }
     sealed class FakeRunner(Dictionary<string, string> initial) : IRunner
     {
         public Dictionary<string, string> Tasks { get; } = new(initial, StringComparer.OrdinalIgnoreCase);
-        public int FailMutation, TimeoutMutation, Mutations; public bool FailReadback, Timeout;
+        public int FailMutation, TimeoutMutation, Mutations; public bool FailReadback, Timeout, NormalizeLogonXml;
         public Task<CommandResult> RunAsync(string[] arguments)
         {
             if (Timeout) return Task.FromException<CommandResult>(new IOException("任务计划程序响应超时。"));
@@ -324,7 +391,21 @@ internal static class StartupTasks
             if (Mutations == TimeoutMutation) return Task.FromException<CommandResult>(new IOException("任务计划程序响应超时。"));
             if (Mutations == FailMutation) return Task.FromResult(new CommandResult(1, "", "fixture second-task failure"));
             if (arguments[0] == "/Delete") Tasks.Remove(name);
-            else Tasks[name] = File.ReadAllText(arguments[Array.IndexOf(arguments, "/XML") + 1], Encoding.Unicode);
+            else
+            {
+                var xml = File.ReadAllText(arguments[Array.IndexOf(arguments, "/XML") + 1], Encoding.Unicode);
+                if (NormalizeLogonXml && name.EndsWith("-Logon", StringComparison.Ordinal))
+                {
+                    var document = XDocument.Parse(xml);
+                    document.Descendants(Ns + "RunLevel").Single().Remove();
+                    var trigger = document.Root!.Element(Ns + "Triggers")!;
+                    trigger.Element(Ns + "LogonTrigger")!.Element(Ns + "UserId")!.SetValue(@"HOST\User");
+                    trigger.Remove();
+                    document.Root.Add(trigger);
+                    xml = document.ToString();
+                }
+                Tasks[name] = xml;
+            }
             return Task.FromResult(new CommandResult(0, "", ""));
         }
     }

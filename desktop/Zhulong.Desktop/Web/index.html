@@ -80,7 +80,7 @@
         </div>
         <aside class="notes panel" data-module="最近事件">
           <div class="section-heading"><h2>最近事件</h2><button class="module-pick" aria-pressed="false" aria-label="关注最近事件">关注</button></div><p class="section-subtitle">提醒与变化按时间记录</p>
-          <div class="notice"><div class="notice-top"><span class="notice-state">慎</span><time>14:02</time><span>已回落</span></div><h3>内存水位短时升高</h3><p>提交水位达到 76%，持续约 2 分钟，随后回落至正常范围。</p><button class="text-button" data-detail="waterline">查看这次变化</button></div>
+          <div class="notice" tabindex="0" role="region" aria-label="最新事件"><div class="notice-top"><span class="notice-state">慎</span><time>14:02</time><span>已回落</span></div><h3>内存水位短时升高</h3><p>提交水位达到 76%，持续约 2 分钟，随后回落至正常范围。</p><button class="text-button" data-detail="waterline">查看这次变化</button></div>
           <ol class="timeline"><li><time>13:48</time><div><strong>AI 用量已更新</strong><p>本次新增 3 条用量记录。</p></div></li><li><time>09:00</time><div><strong>开始今日观察</strong><p>系统指标与历史记录就绪。</p></div></li></ol>
           <button class="all-events" data-go="events">全部事件 <span aria-hidden="true">›</span></button>
         </aside>
@@ -93,7 +93,7 @@
     </section>
     <section id="events" class="page" hidden>
       <div class="page-title"><div><p class="overline">系统观察记录</p><h2>今日事件</h2><p>提醒与实际处置分别记录，已回落不代表执行过清理。</p></div><span class="seal-square">记</span></div>
-      <div class="event-toolbar"><h3>今日记录</h3><div class="segmented" role="group" aria-label="事件筛选"><button class="active" data-filter="all" aria-pressed="true">全部</button><button data-filter="warning" aria-pressed="false">需留意</button></div></div><div class="event-list" id="eventList"></div>
+      <div class="event-toolbar"><h3>今日记录</h3><div class="segmented" role="group" aria-label="事件筛选"><button class="active" data-filter="all" aria-pressed="true">全部</button><button data-filter="warning" aria-pressed="false">需留意</button></div></div><div class="event-list" id="eventList" tabindex="0" role="region" aria-label="事件记录"></div>
     </section>
     <footer class="app-footer"><span><i class="dot"></i>观察版 <b>仅记录与提醒</b></span><span id="selectionStatus" role="status">当前关注：资源趋势</span><button class="text-button" id="replayMotion">重播切换动效</button></footer>
     </div></div>
