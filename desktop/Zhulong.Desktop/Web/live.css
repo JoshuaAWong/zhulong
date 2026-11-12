@@ -179,17 +179,45 @@ html[data-live] #events .event-list { min-height:0; max-height:clamp(240px,calc(
 html[data-live] #events .event-item { padding:13px 8px; }
 @media(max-width:919px) { html[data-live] #events .event-list { max-height:none; } }
 
-/* 桌面窗口操作与外观同处页头，独立留白负责拖动。 */
-.window-drag,.window-menu[hidden] { display:none; }
+/* 页头窗控与外观同排，留白仍是独立拖动区。 */
+.window-drag,.window-controls[hidden] { display:none; }
 html[data-native-chrome] .window-drag { display:block; flex:1; min-width:24px; align-self:stretch; user-select:none; touch-action:none; }
 html[data-native-drag="true"] .window-drag { -webkit-app-region:drag; app-region:drag; }
 html[data-native-chrome] .app-head { padding-top:0; }
-html[data-native-chrome] .app-head .head-actions { margin-left:0; }
+html[data-native-chrome] .app-head .head-actions { margin-left:0; flex-shrink:0; gap:clamp(6px,1vw,11px); }
 html[data-native-chrome] .app-head .device { margin-left:0; }
-.window-menu .appearance-panel { width:140px; padding:7px; }
-.window-menu .appearance-panel button { display:block; padding:8px 12px; width:100%; text-align:left; border-radius:8px; }
-.window-menu .appearance-panel button:hover { background:var(--wash); }
-.window-menu :is(button,summary):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.window-controls:not([hidden]) { display:flex; align-items:center; gap:4px; }
+.window-control {
+  --window-face:color-mix(in srgb,var(--wash) 58%,var(--surface));
+  display:grid;
+  place-items:center;
+  width:clamp(26px,5.6vw,30px);
+  height:28px;
+  padding:0;
+  border:1px solid color-mix(in srgb,var(--line) 72%,transparent);
+  border-radius:9px;
+  background:var(--window-face);
+  color:var(--muted);
+  cursor:pointer;
+}
+.window-control:hover { --window-face:color-mix(in srgb,var(--wash) 89%,var(--surface)); color:var(--ink); }
+.window-control[data-window-command="close"]:hover {
+  --window-face:color-mix(in srgb,var(--accent) 15%,var(--surface));
+  border-color:color-mix(in srgb,var(--accent) 31%,var(--line));
+  color:var(--accent);
+}
+.window-control:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.window-glyph { position:relative; display:block; width:14px; height:14px; }
+.window-glyph::before,.window-glyph::after { position:absolute; box-sizing:border-box; }
+.window-glyph-minimize::before { content:""; left:3px; right:3px; top:8px; height:1px; background:currentColor; border-radius:1px; }
+.window-glyph-maximize::before { content:""; inset:3px; border:1px solid currentColor; border-radius:1px; }
+html[data-window-state="maximized"] .window-glyph-maximize::before { inset:2px 2px 5px 5px; }
+html[data-window-state="maximized"] .window-glyph-maximize::after {
+  content:""; inset:5px 5px 2px 2px; border:1px solid currentColor; border-radius:1px; background:var(--window-face);
+}
+.window-glyph-close::before,.window-glyph-close::after { content:""; left:2px; right:2px; top:6.5px; height:1px; background:currentColor; border-radius:1px; }
+.window-glyph-close::before { transform:rotate(45deg); }
+.window-glyph-close::after { transform:rotate(-45deg); }
 html[data-live] .hero-facts small { display:block; white-space:nowrap; }
 .live-process-meta,.live-device-sensors,html[data-live] .notes .timeline { display:none; }
 .live-refresh+.live-refresh { margin-left:18px; }

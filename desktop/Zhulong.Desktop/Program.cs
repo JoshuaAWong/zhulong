@@ -75,7 +75,7 @@ internal static class Program
                 menu.Items.Add("导出诊断…", null, async (_, _) => await NativeAsync(()=>{ExportDiagnostics();return Task.CompletedTask;}));
                 menu.Items.Add("登录后后台自启…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Logon)));
                 menu.Items.Add("5 分钟存活守护…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Watchdog)));
-                menu.Items.Add("重启新版烛龙", null, async (_, _) => {restartRequested=true;await QuitAsync();});
+                menu.Items.Add(RestartMenuLabel(AppContext.BaseDirectory), null, async (_, _) => {restartRequested=true;await QuitAsync();});
                 menu.Items.Add("退出新版烛龙", null, async (_, _) => await QuitAsync());
                 trayIcon = CreateIcon();
                 tray = new Forms.NotifyIcon { Text = "烛龙新版 · 朱印 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
@@ -123,6 +123,20 @@ internal static class Program
             if(restartRequested)
             {var next=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=true};next.ArgumentList.Add("--data-dir");next.ArgumentList.Add(directory);try{Process.Start(next);}catch(Exception error)when(error is System.ComponentModel.Win32Exception or IOException){WriteLifecycle("restart_failed",error.Message);MessageBox.Show(error.Message,"新版未能重新打开");}}
         }
+    }
+
+    internal static string RestartMenuLabel(string programDirectory)
+    {
+        const string label = "重启当前版本";
+        try
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(programDirectory, "runtime-manifest.json"), System.Text.Encoding.UTF8));
+            if (manifest.RootElement.ValueKind == JsonValueKind.Object && manifest.RootElement.TryGetProperty("version", out var value) &&
+                value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } version)
+                return label + "（" + version.Split('-', 2)[0] + "）";
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
+        return label;
     }
 
     internal static string FormatTrayTooltip(SystemSnapshot value, LiveSystemReadout? readout = null)

@@ -3,34 +3,26 @@
 (() => {
   const nativeBridge = window.chrome?.webview;
   const bridge = nativeBridge || window.zhulongPortalBridge;
-  const windowMenu = $("#windowMenu");
+  const windowControls = $("#windowControls");
   function setWindowMode(value) {
     const maximized = value === "maximized";
     root.dataset.windowState = maximized ? "maximized" : "normal";
-    text("#windowMenu [data-window-command='toggle-maximize']", maximized ? "还原窗口" : "最大化");
+    const button = windowControls?.querySelector("[data-window-command='toggle-maximize']");
+    if (button) {
+      const label = maximized ? "还原窗口" : "最大化";
+      button.setAttribute("aria-label", label);
+      button.title = label;
+    }
   }
   function windowCommand(command) {
     if (nativeBridge && token) nativeBridge.postMessage({ kind: "window-command", token, command });
   }
-  function initWindowMenu() {
-    if (!nativeBridge || !windowMenu) return;
-    windowMenu.hidden = false;
-    const summary = windowMenu.querySelector("summary"), drag = $(".window-drag");
-    windowMenu.addEventListener("click", event => {
+  function initWindowControls() {
+    if (!nativeBridge || !windowControls) return;
+    const drag = $(".window-drag");
+    windowControls.addEventListener("click", event => {
       const command = event.target.closest("[data-window-command]")?.dataset.windowCommand;
-      if (!command) return;
-      windowMenu.open = false;
-      summary.focus();
-      windowCommand(command);
-    });
-    windowMenu.addEventListener("keydown", event => {
-      if (event.key !== "Escape" || !windowMenu.open) return;
-      event.preventDefault();
-      windowMenu.open = false;
-      summary.focus();
-    });
-    document.addEventListener("pointerdown", event => {
-      if (windowMenu.open && !windowMenu.contains(event.target)) windowMenu.open = false;
+      if (command) windowCommand(command);
     });
     let start;
     drag.addEventListener("pointerdown", event => {
@@ -692,7 +684,11 @@
     const message = event.data;
     if (message?.kind === "init") {
       token = message.token;
-      if (nativeBridge) { setWindowMode(message.windowState); root.dataset.nativeDrag = String(message.nativeDrag === true); }
+      if (nativeBridge) {
+        setWindowMode(message.windowState);
+        root.dataset.nativeDrag = String(message.nativeDrag === true);
+        if (windowControls) windowControls.hidden = false;
+      }
       sentTheme = null; syncWindowTheme(); timers(); refresh(); return;
     }
     if (nativeBridge && message?.kind === "window-state") { setWindowMode(message.state); return; }
@@ -707,7 +703,7 @@
     settingsButton.addEventListener("click",()=>request("show-settings").catch(error=>status(error.message)));$(".app-footer").append(settingsButton);
   }
   root.dataset.live = "true";
-  if (nativeBridge) { root.dataset.nativeChrome = "true"; initWindowMenu(); }
+  if (nativeBridge) { root.dataset.nativeChrome = "true"; initWindowControls(); }
   text(".brand p", "本地系统守护"); text(".device-kind", "Windows · 本机运行");
   text(".ranking .section-subtitle", "单进程排行 · 前五项");
   text(".app-footer>span:first-child", "烛龙 · 本机监控与受限处置");
