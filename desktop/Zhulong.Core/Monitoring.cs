@@ -5,6 +5,8 @@ public sealed record ProcessRow(int Pid, string Name, double MemoryGb, double? C
     long? CreatedTicks = null, string? ExecutablePath = null);
 public sealed record MetricValue(string Name, double? Value, string Unit,
     string? Label = null, string State = "ok", DateTimeOffset? SampledAt = null);
+public sealed record LiveSystemReadout(DateTimeOffset Timestamp, double? CpuPercent,
+    double? MemoryPercent, double? MemoryUsedGb, double? MemoryTotalGb);
 public sealed record SystemSnapshot(DateTimeOffset Timestamp, double? CommitPercent,
     double? CommitUsedGb, double? CommitLimitGb, double? MemoryPercent, double? MemoryUsedGb,
     double? MemoryTotalGb, double? CpuPercent, List<ProcessRow> Processes, string? Error = null,

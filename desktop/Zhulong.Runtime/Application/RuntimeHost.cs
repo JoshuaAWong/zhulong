@@ -25,9 +25,13 @@ public sealed class RuntimeHost : IDisposable
     readonly Dictionary<string,string> failures=new();
     Task[] loops=[];Task? stopTask,activeManual;Task<object>? activeImport;
     int started;double pausedUntil,mutedUntil,nextThrottle;SystemSnapshot? latest;
+    NativeCounters.CoreTimes[] readoutBaseline = [];
+    LiveSystemReadout? liveReadout;
     public RuntimeSettings Settings {get;}
+    public LiveSystemReadout? LiveReadout => Volatile.Read(ref liveReadout);
     public event Action<SystemSnapshot>? Sampled;
     public event Action<RuntimeEvent>? Notified;
+    public event Action<LiveSystemReadout>? ReadoutChanged;
     public RuntimeHost(string directory)
     {
         this.directory=directory;Directory.CreateDirectory(directory);
@@ -51,6 +55,7 @@ public sealed class RuntimeHost : IDisposable
     {
         if(Interlocked.Exchange(ref started,1)!=0)return;
         loops=[RunLoop("采样",TimeSpan.FromSeconds(Settings.SampleSeconds),SampleAsync),
+               RunLoop("实时读数",TimeSpan.FromSeconds(3),ReadoutAsync),
                RunLoop("慢采集",TimeSpan.FromSeconds(60),()=>monitor.CollectSlowAsync(stopped.Token)),
                RunLoop("安全动作",TimeSpan.FromSeconds(5),ProcessActionsAsync),
                RunLoop("AI统计",TimeSpan.FromSeconds(60),async()=>{await usage.RefreshAsync(stopped.Token);}),
@@ -71,6 +76,19 @@ public sealed class RuntimeHost : IDisposable
             }
         }while(await timer.WaitForNextTickAsync(stopped.Token).ConfigureAwait(false));
     },stopped.Token);
+    Task ReadoutAsync()
+    {
+        // 显示单独计算CPU差分，完整采样保留自身周期和基线。
+        var current = NativeCounters.CpuTimes();
+        var (cpu, _, _) = NativeCounters.CpuLoad(readoutBaseline, current);
+        readoutBaseline = current;
+        var (physical, used, total) = NativeCounters.PhysicalMemory();
+        var value = new LiveSystemReadout(DateTimeOffset.UtcNow, cpu, physical, used, total);
+        Volatile.Write(ref liveReadout, value);
+        ReadoutChanged?.Invoke(value);
+        return Task.CompletedTask;
+    }
+
     Task SampleAsync()
     {
         var value=monitor.Collect();
@@ -124,6 +142,7 @@ public sealed class RuntimeHost : IDisposable
             case "events":return await Task.Run(()=>new {events=store.Events(hours)},stopped.Token);
             case "usage":return Json(await usage.ReportAsync(stopped.Token));
             case "refresh-usage":return Json(await usage.RefreshAsync(stopped.Token));
+            case "refresh-codex-account":return Json(await usage.RefreshAccountAsync(stopped.Token));
             case "health":lock(failures)return new {paused=Paused,muted=Muted,failures=new Dictionary<string,string>(failures),sampleSeconds=Settings.SampleSeconds};
             case "actions":lock(decisionGate)return pending.Concat(manualActions).Select(x=>new {id=x.Key,title=x.Value.Title,text=x.Value.Text,action=x.Value.SuggestedAction,target=x.Value.Target??x.Value.ProcessName}).ToArray();
             default:throw new ArgumentException("不支持的面板请求。");

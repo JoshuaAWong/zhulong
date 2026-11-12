@@ -1,9 +1,13 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Shell;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -12,11 +16,22 @@ namespace Zhulong.Desktop;
 internal sealed class DesktopWindow : Window
 {
     const string Address = "https://desktop.zhulong.invalid/index.html";
-    const int BorderColor = 34, CaptionColor = 35, TextColor = 36;
+    const int BorderColor = 34;
+    const int NonClientHitTest = 0x0084, NonClientMouseMove = 0x00a0, NonClientMouseLeave = 0x02a2;
+    const int NonClientLeftDown = 0x00a1, NonClientLeftUp = 0x00a2, MaxButtonHit = 9;
+    const double TitleHeight = 40;
     readonly DataHub hub;
     readonly string webDirectory, profileDirectory, sessionToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+    readonly Grid frame = new();
+    readonly DockPanel titleBar = new();
+    readonly ContentControl page = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    readonly TextBlock windowTitle = new();
+    readonly Button minimizeButton, maximizeButton, closeButton;
+    readonly Thickness resizeBorder = SystemParameters.WindowResizeBorderThickness;
     WebView2? view;
-    bool closed;
+    HwndSource? source;
+    Brush captionInk = SystemColors.WindowTextBrush, captionHover = SystemColors.ControlLightBrush;
+    bool closed, pageReady, readoutSubscribed, maxHover, maxPressed;
     public uint? BrowserPid { get; private set; }
     public event Action<string, object?>? Lifecycle;
     public event Action? ExitRequested;
@@ -29,14 +44,196 @@ internal sealed class DesktopWindow : Window
         this.profileDirectory = profileDirectory;
         Title = "烛龙新版 · 朱印";
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico")));
-        Width = 1440; Height = 960; MinWidth = 1000; MinHeight = 680;
+        Width = 1440; Height = 960; MinWidth = 500; MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = System.Windows.Media.Brushes.WhiteSmoke;
-        SourceInitialized += (_, _) => ApplyFrameTheme("light");
+        WindowStyle = WindowStyle.None;
+        ResizeMode = ResizeMode.CanResize;
+        UseLayoutRounding = true;
+        minimizeButton = CaptionButton("−", "最小化", () => SystemCommands.MinimizeWindow(this));
+        maximizeButton = CaptionButton("□", "最大化", ToggleMaximize);
+        closeButton = CaptionButton("×", "关闭窗口并留在托盘", Close);
+        BuildFrame();
+        SourceInitialized += (_, _) =>
+        {
+            source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            WindowChrome.SetWindowChrome(this, new WindowChrome
+            {
+                CaptionHeight = Math.Max(0, TitleHeight - resizeBorder.Top),
+                ResizeBorderThickness = resizeBorder,
+                GlassFrameThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(8),
+                UseAeroCaptionButtons = false
+            });
+            // HwndSource 后登记的处理器先收到消息，最大化区要先于窗框处理命中。
+            source?.AddHook(HandleNativeMessage);
+            ApplyFrameTheme("light");
+        };
+        StateChanged += (_, _) => UpdateWindowState();
+        IsVisibleChanged += (_, _) => UpdateReadoutSubscription();
         PreviewKeyDown += (_,args) => {if(args.Key==System.Windows.Input.Key.Q&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;ExitRequested?.Invoke();}
             else if(args.Key==System.Windows.Input.Key.OemComma&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;SettingsRequested?.Invoke();}};
         Loaded += async (_, _) => await InitializeAsync();
-        Closed += (_, _) => DisposeView();
+        Closed += (_, _) =>
+        {
+            DisposeView();
+            if (source is { IsDisposed: false }) source.RemoveHook(HandleNativeMessage);
+            source = null;
+        };
+    }
+
+    void BuildFrame()
+    {
+        frame.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleHeight) });
+        frame.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        buttons.Children.Add(minimizeButton);
+        buttons.Children.Add(maximizeButton);
+        buttons.Children.Add(closeButton);
+        DockPanel.SetDock(buttons, Dock.Right);
+        titleBar.Children.Add(buttons);
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+        brand.Children.Add(new Image { Source = Icon, Width = 22, Height = 22, Margin = new Thickness(0, 0, 9, 0) });
+        windowTitle.Text = Title;
+        windowTitle.VerticalAlignment = VerticalAlignment.Center;
+        windowTitle.FontSize = 13;
+        brand.Children.Add(windowTitle);
+        titleBar.Children.Add(brand);
+        frame.Children.Add(titleBar);
+        Grid.SetRow(page, 1);
+        frame.Children.Add(page);
+        Content = frame;
+        ApplyFrameTheme("light");
+    }
+
+    Button CaptionButton(string glyph, string name, Action invoke)
+    {
+        var button = new Button
+        {
+            Content = glyph, ToolTip = name, Width = 46, Height = TitleHeight,
+            FontSize = 18, Background = Brushes.Transparent, BorderThickness = new Thickness(0)
+        };
+        var container = new FrameworkElementFactory(typeof(Border));
+        container.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        var label = new FrameworkElementFactory(typeof(ContentPresenter));
+        label.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        label.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+        container.AppendChild(label);
+        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = container };
+        AutomationProperties.SetName(button, name);
+        WindowChrome.SetIsHitTestVisibleInChrome(button, true);
+        button.Click += (_, _) => invoke();
+        button.MouseEnter += (_, _) => RefreshCaptionButton(button);
+        button.MouseLeave += (_, _) => RefreshCaptionButton(button);
+        button.GotKeyboardFocus += (_, _) => RefreshCaptionButton(button);
+        button.LostKeyboardFocus += (_, _) => RefreshCaptionButton(button);
+        return button;
+    }
+
+    void ToggleMaximize()
+    {
+        if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this);
+        else SystemCommands.MaximizeWindow(this);
+    }
+
+    string WindowMode => WindowState == WindowState.Maximized ? "maximized" : "normal";
+
+    void UpdateWindowState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        frame.Margin = maximized ? resizeBorder : new Thickness(0);
+        maximizeButton.Content = maximized ? "❐" : "□";
+        maximizeButton.ToolTip = maximized ? "还原窗口" : "最大化";
+        AutomationProperties.SetName(maximizeButton, (string)maximizeButton.ToolTip);
+        if (pageReady) Reply(new { kind = "window-state", state = WindowMode });
+        UpdateReadoutSubscription();
+    }
+
+    IntPtr HandleNativeMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return IntPtr.Zero;
+        if (message == NonClientHitTest && maximizeButton.IsVisible && maximizeButton.IsEnabled && PresentationSource.FromVisual(maximizeButton) is not null)
+        {
+            long point = lParam.ToInt64();
+            var local = maximizeButton.PointFromScreen(new Point(unchecked((short)point), unchecked((short)(point >> 16))));
+            if (new Rect(maximizeButton.RenderSize).Contains(local))
+            {
+                handled = true;
+                return new IntPtr(MaxButtonHit);
+            }
+        }
+        if (message == NonClientMouseLeave || (message == NonClientMouseMove && wParam.ToInt64() != MaxButtonHit))
+        {
+            maxPressed = false;
+            SetMaxHover(false);
+        }
+        else if (wParam.ToInt64() == MaxButtonHit)
+        {
+            if (message == NonClientMouseMove && !maxHover)
+            {
+                SetMaxHover(true);
+                var tracking = new MouseTracking { Size = (uint)Marshal.SizeOf<MouseTracking>(), Flags = 0x12, Window = hwnd };
+                TrackMouseEvent(ref tracking);
+            }
+            if (message == NonClientLeftDown)
+            {
+                maxPressed = true;
+                handled = true;
+            }
+            else if (message == NonClientLeftUp)
+            {
+                bool invoke = maxPressed;
+                maxPressed = false;
+                handled = true;
+                if (invoke) Dispatcher.BeginInvoke(new Action(ToggleMaximize));
+            }
+        }
+        return IntPtr.Zero;
+    }
+
+    void SetMaxHover(bool value)
+    {
+        maxHover = value;
+        RefreshCaptionButton(maximizeButton);
+    }
+
+    void RefreshCaptionButton(Button button)
+    {
+        bool highlighted = button.IsMouseOver || button.IsKeyboardFocused || (button == maximizeButton && maxHover);
+        button.Background = highlighted ? captionHover : Brushes.Transparent;
+        button.Foreground = captionInk;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MouseTracking { public uint Size, Flags; public IntPtr Window; public uint HoverTime; }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool TrackMouseEvent(ref MouseTracking tracking);
+
+    bool CanPublishReadout => !closed && pageReady && IsVisible && WindowState != WindowState.Minimized;
+
+    void UpdateReadoutSubscription()
+    {
+        bool wanted = CanPublishReadout;
+        if (wanted == readoutSubscribed) return;
+        readoutSubscribed = wanted;
+        if (wanted)
+        {
+            hub.ReadoutChanged += OnReadoutChanged;
+            if (hub.LiveReadout is { } current) PublishReadout(current);
+        }
+        else hub.ReadoutChanged -= OnReadoutChanged;
+    }
+
+    void OnReadoutChanged(LiveSystemReadout value)
+    {
+        if (Dispatcher.CheckAccess()) PublishReadout(value);
+        else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => PublishReadout(value)));
+    }
+
+    void PublishReadout(LiveSystemReadout value)
+    {
+        if (CanPublishReadout) Reply(new { kind = "live-readout", value });
     }
 
     async Task InitializeAsync()
@@ -46,7 +243,7 @@ internal sealed class DesktopWindow : Window
             if (!File.Exists(Path.Combine(webDirectory, "index.html")))
                 throw new FileNotFoundException("界面资源缺失，请重新解压完整程序包。");
             view = new WebView2();
-            Content = view;
+            page.Content = view;
             var environment = await CoreWebView2Environment.CreateAsync(null, profileDirectory);
             if (closed) return;
             await view.EnsureCoreWebView2Async(environment);
@@ -69,10 +266,10 @@ internal sealed class DesktopWindow : Window
         }
         catch (Exception error) when (!closed)
         {
-            Content = new System.Windows.Controls.TextBlock
+            page.Content = new TextBlock
             {
                 Text = "桌面界面未能启动：" + error.Message + "\n请确认已安装 Microsoft Edge WebView2 Runtime。",
-                Margin = new Thickness(36), TextWrapping = TextWrapping.Wrap
+                Foreground = captionInk, Margin = new Thickness(36), TextWrapping = TextWrapping.Wrap
             };
             Lifecycle?.Invoke("webview_failed", error.Message);
         }
@@ -84,14 +281,20 @@ internal sealed class DesktopWindow : Window
 
     void ApplyFrameTheme(string? theme)
     {
-        if (theme is not ("light" or "dark") || SystemParameters.HighContrast ||
-            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+        if (theme is not ("light" or "dark")) return;
         var dark = theme == "dark";
-        var handle = new WindowInteropHelper(this).Handle;
-        SetFrameColor(handle, CaptionColor, dark ? 0x111f24 : 0xf6f7f2);
-        SetFrameColor(handle, BorderColor, dark ? 0x2b3f42 : 0xd6dfd5);
-        SetFrameColor(handle, TextColor, dark ? 0xe0e8df : 0x273d37);
+        var contrast = SystemParameters.HighContrast;
+        Brush background = contrast ? SystemColors.WindowBrush : Palette(dark ? 0x111f24 : 0xf6f7f2);
+        captionInk = contrast ? SystemColors.WindowTextBrush : Palette(dark ? 0xe0e8df : 0x273d37);
+        captionHover = contrast ? SystemColors.ControlLightBrush : Palette(dark ? 0x294147 : 0xe2ebe2);
+        Background = frame.Background = titleBar.Background = background;
+        windowTitle.Foreground = captionInk;
+        foreach (var button in new[] { minimizeButton, maximizeButton, closeButton }) RefreshCaptionButton(button);
+        if (!contrast && source is { IsDisposed: false } && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            SetFrameColor(source.Handle, BorderColor, dark ? 0x2b3f42 : 0xd6dfd5);
     }
+
+    static SolidColorBrush Palette(int rgb) => new(Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
 
     static void SetFrameColor(IntPtr handle, int attribute, int rgb)
     {
@@ -105,7 +308,7 @@ internal sealed class DesktopWindow : Window
 
     void ProcessFailed(object? sender,CoreWebView2ProcessFailedEventArgs args)
     {
-        Dispatcher.BeginInvoke(()=>{if(closed)return;Lifecycle?.Invoke("webview_process_failed",args.ProcessFailedKind.ToString());DisposeView();Content=new System.Windows.Controls.TextBlock{Text="界面进程已停止，后台仍继续采样。请关闭窗口后从朱印托盘重新打开。",Margin=new Thickness(36),TextWrapping=TextWrapping.Wrap};});
+        Dispatcher.BeginInvoke(()=>{if(closed)return;Lifecycle?.Invoke("webview_process_failed",args.ProcessFailedKind.ToString());DisposeView();page.Content=new TextBlock{Text="界面进程已停止，后台仍继续采样。请关闭窗口后从朱印托盘重新打开。",Foreground=captionInk,Margin=new Thickness(36),TextWrapping=TextWrapping.Wrap};});
     }
 
     static void NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
@@ -123,7 +326,13 @@ internal sealed class DesktopWindow : Window
             using var document = JsonDocument.Parse(args.WebMessageAsJson);
             var message = document.RootElement;
             var kind = message.GetProperty("kind").GetString();
-            if (kind == "ready") { Reply(new { kind = "init", token = sessionToken }); return; }
+            if (kind == "ready")
+            {
+                pageReady = true;
+                Reply(new { kind = "init", token = sessionToken, windowState = WindowMode });
+                UpdateReadoutSubscription();
+                return;
+            }
             if (message.GetProperty("token").GetString() != sessionToken) return;
             if (kind == "theme") { ApplyFrameTheme(message.GetProperty("theme").GetString()); return; }
             if (kind != "query") return;
@@ -158,6 +367,8 @@ internal sealed class DesktopWindow : Window
     {
         if (closed) return;
         closed = true;
+        pageReady = false;
+        UpdateReadoutSubscription();
         if (view?.CoreWebView2 is { } core)
         {
             core.NavigationStarting -= NavigationStarting;
@@ -167,7 +378,7 @@ internal sealed class DesktopWindow : Window
             core.DownloadStarting -= DownloadStarting;
             core.ProcessFailed -= ProcessFailed;
         }
-        Content = null;
+        page.Content = null;
         view?.Dispose();
         view = null;
         Lifecycle?.Invoke("window_closed", new { browserPid = BrowserPid });

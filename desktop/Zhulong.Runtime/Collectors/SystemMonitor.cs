@@ -27,7 +27,7 @@ public sealed class SystemMonitor : IDisposable
         var now = DateTimeOffset.UtcNow;
         var metrics = slow.Snapshot(now);
         var errors = new List<string>();
-        double? commit = null, commitUsed = null, commitLimit = null, physical = null, physicalUsed = null, physicalTotal = null;
+        double? commit = null, commitUsed = null, commitLimit = null;
         if (NativeCounters.GetPerformanceInfo(out var info, (uint)Marshal.SizeOf<NativeCounters.PerformanceInfo>()))
         {
             commitUsed = info.CommitTotal.ToUInt64() * (double)info.PageSize.ToUInt64() / NativeCounters.Gb;
@@ -35,14 +35,8 @@ public sealed class SystemMonitor : IDisposable
             commit = commitLimit > 0 ? commitUsed * 100 / commitLimit : null;
         }
         else errors.Add("提交内存采集失败");
-        var memory = new NativeCounters.MemoryStatus { Length = (uint)Marshal.SizeOf<NativeCounters.MemoryStatus>() };
-        if (NativeCounters.GlobalMemoryStatusEx(ref memory))
-        {
-            physical = memory.MemoryLoad;
-            physicalUsed = (memory.TotalPhysical - memory.AvailablePhysical) / NativeCounters.Gb;
-            physicalTotal = memory.TotalPhysical / NativeCounters.Gb;
-        }
-        else errors.Add("物理内存采集失败");
+        var (physical, physicalUsed, physicalTotal) = NativeCounters.PhysicalMemory();
+        if (physical is null) errors.Add("物理内存采集失败");
         var pagefile = NativeCounters.Pagefile();
         Put(metrics, now, "pagefile_used_gb", pagefile?.UsedGb, "GB", state: pagefile is null ? "unavailable" : "ok");
         Put(metrics, now, "pagefile_total_gb", pagefile?.TotalGb, "GB", state: pagefile is null ? "unavailable" : "ok");
@@ -77,21 +71,10 @@ public sealed class SystemMonitor : IDisposable
     (double? Total, double? Maximum, string State) Cpu()
     {
         var current = NativeCounters.CpuTimes();
-        double busy = 0, total = 0, maximum = 0;
-        var ready = current.Length > 0 && current.Length == previousCores.Length;
-        if (ready)
-            for (var i = 0; i < current.Length; i++)
-            {
-                var delta = current[i].Kernel - previousCores[i].Kernel + current[i].User - previousCores[i].User;
-                var idle = current[i].Idle - previousCores[i].Idle;
-                if (delta <= 0 || idle < 0) { ready = false; break; }
-                total += delta;
-                busy += Math.Max(0, delta - idle);
-                maximum = Math.Max(maximum, Math.Clamp((delta - (double)idle) * 100 / delta, 0, 100));
-            }
+        var result = NativeCounters.CpuLoad(previousCores, current);
         previousCores = current;
         if (current.Length > 0) logicalProcessors = current.Length;
-        return ready && total > 0 ? (Math.Clamp(busy * 100 / total, 0, 100), maximum, "ok") : (null, null, current.Length == 0 ? "unavailable" : "warming");
+        return result;
     }
 
     List<ProcessRow> Processes()

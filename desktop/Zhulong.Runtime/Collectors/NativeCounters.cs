@@ -103,6 +103,31 @@ internal static class NativeCounters
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
+    internal static (double? Total, double? Maximum, string State) CpuLoad(CoreTimes[] previous, CoreTimes[] current)
+    {
+        if (current.Length == 0) return (null, null, "unavailable");
+        if (current.Length != previous.Length) return (null, null, "warming");
+        double busy = 0, total = 0, maximum = 0;
+        for (var i = 0; i < current.Length; i++)
+        {
+            var delta = current[i].Kernel - previous[i].Kernel + current[i].User - previous[i].User;
+            var idle = current[i].Idle - previous[i].Idle;
+            if (delta <= 0 || idle < 0) return (null, null, "warming");
+            var active = Math.Max(0, delta - idle);
+            total += delta;
+            busy += active;
+            maximum = Math.Max(maximum, Math.Min(active * 100d / delta, 100));
+        }
+        return (Math.Min(busy * 100 / total, 100), maximum, "ok");
+    }
+
+    internal static (double? Percent, double? UsedGb, double? TotalGb) PhysicalMemory()
+    {
+        var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
+        if (!GlobalMemoryStatusEx(ref memory)) return (null, null, null);
+        return (memory.MemoryLoad, (memory.TotalPhysical - memory.AvailablePhysical) / Gb, memory.TotalPhysical / Gb);
+    }
+
     internal static (double UsedGb, double TotalGb)? Pagefile()
     {
         const int capacity = 1024 * 1024;

@@ -27,6 +27,9 @@ internal static class DesktopSelfTests
                 tooltip.Text.Contains($"提交内存 75% ({30d:F1}/{40d:F1} GB)"), "托盘应同时显示CPU和两种内存读数，零占用须保留");
             Check(Program.FormatTrayTooltip(traySample with { CpuPercent = null }).Contains("CPU —\n"),
                 "首轮CPU未知时应显示破折号，不应显示0%或附加百分号");
+            var liveTray = Program.FormatTrayTooltip(traySample, new(now, 21, 60, 19.2, 32));
+            Check(liveTray.Contains("CPU 21%") && liveTray.Contains("物理内存 60%") && liveTray.Contains("提交内存 75%"),
+                "实时读数仅替换CPU与物理内存，提交内存沿用完整采样");
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))
             {

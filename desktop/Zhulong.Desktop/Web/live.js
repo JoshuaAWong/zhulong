@@ -5,11 +5,12 @@
   const bridge = nativeBridge || window.zhulongPortalBridge;
   const pending = new Map(), histories = new Map();
   let token = null, sequence = 0, refreshTimer = null, quotaTimer = null;
-  let latest = null, usage = null, lastUsageRead = 0, refreshing = false;
+  let latest = null, liveReadout = null, usage = null, lastUsageRead = 0, refreshing = false, usageBusy = false;
   let health = null, eventHours = 24, actionBusy = false;
   let quotaRows = [], chartCleanup = null;
   function clearChartHover() { chartCleanup?.(); chartCleanup = null; }
   const number = (value, digits = 1) => Number.isFinite(value) ? value.toLocaleString("zh-CN", { maximumFractionDigits: digits }) : "—";
+  const percentText = value => Number.isFinite(value) ? number(value) + "%" : "未知";
   const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "未知";
   const text = (selector, value) => { const node = $(selector); if (node) node.textContent = value; };
   function node(tag, value, className) {
@@ -59,6 +60,7 @@
     gpu_mem_total: ["显存总量", "当前显卡显存容量", "GB"],
     disk_total_gb: ["磁盘总容量", "被采集磁盘的容量合计", "GB"],
     disk_free_gb: ["磁盘可用容量", "被采集磁盘剩余空间", "GB"],
+    disk_temp_c: ["磁盘温度", "可读磁盘传感器的最高温度", "°C"],
     disk_used_percent: ["磁盘空间占比", "已用空间占比，不是磁盘活动时间", "%"]
   };
   const metric = name => latest?.metrics?.[name];
@@ -76,10 +78,15 @@
     const value = ["有效", "旧采样"].includes(sampleState(item)) ? item?.value : null;
     return number(value, digits) + " " + (item?.unit || info?.[2] || "") + suffix;
   }
+  function newestReadout() {
+    if (liveReadout && !(Date.parse(latest?.timestamp) > Date.parse(liveReadout.timestamp))) return liveReadout;
+    return latest;
+  }
   function describeMetric(name) {
+    const readout = newestReadout();
     if (name === "commit") return { title: "提交内存", meaning: "系统承诺提供的内存，与物理内存分开观察", value: latest?.commitUsedGb, unit: "GB", plotUnit: "%", percent: latest?.commitPercent, at: latest?.timestamp };
-    if (name === "physical") return { title: "物理内存", meaning: "当前驻留物理内存的占用", value: latest?.memoryUsedGb, unit: "GB", plotUnit: "%", percent: latest?.memoryPercent, at: latest?.timestamp };
-    if (name === "cpu") return { title: "处理器", meaning: "整机 CPU，按所有逻辑核心归一为 0–100%", value: latest?.cpuPercent, unit: "%", plotUnit: "%", percent: latest?.cpuPercent, at: latest?.timestamp };
+    if (name === "physical") return { title: "物理内存", meaning: "当前驻留物理内存的占用", value: readout?.memoryUsedGb, unit: "GB", plotUnit: "%", percent: readout?.memoryPercent, at: readout?.timestamp };
+    if (name === "cpu") return { title: "处理器", meaning: "整机 CPU，按所有逻辑核心归一为 0–100%", value: readout?.cpuPercent, unit: "%", plotUnit: "%", percent: readout?.cpuPercent, at: readout?.timestamp };
     const item = metric(name), info = metricsByName[name] || [name, "系统指标", ""];
     return { title: info[0], meaning: item?.label ? info[1] + " · " + item.label : info[1], value: ["有效", "旧采样"].includes(sampleState(item)) ? item?.value : null, unit: item?.unit || info[2], plotUnit: item?.unit || info[2], at: sampledAt(item), state: sampleState(item) };
   }
@@ -114,7 +121,9 @@
       line.append(amount); button.append(line);
       const meter = node("span", undefined, "process-meter"), fill = node("i");
       fill.style.width = (Number.isFinite(item[currentRank]) ? Math.max(0, Math.min(100, item[currentRank] / max * 100)) : 0) + "%";
-      meter.append(fill); button.append(meter); list.append(button);
+      meter.append(fill); button.append(meter);
+      button.append(node("span", "PID " + item.pid + " · 工作集 " + number(item.workingSet, 2) + " GB · CPU " + percentText(item.cpu), "live-process-meta"));
+      list.append(button);
     });
     if (!rows.length) list.append(node("p", latest ? "当前没有匹配进程" : "等待首次采集", "fine-print live-empty"));
     const meaning = { memory: "单进程提交内存，GB", cpu: "单进程整机归一化 CPU，0–100%", io: "单进程读写吞吐合计，MB/s" }[currentRank];
@@ -224,6 +233,23 @@
     const result = await request("history", { metric, hours: { "24h": 24, "7d": 168, "30d": 720 }[range] });
     histories.set(metric + ":" + range, result?.points || []); renderChart();
   }
+  function updateReadoutNumbers() {
+    const sample = newestReadout();
+    text(".resource[data-detail='cpu'] strong", percentText(sample?.cpuPercent));
+    text("#liveMemoryPercent", percentText(sample?.memoryPercent));
+    text("#liveMemoryBytes", number(sample?.memoryUsedGb) + " / " + number(sample?.memoryTotalGb) + " GB");
+  }
+  function applyLiveReadout(value) {
+    if (!Number.isFinite(Date.parse(value?.timestamp)) || (liveReadout && Date.parse(value.timestamp) < Date.parse(liveReadout.timestamp))) return;
+    liveReadout = value;
+    if (document.hidden || $("#overview").hidden) return;
+    updateReadoutNumbers();
+    if (currentMetric === "cpu" || currentMetric === "physical") {
+      const item = describeMetric(currentMetric);
+      text("#chartValue", number(item.value, 2) + " " + item.unit);
+      text("#chartLimit", "当前占比 " + percentText(item.percent) + " · 量程 0–100%");
+    }
+  }
   function applySnapshot(value) {
     latest = value;
     const rows = value?.processMetrics?.length ? value.processMetrics : value?.processes || [];
@@ -238,24 +264,24 @@
     text(".hero-description", value?.error || (health?.paused ? "自动处置已暂停，采样、告警与历史记录继续。" : "关注资源变化，处置结果会另行留档。"));
     const facts = all(".hero-facts strong");
     facts[0].textContent = number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB";
-    facts[1].textContent = events.length + " 条范围内记录";
     const dial = $(".instrument-dial");
     dial.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => arc.setAttribute("stroke-dasharray", (Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + " 100"));
     const caption = dial.querySelector(".dial-caption strong"); if (caption) caption.textContent = number(percent) + "%";
     dial.setAttribute("aria-label", "提交内存占用 " + number(percent) + "%" + (stale ? "，旧采样" : ""));
     dial.setAttribute("title", "提交 " + number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB，采样于 " + date(value?.timestamp));
     const showResource = (key, amount, note) => { text(".resource[data-detail='" + key + "'] strong", amount); text(".resource[data-detail='" + key + "'] span:last-child", note); };
-    showResource("cpu", number(value?.cpuPercent) + "%", "单核峰值 " + metricText("cpu_max_core"));
+    showResource("cpu", percentText(newestReadout()?.cpuPercent), "单核峰值 " + metricText("cpu_max_core"));
+    updateReadoutNumbers();
     showResource("gpu", metricText("gpu_util"), metricText("gpu_temp") + " · 显存 " + metricText("gpu_mem_used"));
     const read = metric("io_read_mb_s")?.value, write = metric("io_write_mb_s")?.value;
     const throughput = Number.isFinite(read) && Number.isFinite(write) ? read + write : null;
-    showResource("disk", number(throughput) + " " + (metric("io_read_mb_s")?.unit || "MB/s"), "读 " + metricText("io_read_mb_s") + " / 写 " + metricText("io_write_mb_s"));
+    showResource("disk", number(throughput) + " " + (metric("io_read_mb_s")?.unit || "MB/s"), "盘温 " + metricText("disk_temp_c"));
     showResource("network", metricText("net_down_mb_s"), "上传 " + metricText("net_up_mb_s"));
     Object.assign(details, {
       waterline: { title: "提交内存", text: "当前 " + number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB，占 " + number(percent) + "%；物理内存 " + number(value?.memoryUsedGb) + " / " + number(value?.memoryTotalGb) + " GB。", note: "采样于 " + date(value?.timestamp) + "。单次高水位不能证明泄漏。" },
       cpu: { title: "处理器", text: "整机 CPU " + number(value?.cpuPercent) + "%，单核峰值 " + metricText("cpu_max_core") + "。", note: "整机占比按全部逻辑核心归一化。首次差分或采集失败时显示未知。" },
       gpu: { title: "显卡", text: "利用率 " + metricText("gpu_util") + "；温度 " + metricText("gpu_temp") + "；显存 " + metricText("gpu_mem_used") + " / " + metricText("gpu_mem_total") + "。", note: "设备：" + (metric("gpu_util")?.label || "未识别") + "。采样于 " + date(sampledAt(metric("gpu_util"))) },
-      disk: { title: "磁盘", text: "读取 " + metricText("io_read_mb_s") + "；写入 " + metricText("io_write_mb_s") + "；空间已用 " + metricText("disk_used_percent") + "；剩余 " + metricText("disk_free_gb") + "。", note: "吞吐与空间占比分开观察，均不等于活动时间占比。" },
+      disk: { title: "磁盘", text: "读取 " + metricText("io_read_mb_s") + "；写入 " + metricText("io_write_mb_s") + "；空间已用 " + metricText("disk_used_percent") + "；剩余 " + metricText("disk_free_gb") + "；盘温 " + metricText("disk_temp_c") + "。", note: "温度取可读设备的最高值，缺少传感器数据时显示未知。" },
       network: { title: "网络", text: "下载 " + metricText("net_down_mb_s") + "；上传 " + metricText("net_up_mb_s") + "；网关 " + metricText("ping_gw_ms") + "；外网 " + metricText("ping_net_ms") + "；抖动 " + metricText("ping_jitter_ms") + "。", note: "零速率可以表示当前没有流量；延迟探测失败保留未知。" }
     });
     for (const button of all(".live-metric-strip [data-metric]")) {
@@ -264,6 +290,7 @@
       button.dataset.state = sampleState(metric(key));
       button.title = metricsByName[key][1] + "，采样于 " + date(sampledAt(metric(key)));
     }
+    renderDeviceTemperatures();
     renderProcesses(); renderChart(); syncUnifiedMotion();
     status(value?.timestamp ? (stale ? "旧采样 " : "采样于 ") + date(value.timestamp) : "等待首次采样");
   }
@@ -274,6 +301,21 @@
     button.append(node("span", metricsByName[key][0]), node("strong", "—")); metricStrip.append(button);
   });
   $(".resource-strip").after(metricStrip);
+  const devices = node("section", undefined, "live-device-sensors");
+  devices.setAttribute("aria-label", "设备温度");
+  $(".resource-strip").after(devices);
+  function renderDeviceTemperatures() {
+    const diskKeys = Object.keys(latest?.metrics || {}).filter(key => /^disk_\d+_temp_c$/.test(key))
+      .sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
+    const gpu = metric("gpu_temp")?.label || metric("gpu_util")?.label || "显卡";
+    const labels = [[gpu, "gpu_temp"], ...diskKeys.map(key => [metric(key)?.label || "磁盘 " + key.split("_")[1], key])];
+    if (!diskKeys.length) labels.push(["磁盘", "disk_temp_c"]);
+    devices.replaceChildren(...labels.map(([label, key]) => {
+      const item = node("span", undefined, "live-device-temperature");
+      item.append(node("span", label), node("strong", metricText(key)));
+      return item;
+    }));
+  }
   const healthNode = node("p", "后台状态待同步", "live-runtime-health");
   healthNode.setAttribute("role", "status");
   const healthFailures = node("ul", undefined, "live-runtime-failures"); healthFailures.hidden = true;
@@ -338,14 +380,20 @@
     const notice = $(".notice"); notice.replaceChildren();
     if (events.length) { notice.append(node("time", date(events[0].timestamp)), node("h3", events[0].title), node("p", events[0].text)); }
     else notice.append(node("h3", "暂无观察事件"), node("p", "新版开始运行后在此积累记录。"));
-    $(".timeline").replaceChildren();
-    if (latest) all(".hero-facts strong")[1].textContent = events.length + " 条范围内记录";
+    $(".timeline").replaceChildren(...events.slice(1, 4).map(event => {
+      const row = node("li");
+      row.append(node("time", date(event.timestamp)), node("strong", event.title));
+      return row;
+    }));
   }
   const ledger = $(".ledger"), quotaSection = node("section", undefined, "panel live-quota");
-  quotaSection.append(node("h2", "套餐额度与重置")); $("#usage .usage-layout").after(quotaSection);
+  quotaSection.append(node("h2", "套餐额度与重置")); $("#usage .usage-layout").before(quotaSection);
   const refreshButton = node("button", "刷新 Codex 统计", "text-button live-refresh");
   const usageStatus = node("p", "等待读取本地 Codex 统计", "fine-print live-usage-status");
-  $("#usage .page-title>div").append(refreshButton, usageStatus);
+  const accountButton = node("button", "更新账户用量与额度", "text-button live-refresh");
+  $("#usage .page-title>div").append(refreshButton);
+  if (nativeBridge) $("#usage .page-title>div").append(accountButton);
+  $("#usage .page-title>div").append(usageStatus);
   function sessionTable(rows, metadata) {
     const table = node("table"), head = node("thead"), header = node("tr"), body = node("tbody");
     ["会话", metadata ? "累计快照" : "已采集用量", metadata ? "来源" : "模型", "时间"].forEach(value => header.append(node("th", value)));
@@ -362,7 +410,11 @@
     quotaRows.forEach(item => {
       const remaining = Math.max(0, Math.ceil((Date.parse(item.reset) - Date.now()) / 1000));
       if (!Number.isFinite(remaining)) { item.target.textContent = "重置时间未知"; return; }
-      if (!remaining) { item.target.textContent = "已到记录的重置时间 · 待新快照确认"; return; }
+      if (!remaining) {
+        item.target.textContent = "已到记录的重置时间 · 待新快照确认";
+        item.summary.textContent = item.label + " · 剩余未知";
+        return;
+      }
       const days = Math.floor(remaining / 86400), hours = Math.floor(remaining % 86400 / 3600), minutes = Math.floor(remaining % 3600 / 60), seconds = remaining % 60;
       item.target.textContent = "还需 " + (days ? days + "天 " : "") + hours + "小时 " + minutes + "分 " + seconds + "秒";
     });
@@ -372,28 +424,20 @@
     value = wrapper ? wrapper.report : value;
     usage = value; quotaRows = [];
     const totals = value?.totals;
+    const accountUsage = wrapper?.account_usage, accountQuota = wrapper?.account_quota;
     text(".ai-summary h2", "Codex 已采集用量"); text(".ai-summary p", number(totals?.total_tokens, 0) + " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
     text(".ai-price strong", "—"); text(".ai-price>span", "未估算费用");
     text("#usage .page-title h2", "Codex 会话账本"); text("#usage .page-title>div>p:nth-of-type(2)", "请求明细与会话累计快照分别展示，不相加。");
     const summary = all(".usage-summary>div");
-    ["已采集请求用量", "费用估算", "累计快照会话"].forEach((label, index) => summary[index].querySelector("span").textContent = label);
-    [number(totals?.total_tokens, 0) + " tokens", "未估算", number(value?.metadata_session_count, 0)].forEach((value, index) => summary[index].querySelector("strong").textContent = value);
+    ["账户已消耗 Token", "本机请求累计 Token", "本机会话快照"].forEach((label, index) => summary[index].querySelector("span").textContent = label);
+    [number(accountUsage?.lifetime_tokens, 0), number(totals?.total_tokens, 0), number(value?.metadata_session_count, 0)].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
     ledger.replaceChildren(node("h2", "请求明细汇总"), sessionTable(value?.sessions || [], false), node("p", "每会话包含回放/继承历史，总览按唯一事件记账。最多展示100行。", "fine-print"), node("h2", "桌面会话累计快照"), sessionTable(value?.metadata_sessions || [], true), node("p", "累计快照没有输入输出拆分，不用于今日账单；不与请求明细相加。", "fine-print"));
     const breakdown = $(".token-breakdown"); breakdown.replaceChildren(node("h2", "已采集 Token 构成"));
     const dl = node("dl");
     [["输入（包含缓存）", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出（包含推理）", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => { const pair = node("div"); pair.append(node("dt", name), node("dd", number(amount, 0))); dl.append(pair); });
-    breakdown.append(dl, node("p", "缓存与推理是子集，不再次加到总量。费用未估算。", "fine-print"));
-    quotaSection.replaceChildren(node("h2", "套餐额度与重置"), node("p", "最近5组来源会话快照分别展示，不代表已确认账户。", "fine-print"));
-    (value?.quota || []).slice(0, 5).forEach(snapshot => {
-      const group = node("article", undefined, "live-quota-group");
-      group.append(node("h3", snapshot.limit_id || "Codex"), node("p", "本地日志快照 · " + date(snapshot.observed_at) + " · 账户身份未确认", "fine-print"));
-      [snapshot.primary, snapshot.secondary].filter(Boolean).forEach(window => {
-        const row = node("div", undefined, "live-quota-window"), clock = node("p", "等待计算", "live-countdown");
-        row.append(node("strong", (window.window_minutes ? number(window.window_minutes, 0) + " 分钟窗口" : window.name || "额度窗口") + " · 已用 " + number(window.used_percent) + "%"), node("p", "记录的重置时间：" + date(window.resets_at)), clock);
-        quotaRows.push({ target: clock, reset: window.resets_at }); group.append(row);
-      }); quotaSection.append(group);
-    });
-    if (!(value?.quota || []).length) quotaSection.append(node("p", "尚未读取到额度快照，重置时间未知；不会按token推算套餐余额。", "fine-print"));
+    breakdown.append(dl, node("p", "本机缓存与推理为子集。账户累计与本机请求累计分别统计。", "fine-print"));
+    renderAccountUsage(breakdown, accountUsage);
+    renderQuota(accountQuota, value?.quota);
     usageStatus.textContent = value?.generated_at ? "汇总生成于 " + date(value.generated_at) + " · " + (value.quality?.pending_sources ? "部分日志仍在分批读取" : "本地来源，覆盖范围有限") : "统计尚未就绪";
     if (wrapper?.last_success_at) usageStatus.textContent += " · 最近采集 " + date(wrapper.last_success_at);
     if (wrapper?.source_state === "not_observed") usageStatus.textContent = "尚未观察到 Codex 本地来源";
@@ -403,13 +447,76 @@
     if (value?.quality?.sources_without_token_usage) usageStatus.textContent += " · " + value.quality.sources_without_token_usage + " 个来源尚未观察到token明细";
     countdown();
   }
-  async function readUsage(force = false) {
-    refreshButton.disabled = true;
-    try { const value = await request(force ? "refresh-usage" : "usage"); applyUsage(value); lastUsageRead = Date.now(); }
-    catch (error) { usageStatus.textContent = "统计读取未完成：" + error.message; }
-    finally { refreshButton.disabled = false; }
+  function renderAccountUsage(container, account) {
+    container.append(node("h3", "账户近期用量"));
+    const days = account?.daily_usage_buckets;
+    if (!Array.isArray(days) || !days.length) {
+      container.append(node("p", "账户日用量未知。", "fine-print"));
+    } else {
+      const rows = node("dl", undefined, "live-account-days");
+      [...days].sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).slice(0, 7).forEach(day => {
+        const row = node("div");
+        row.append(node("dt", day.start_date || "未知日期"), node("dd", number(day.tokens, 0)));
+        rows.append(row);
+      });
+      container.append(rows);
+    }
+    if (account?.fetched_at) container.append(node("p", "Codex 官方接口 · 更新于 " + date(account.fetched_at), "fine-print"));
+    if (account?.state === "stale") container.append(node("p", "当前显示上次成功读取的账户用量。", "fine-print"));
   }
-  refreshButton.addEventListener("click", () => readUsage(true));
+  function quotaWindow(group, window) {
+    const row = node("div", undefined, "live-quota-window"), clock = node("p", "等待计算", "live-countdown");
+    const used = window.used_percent;
+    const remaining = window.remaining_percent;
+    const duration = window.window_minutes === 10080 ? "7 天窗口" : window.window_minutes === 300 ? "5 小时窗口" : window.window_minutes ? number(window.window_minutes, 0) + " 分钟窗口" : window.name || "额度窗口";
+    const label = duration + " · 已用 " + percentText(used);
+    const summary = node("strong", label + " · 剩余 " + percentText(remaining));
+    row.append(summary, node("p", "重置时间 " + date(window.resets_at)), clock);
+    quotaRows.push({ target: clock, reset: window.resets_at, label, summary });
+    group.append(row);
+  }
+  function renderQuota(account, snapshots) {
+    quotaSection.replaceChildren(node("h2", "套餐额度与重置"));
+    const official = account?.windows;
+    if (Array.isArray(official) && official.some(limit => limit.primary || limit.secondary)) {
+      const plan = account.plan_type ? String(account.plan_type) : "未知";
+      quotaSection.append(node("p", "Codex 官方账户 · 套餐 " + plan + " · 更新于 " + date(account.fetched_at), "fine-print"));
+      if (account.state === "stale") quotaSection.append(node("p", "当前显示上次成功读取的额度。", "fine-print"));
+      for (const limit of official) {
+        const group = node("article", undefined, "live-quota-group");
+        group.append(node("h3", limit.limit_name || limit.limit_id || "Codex"));
+        [limit.primary, limit.secondary].filter(Boolean).forEach(window => quotaWindow(group, window));
+        quotaSection.append(group);
+      }
+      return;
+    }
+    const unavailable = { not_checked: nativeBridge ? "点击「更新账户用量与额度」读取 Codex 套餐。" : "请在桌面窗口读取 Codex 套餐。", cli_unavailable: "未找到 Codex CLI。",
+      not_signed_in: "请先在 Codex 登录 ChatGPT 账户。", auth_unsupported: "当前认证方式没有 ChatGPT 套餐数据。",
+      unsupported: "当前 Codex 接口未提供套餐额度。", cli_unsupported: "当前 Codex CLI 不支持账户接口。",
+      timeout: "读取账户额度超时。", unavailable: "官方账户额度暂不可用。" };
+    quotaSection.append(node("p", account?.refreshing ? "正在读取账户额度…" : unavailable[account?.state] || unavailable.unavailable, "fine-print"));
+    if (!Array.isArray(snapshots) || !snapshots.length) {
+      quotaSection.append(node("p", "本机也尚无额度快照。重置时间未知。", "fine-print"));
+      return;
+    }
+    for (const snapshot of snapshots.slice(0, 5)) {
+      const group = node("article", undefined, "live-quota-group");
+      group.append(node("h3", snapshot.limit_id || "Codex"), node("p", "本机日志快照 · " + date(snapshot.observed_at) + " · 账户未确认", "fine-print"));
+      [snapshot.primary, snapshot.secondary].filter(Boolean).forEach(window => quotaWindow(group, window));
+      quotaSection.append(group);
+    }
+  }
+  async function readUsage(api = "usage") {
+    if (usageBusy) return;
+    usageBusy = true;
+    refreshButton.disabled = accountButton.disabled = true;
+    if (api === "refresh-codex-account") usageStatus.textContent = "正在读取 Codex 账户用量与额度…";
+    try { const value = await request(api); applyUsage(value); lastUsageRead = Date.now(); }
+    catch (error) { usageStatus.textContent = "统计读取未完成：" + error.message; }
+    finally { usageBusy = false; refreshButton.disabled = accountButton.disabled = false; }
+  }
+  refreshButton.addEventListener("click", () => readUsage("refresh-usage"));
+  accountButton.addEventListener("click", () => readUsage("refresh-codex-account"));
   async function refresh() {
     if (!token || document.hidden || refreshing) return;
     refreshing = true;
@@ -438,18 +545,24 @@
     const button = event.target.closest("button");
     if (button?.dataset.metric || button?.dataset.range) { moreMetrics.value = Object.hasOwn(metricsByName, currentMetric) ? currentMetric : ""; readHistory().catch(error => status("历史读取失败：" + error.message)); }
     if (button?.dataset.page || button?.dataset.go) {
-      if ((button.dataset.page || button.dataset.go) === "overview") renderChart(); else clearChartHover();
+      if ((button.dataset.page || button.dataset.go) === "overview") { updateReadoutNumbers(); renderChart(); } else clearChartHover();
     }
     if (button?.dataset.page === "usage" || button?.dataset.go === "usage") { countdown(); if (!usage) readUsage(); }
   });
   document.addEventListener("visibilitychange", () => {
     timers();
-    if (document.hidden) { clearChartHover(); cancelPending(); } else { renderChart(); refresh(); }
+    if (document.hidden) { clearChartHover(); cancelPending(); } else { updateReadoutNumbers(); renderChart(); refresh(); }
   });
   window.addEventListener("pagehide", () => { clearChartHover(); clearInterval(refreshTimer); clearInterval(quotaTimer); cancelPending(); });
   bridge?.addEventListener("message", event => {
     const message = event.data;
-    if (message?.kind === "init") { token = message.token; sentTheme = null; syncWindowTheme(); timers(); refresh(); return; }
+    if (message?.kind === "init") {
+      token = message.token;
+      if (nativeBridge) root.dataset.windowState = message.windowState === "maximized" ? "maximized" : "normal";
+      sentTheme = null; syncWindowTheme(); timers(); refresh(); return;
+    }
+    if (nativeBridge && message?.kind === "window-state") { root.dataset.windowState = message.state === "maximized" ? "maximized" : "normal"; return; }
+    if (nativeBridge && message?.kind === "live-readout") { applyLiveReadout(message.value); return; }
     const item = pending.get(message?.id);
     if (!item) return;
     clearTimeout(item.timer); pending.delete(message.id);
@@ -460,6 +573,7 @@
     settingsButton.addEventListener("click",()=>request("show-settings").catch(error=>status(error.message)));$(".app-footer").append(settingsButton);
   }
   root.dataset.live = "true";
+  if (nativeBridge) root.dataset.nativeChrome = "true";
   text(".brand p", "本地系统守护"); text(".device-kind", "Windows · 本机运行");
   text(".ranking .section-subtitle", "单进程排行 · 前五项");
   text(".app-footer>span:first-child", "烛龙 · 本机监控与受限处置");
@@ -468,7 +582,6 @@
   text("#events .event-toolbar h3", "最近记录");
   $(".resource-strip").querySelectorAll("svg").forEach(element => element.remove());
   text("#detailDialog .overline", "观察详情");
-  text(".hero-facts>div:last-child>span", "范围内事件");
   processes.splice(0); events.splice(0); applyUsage(null); applyEvents(null); applyActions(null); applyHealth(null); applySnapshot(null);
   status(bridge ? "正在连接新版数据" : "请在烛龙桌面程序中打开");
   bridge?.postMessage({ kind: "ready" });

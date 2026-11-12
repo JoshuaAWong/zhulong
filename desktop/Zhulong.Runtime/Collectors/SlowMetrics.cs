@@ -12,7 +12,7 @@ namespace Zhulong.Runtime.Collectors;
 internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
 {
     static readonly string[] GpuKeys = ["gpu_temp", "gpu_util", "gpu_mem_used", "gpu_mem_total"];
-    static readonly string[] DiskKeys = ["io_read_mb_s", "io_write_mb_s", "disk_total_gb", "disk_free_gb", "disk_used_percent"];
+    static readonly string[] DiskKeys = ["io_read_mb_s", "io_write_mb_s", "disk_total_gb", "disk_free_gb", "disk_used_percent", "disk_temp_c"];
     static readonly string[] PingKeys = ["ping_gw_ms", "ping_net_ms", "ping_jitter_ms"];
     readonly object gate = new();
     readonly SemaphoreSlim running = new(1, 1);
@@ -50,10 +50,22 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
         }
         finally { running.Release(); }
     }
-    void Publish(Dictionary<string, MetricValue> update)
-    { lock (gate) foreach (var pair in update) { values[pair.Key] = pair.Value; refreshedAt[pair.Key] = Stopwatch.GetTimestamp(); } }
+    void Publish(Dictionary<string, MetricValue> update, bool replaceDiskTemperatures = false)
+    {
+        lock (gate)
+        {
+            if (replaceDiskTemperatures)
+                foreach (var key in values.Keys.Where(key => key.StartsWith("disk_", StringComparison.Ordinal) &&
+                    key.EndsWith("_temp_c", StringComparison.Ordinal) && !update.ContainsKey(key)).ToArray())
+                {
+                    values.Remove(key);
+                    refreshedAt.Remove(key);
+                }
+            foreach (var pair in update) { values[pair.Key] = pair.Value; refreshedAt[pair.Key] = Stopwatch.GetTimestamp(); }
+        }
+    }
     static string Unit(string key) => key.Contains("mb_s") ? "MB/s" : key.Contains("percent") || key == "gpu_util" ? "%" :
-        key.EndsWith("_ms") ? "ms" : key == "gpu_temp" ? "°C" : "GB";
+        key.EndsWith("_ms") ? "ms" : key == "gpu_temp" || key.EndsWith("_temp_c") ? "°C" : "GB";
     static Dictionary<string, MetricValue> Unknown(IEnumerable<string> keys, string state, string? label = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -146,10 +158,10 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
     async Task DisksAsync(CancellationToken token)
     {
         if (diskTask is null || diskTask.IsCompleted) diskTask = Task.Run(() => ReadDisks(token), token);
-        try { Publish(await diskTask.WaitAsync(TimeSpan.FromSeconds(3), token)); }
-        catch (TimeoutException) { Publish(Unknown(DiskKeys, "timeout")); }
-        catch (IOException) { Publish(Unknown(DiskKeys, "unavailable")); }
-        catch (UnauthorizedAccessException) { Publish(Unknown(DiskKeys, "unavailable")); }
+        try { Publish(await diskTask.WaitAsync(TimeSpan.FromSeconds(3), token), replaceDiskTemperatures: true); }
+        catch (TimeoutException) { Publish(Unknown(DiskKeys, "timeout"), replaceDiskTemperatures: true); }
+        catch (IOException) { Publish(Unknown(DiskKeys, "unavailable"), replaceDiskTemperatures: true); }
+        catch (UnauthorizedAccessException) { Publish(Unknown(DiskKeys, "unavailable"), replaceDiskTemperatures: true); }
     }
     Dictionary<string, MetricValue> ReadDisks(CancellationToken token)
     {
@@ -160,10 +172,26 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
         string? busiest = null;
         var available = false;
         var primed = false;
+        short? hottest = null;
+        string? hottestDrive = null;
+        var hottestSampledAt = now;
         for (var disk = 0; disk < 32; disk++)
         {
             token.ThrowIfCancellationRequested();
             var counters = NativeCounters.Disk(disk);
+            var (present, temperature) = NativeDiskTemperature.Read(disk);
+            if (present || counters.HasValue)
+            {
+                var name = "PhysicalDrive" + disk;
+                var sampledAt = DateTimeOffset.UtcNow;
+                SystemMonitor.Put(update, sampledAt, $"disk_{disk}_temp_c", temperature, "°C", name);
+                if (temperature.HasValue && (!hottest.HasValue || temperature.Value > hottest.Value))
+                {
+                    hottest = temperature;
+                    hottestDrive = name;
+                    hottestSampledAt = sampledAt;
+                }
+            }
             if (counters is not { } current) { previousDisks.Remove(disk); continue; }
             available = true;
             if (previousDisks.TryGetValue(disk, out var previous))
@@ -181,6 +209,7 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
         }
         SystemMonitor.Put(update, now, "io_read_mb_s", primed ? read : null, "MB/s", busiest, primed ? "ok" : available ? "warming" : "unavailable");
         SystemMonitor.Put(update, now, "io_write_mb_s", primed ? write : null, "MB/s", busiest, primed ? "ok" : available ? "warming" : "unavailable");
+        SystemMonitor.Put(update, hottestSampledAt, "disk_temp_c", hottest, "°C", hottestDrive);
         double total = 0, free = 0, maximum = -1;
         string? fullest = null;
         foreach (var drive in DriveInfo.GetDrives())

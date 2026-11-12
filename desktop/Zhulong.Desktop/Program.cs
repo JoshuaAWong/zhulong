@@ -78,10 +78,19 @@ internal static class Program
                 trayIcon = CreateIcon();
                 tray = new Forms.NotifyIcon { Text = "烛龙新版 · 朱印 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
                 tray.DoubleClick += (_, _) => OpenWindow();
+                SystemSnapshot? traySnapshot = null;
                 hub.Sampled += value => application.Dispatcher.BeginInvoke(() =>
                 {
                     if (!quitting && tray is not null)
-                        tray.Text = FormatTrayTooltip(value);
+                    {
+                        traySnapshot = value;
+                        tray.Text = FormatTrayTooltip(value, hub.LiveReadout);
+                    }
+                });
+                hub.ReadoutChanged += value => application.Dispatcher.BeginInvoke(() =>
+                {
+                    if (!quitting && tray is not null && traySnapshot is { } snapshot)
+                        tray.Text = FormatTrayTooltip(snapshot, value);
                 });
                 registration = ThreadPool.RegisterWaitForSingleObject(wake,
                     (_, _) => application.Dispatcher.BeginInvoke(OpenWindow), null, Timeout.Infinite, false);
@@ -114,14 +123,16 @@ internal static class Program
         }
     }
 
-    internal static string FormatTrayTooltip(SystemSnapshot value)
+    internal static string FormatTrayTooltip(SystemSnapshot value, LiveSystemReadout? readout = null)
     {
         static string Percent(double? number) => number is { } percent ? $"{percent:F0}%" : "—";
         static string Memory(double? percent, double? used, double? total) =>
             $"{Percent(percent)}{(used.HasValue && total.HasValue ? $" ({used:F1}/{total:F1} GB)" : "")}";
 
-        return $"烛龙新版 · 朱印\nCPU {Percent(value.CpuPercent)}\n" +
-            $"物理内存 {Memory(value.MemoryPercent, value.MemoryUsedGb, value.MemoryTotalGb)}\n" +
+        var cpu = readout is null ? value.CpuPercent : readout.CpuPercent;
+        var physical = readout is null ? Memory(value.MemoryPercent, value.MemoryUsedGb, value.MemoryTotalGb)
+            : Memory(readout.MemoryPercent, readout.MemoryUsedGb, readout.MemoryTotalGb);
+        return $"烛龙新版 · 朱印\nCPU {Percent(cpu)}\n物理内存 {physical}\n" +
             $"提交内存 {Memory(value.CommitPercent, value.CommitUsedGb, value.CommitLimitGb)}";
     }
 

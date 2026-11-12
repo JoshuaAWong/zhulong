@@ -178,3 +178,46 @@ html[data-live] #events .event-toolbar { padding-bottom:8px; }
 html[data-live] #events .event-list { min-height:0; max-height:clamp(240px,calc(100dvh - 230px),640px); overflow:auto; padding:4px; }
 html[data-live] #events .event-item { padding:13px 8px; }
 @media(max-width:919px) { html[data-live] #events .event-list { max-height:none; } }
+
+/* 桌面原生标题行承载应用标识，页面继续承载外观与导航。 */
+html[data-live][data-native-chrome] .app-head { height:38px; padding-top:0; }
+html[data-live][data-native-chrome] .app-head .brand { display:none; }
+html[data-live][data-native-chrome] .app-head .device { margin-left:0; }
+html[data-live] .hero-facts small { display:block; white-space:nowrap; }
+.live-process-meta,.live-device-sensors,html[data-live] .notes .timeline { display:none; }
+.live-refresh+.live-refresh { margin-left:18px; }
+.live-account-days { margin:10px 0; }
+html[data-live] .token-breakdown h3 { margin-top:18px; font-size:14px; }
+
+@media (min-width:1360px) and (min-height:740px) {
+  html[data-live][data-window-state="maximized"] #overview .workspace {
+    grid-template-columns:clamp(230px,18vw,290px) minmax(0,1fr) clamp(245px,19vw,314px);
+    gap:18px;
+  }
+  html[data-live][data-window-state="maximized"] #overview #chartContainer { height:clamp(184px,24dvh,320px); }
+  html[data-live][data-window-state="maximized"] #overview .live-metric-strip {
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:0 8px;
+    padding:0;
+  }
+  html[data-live][data-window-state="maximized"] #overview .live-metric-strip button { gap:3px; padding:5px 7px; }
+  html[data-live][data-window-state="maximized"] .live-process-meta {
+    display:block;
+    padding:4px 0 0 34px;
+    color:var(--muted);
+    font-size:10px;
+    overflow-wrap:anywhere;
+  }
+  html[data-live][data-window-state="maximized"] .live-device-sensors { display:flex; flex-wrap:wrap; gap:6px 12px; order:1; padding:2px 6px; }
+  .live-device-temperature { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:4px 7px; color:var(--muted); font-size:11px; }
+  .live-device-temperature strong { color:var(--ink); font-weight:500; }
+  html[data-live][data-window-state="maximized"] .notes .timeline:not(:empty) { display:grid; gap:4px; margin:0; padding:0; }
+  html[data-live][data-window-state="maximized"] .notes .timeline li { display:grid; gap:3px; margin:0; padding:4px 0; overflow-wrap:anywhere; }
+}
+
+@media (max-width:560px) {
+  html[data-live] .resource-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  html[data-live] .resource-strip .resource { border:0; }
+  html[data-live] .navigation-row .tabs { min-width:0; gap:12px; flex-wrap:wrap; }
+}

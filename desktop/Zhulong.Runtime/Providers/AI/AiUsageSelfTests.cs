@@ -126,6 +126,7 @@ public static class AiUsageSelfTests
             Check(CodexSessionSnapshots.ReadBatchInto(store, sourcePath).Rows == 256, "取消后必须可从同一批次重试");
         }
         await CheckStableFileMetadataAsync(test, now, Check);
+        await CheckAccountAsync(test, home, now, Check);
         return assertions;
     }
 
@@ -183,6 +184,93 @@ public static class AiUsageSelfTests
         writer.Dispose();
         using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         check(exclusive.CanRead, "Stop必须释放持久观察连接的源文件句柄");
+    }
+
+    static async Task CheckAccountAsync(string directory, string home, DateTimeOffset now, Action<bool, string> check)
+    {
+        using var quotaJson = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            rateLimitsByLimitId = new Dictionary<string, object>
+            {
+                ["codex"] = new { primary = new { usedPercent = 0, windowDurationMins = 10080, resetsAt = now.AddHours(1).ToUnixTimeSeconds() } },
+                ["other"] = new { secondary = new { usedPercent = 80, resetsAt = now.AddHours(-1).ToUnixTimeSeconds() } }
+            }
+        }));
+        using var usageJson = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            summary = new { lifetimeTokens = 123456L },
+            dailyUsageBuckets = new[] { new { startDate = now.ToString("yyyy-MM-dd"), tokens = 0L } }
+        }));
+        var quota = CodexAccountClient.ParseQuota(quotaJson.RootElement, now);
+        var usage = CodexAccountClient.ParseUsage(usageJson.RootElement, now);
+        var reading = new CodexAccountReading("chatgpt", "pro", "ok", "ok", quota, usage);
+        var called = 0;
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var service = new AiUsageService(Path.Combine(directory, "account.db"), home, async (_, token) =>
+        {
+            switch (++called)
+            {
+                case 1: return reading;
+                case 2: return CodexAccountReading.Unavailable("timeout");
+                case 3: return reading with { Usage = null, UsageStatus = "unsupported" };
+                case 4: return new("api_key", null, "auth_unsupported", "auth_unsupported");
+                default:
+                    waiting.SetResult();
+                    await Task.Delay(Timeout.Infinite, token);
+                    return reading;
+            }
+        });
+        using (var scan = JsonDocument.Parse(await service.RefreshAsync()))
+        {
+            check(called == 0 && scan.RootElement.GetProperty("account_quota").GetProperty("state").GetString() == "not_checked",
+                "本地扫描不能启动账户查询");
+            check(scan.RootElement.GetProperty("account_usage").GetProperty("lifetime_tokens").ValueKind == JsonValueKind.Null,
+                "从未读取账户时 Token 用量必须未知");
+        }
+        using (var first = JsonDocument.Parse(await service.RefreshAccountAsync()))
+        {
+            var result = first.RootElement.GetProperty("account_quota");
+            var windows = result.GetProperty("windows");
+            var primary = windows[0].GetProperty("primary");
+            var expired = windows[1].GetProperty("secondary");
+            check(result.GetProperty("state").GetString() == "fresh" && windows.GetArrayLength() == 2, "套餐桶必须独立保留");
+            check(primary.GetProperty("remaining_percent").GetDouble() == 100 &&
+                primary.GetProperty("remaining_seconds").GetInt64() > 0, "实际零使用量应转换为全额剩余与重置倒计时");
+            check(expired.GetProperty("status").GetString() == "awaiting_refresh" &&
+                expired.GetProperty("remaining_percent").ValueKind == JsonValueKind.Null, "已重置窗口不得推断当前剩余");
+            var tokens = first.RootElement.GetProperty("account_usage");
+            check(tokens.GetProperty("lifetime_tokens").GetInt64() == 123456 &&
+                tokens.GetProperty("daily_usage_buckets")[0].GetProperty("tokens").GetInt64() == 0, "账户总量与实际日用量零值均应保留");
+        }
+        await service.RefreshAccountAsync();
+        using (var stale = JsonDocument.Parse(await service.ReportAsync()))
+        {
+            var result = stale.RootElement.GetProperty("account_quota");
+            var primary = result.GetProperty("windows")[0].GetProperty("primary");
+            check(result.GetProperty("state").GetString() == "stale" && result.GetProperty("attempt_status").GetString() == "timeout" &&
+                primary.GetProperty("remaining_percent").ValueKind == JsonValueKind.Null, "刷新失败只保留可识别的历史快照");
+        }
+        using (var partial = JsonDocument.Parse(await service.RefreshAccountAsync()))
+        {
+            var result = partial.RootElement.GetProperty("account_usage");
+            check(result.GetProperty("state").GetString() == "unsupported" &&
+                result.GetProperty("lifetime_tokens").ValueKind == JsonValueKind.Null, "认证成功后的部分结果不能混入旧账户用量");
+        }
+        using (var unsupported = JsonDocument.Parse(await service.RefreshAccountAsync()))
+        {
+            var result = unsupported.RootElement.GetProperty("account_quota");
+            check(result.GetProperty("auth_mode").GetString() == "api_key" &&
+                result.GetProperty("windows").GetArrayLength() == 0 &&
+                unsupported.RootElement.GetProperty("account_usage").GetProperty("lifetime_tokens").ValueKind == JsonValueKind.Null,
+                "切换到 API key 必须清除先前订阅快照");
+        }
+        var pending = service.RefreshAccountAsync();
+        await waiting.Task;
+        using (var coalesced = JsonDocument.Parse(await service.RefreshAccountAsync()))
+            check(called == 5 && coalesced.RootElement.GetProperty("account_quota").GetProperty("refreshing").GetBoolean(),
+                "账户查询重复触发时只能有一个在途请求");
+        await service.StopAsync();
+        check(pending.IsCanceled, "退出必须取消并收束在途账户查询");
     }
 
     static SqliteConnection Open(string path)

@@ -12,8 +12,11 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
     readonly CodexStateObserver stateObserver = new();
     readonly string home;
     readonly SemaphoreSlim refreshing = new(1, 1);
+    readonly SemaphoreSlim refreshingAccount = new(1, 1);
     readonly CancellationTokenSource stopped = new();
     readonly object stateGate = new();
+    readonly Func<string, CancellationToken, Task<CodexAccountReading>> readAccount;
+    static readonly TimeSpan QuotaFreshFor = TimeSpan.FromMinutes(15);
     IncrementalSources? sources;
     string? activeSource;
     string? completedStateSignature;
@@ -26,9 +29,18 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
     long bytesRead;
     int visitedEntries;
     int scanning;
+    int checkingAccount;
+    CodexAccountReading? accountAttempt;
+    AccountQuotaReading? accountQuota;
+    AccountUsageReading? accountUsage;
+    DateTimeOffset? accountAttemptAt;
     bool disposed;
 
     public AiUsageService(string databasePath, string? codexHome = null)
+        : this(databasePath, codexHome, CodexAccountClient.ReadAsync) { }
+
+    internal AiUsageService(string databasePath, string? codexHome,
+        Func<string, CancellationToken, Task<CodexAccountReading>> readAccount)
     {
         var path = Path.GetFullPath(databasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -36,6 +48,7 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex"));
         store = new UsageStore(path);
         scanner = new CodexScanner(store);
+        this.readAccount = readAccount;
     }
 
     public async Task<string> RefreshAsync(CancellationToken cancellationToken = default)
@@ -143,6 +156,46 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
         return Task.FromResult(Query());
     }
 
+    // 账户读取由用户显式触发，与每分钟本地扫描独立。
+    public async Task<string> RefreshAccountAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stopped.Token, cancellationToken);
+        if (!await refreshingAccount.WaitAsync(0, linked.Token).ConfigureAwait(false)) return Query();
+        Volatile.Write(ref checkingAccount, 1);
+        try
+        {
+            var result = await readAccount(home, linked.Token).ConfigureAwait(false);
+            linked.Token.ThrowIfCancellationRequested();
+            lock (stateGate)
+            {
+                var signedOut = result.QuotaStatus is "not_signed_in" or "auth_unsupported";
+                if (signedOut || result.AuthMode == "chatgpt")
+                {
+                    // 不保留账户标识。同一次已认证读取只采用同次返回的数据，避免跨账户混用。
+                    accountQuota = null;
+                    accountUsage = null;
+                }
+                accountQuota = result.Quota ?? accountQuota;
+                accountUsage = result.Usage ?? accountUsage;
+                // 仅保留最近尝试状态，账户聚合快照由各自字段保存。
+                accountAttempt = result with
+                {
+                    AuthMode = result.AuthMode ?? (signedOut ? null : accountAttempt?.AuthMode),
+                    PlanType = result.PlanType ?? (signedOut ? null : accountAttempt?.PlanType),
+                    Quota = null, Usage = null
+                };
+                accountAttemptAt = DateTimeOffset.UtcNow;
+            }
+        }
+        finally
+        {
+            Volatile.Write(ref checkingAccount, 0);
+            refreshingAccount.Release();
+        }
+        return Query();
+    }
+
     // 查询只使用已提交缓存；额度倒计时只做日期运算，不重新扫描来源或聚合全库。
     public string Query()
     {
@@ -152,6 +205,10 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
         DateTimeOffset? success;
         long bytes;
         int entries;
+        CodexAccountReading? attempt;
+        AccountQuotaReading? quotaReading;
+        AccountUsageReading? usageReading;
+        DateTimeOffset? attemptAt;
         lock (stateGate)
         {
             report = cachedReport;
@@ -160,6 +217,10 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
             success = lastSuccess;
             bytes = bytesRead;
             entries = visitedEntries;
+            attempt = accountAttempt;
+            quotaReading = accountQuota;
+            usageReading = accountUsage;
+            attemptAt = accountAttemptAt;
         }
         var now = DateTimeOffset.UtcNow;
         var data = report is null ? null : JsonNode.Parse(report);
@@ -168,28 +229,81 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
         if (data?["quota"] is JsonArray quotas)
             foreach (var quota in quotas.OfType<JsonObject>())
             {
+                var stale = true;
                 if (DateTimeOffset.TryParse((string?)quota["observed_at"], out var observed))
+                {
                     quota["snapshot_age_seconds"] = Math.Max(0, (now - observed).TotalSeconds);
+                    stale = now - observed > QuotaFreshFor;
+                }
+                quota["state"] = stale ? "stale" : "snapshot";
                 foreach (var name in new[] { "primary", "secondary" })
                     if (quota[name] is JsonObject window)
                     {
+                        window["status"] = stale ? "stale" : "snapshot";
                         if (DateTimeOffset.TryParse((string?)window["resets_at"], out var reset))
                         {
                             var remaining = Math.Max(0, Math.Ceiling((reset - now).TotalSeconds));
                             window["remaining_seconds"] = remaining;
-                            window["status"] = remaining == 0 ? "awaiting_refresh" : "snapshot";
+                            if (remaining == 0) window["status"] = "awaiting_refresh";
                         }
+                        if (stale || (string?)window["status"] == "awaiting_refresh") window["remaining_percent"] = null;
                     }
             }
+        var quotaStatus = AccountState(quotaReading?.FetchedAt, attempt?.QuotaStatus, now);
+        var usageStatus = AccountState(usageReading?.FetchedAt, attempt?.UsageStatus, now);
+        var refreshingAccountNow = Volatile.Read(ref checkingAccount) != 0;
+        var windows = quotaReading?.Buckets.Select(bucket => new
+        {
+            limit_id = bucket.LimitId, limit_name = bucket.LimitName,
+            primary = QuotaView(bucket.Primary, quotaStatus, now),
+            secondary = QuotaView(bucket.Secondary, quotaStatus, now)
+        }).ToArray() ?? [];
+        if (quotaStatus == "fresh" && windows.Length > 0 && windows.All(window =>
+            (window.primary is null || (string?)window.primary["status"] == "awaiting_refresh") &&
+            (window.secondary is null || (string?)window.secondary["status"] == "awaiting_refresh")))
+            quotaStatus = "awaiting_refresh";
         return JsonSerializer.Serialize(new
         {
             report = data, error = lastError, scanning = Volatile.Read(ref scanning) != 0,
             last_success_at = success, source_state = sourceState, bytes_read = bytes,
             discovery_entries = entries, metadata_pending = metadataPending,
+            account_quota = new
+            {
+                state = quotaStatus, source = "codex_app_server", auth_mode = attempt?.AuthMode, plan_type = attempt?.PlanType,
+                fetched_at = quotaReading?.FetchedAt, last_attempt_at = attemptAt, attempt_status = attempt?.QuotaStatus,
+                refreshing = refreshingAccountNow, windows
+            },
+            account_usage = new
+            {
+                state = usageStatus, source = "codex_app_server", fetched_at = usageReading?.FetchedAt,
+                last_attempt_at = attemptAt, attempt_status = attempt?.UsageStatus, refreshing = refreshingAccountNow,
+                lifetime_tokens = usageReading?.LifetimeTokens,
+                daily_usage_buckets = usageReading?.Days?.Select(day => new { start_date = day.StartDate, tokens = day.Tokens })
+            },
             providers = new[] { new { tool = "codex", provider = "openai", state = sourceState },
                 new { tool = "kimi", provider = "moonshot", state = "not_implemented" },
                 new { tool = "zcode", provider = "model_dependent", state = "not_implemented" } }
         });
+    }
+
+    static string AccountState(DateTimeOffset? fetchedAt, string? attemptStatus, DateTimeOffset now) =>
+        fetchedAt is null ? attemptStatus ?? "not_checked"
+            : attemptStatus == "ok" && now - fetchedAt.Value <= QuotaFreshFor ? "fresh" : "stale";
+
+    static JsonObject? QuotaView(QuotaWindow? window, string quotaStatus, DateTimeOffset now)
+    {
+        if (window is null) return null;
+        var seconds = window.ResetsAt is { } reset ? Math.Max(0, Math.Ceiling((reset - now).TotalSeconds)) : (double?)null;
+        var status = seconds == 0 ? "awaiting_refresh" : quotaStatus;
+        return new JsonObject
+        {
+            ["used_percent"] = window.UsedPercent,
+            ["remaining_percent"] = status == "fresh" && window.UsedPercent is { } used ? Math.Clamp(100 - used, 0, 100) : null,
+            ["window_minutes"] = window.WindowMinutes,
+            ["resets_at"] = window.ResetsAt?.ToString("O"),
+            ["remaining_seconds"] = seconds,
+            ["status"] = status
+        };
     }
 
     static string StateSignature(string path)
@@ -208,6 +322,8 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
     public async Task StopAsync()
     {
         stopped.Cancel();
+        await refreshingAccount.WaitAsync().ConfigureAwait(false);
+        refreshingAccount.Release();
         await refreshing.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -224,6 +340,7 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
         await StopAsync().ConfigureAwait(false);
         store.Dispose();
         refreshing.Dispose();
+        refreshingAccount.Dispose();
         stopped.Dispose();
     }
 
