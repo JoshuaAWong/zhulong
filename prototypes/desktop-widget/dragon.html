@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="day">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>烛龙 · 盘龙竖条</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dragon.css">
+  <script defer src="dragon.js"></script>
+</head>
+<body>
+  <main class="spread dragon-preview">
+    <header class="page-head">
+      <div class="title-lockup">
+        <img src="../../desktop/Zhulong.Desktop/Assets/zhulong-next.png" width="54" height="54" alt="">
+        <div>
+          <h1>盘龙竖条</h1>
+          <p>悬停展开，点击固定，拖动换边。读数为示例。</p>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="choice" role="group" aria-label="昼夜主题">
+          <button type="button" data-theme-option="day" aria-pressed="true">昼</button>
+          <button type="button" data-theme-option="night" aria-pressed="false">夜</button>
+        </div>
+        <div class="choice" role="group" aria-label="贴边方向">
+          <button type="button" data-edge-option="left" aria-pressed="false">左侧</button>
+          <button type="button" data-edge-option="right" aria-pressed="true">右侧</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="desk dragon-desk" data-edge="right" aria-label="桌面模拟预览">
+      <div class="dragon-dock">
+        <button class="dragon-handle" type="button" aria-label="物理内存 54%，展开或固定挂件"
+          aria-controls="dragon-panel" aria-expanded="false">
+          <img class="dragon-art" src="dragon-ink.png" alt="" draggable="false">
+          <span class="dragon-track" aria-hidden="true"><i></i></span>
+          <span class="dragon-reading" aria-hidden="true">54<small>%</small></span>
+        </button>
+        <section id="dragon-panel" class="flyout dragon-panel" aria-label="烛龙实时状态" hidden>
+          <header class="flyout-head">
+            <div class="flyout-tabs" role="group" aria-label="挂件视图">
+              <button type="button" data-view="system" aria-pressed="true">系统</button>
+              <button type="button" data-view="ai" aria-pressed="false">AI 额度</button>
+            </div>
+            <div class="dragon-panel-actions">
+              <button type="button" class="pin-flyout" aria-pressed="false">固定</button>
+              <button type="button" class="close-flyout" aria-label="收起挂件">×</button>
+            </div>
+          </header>
+          <div data-panel="system">
+            <dl class="system-metrics">
+              <div><dt>CPU</dt><dd>28<small>%</small></dd></div>
+              <div><dt>物理内存</dt><dd>54<small>%</small></dd><dd class="dragon-memory-total">33.3 / 61.7 GB</dd></div>
+            </dl>
+            <dl class="commit-metric">
+              <div><dt>提交内存</dt><dd>73<small>%</small></dd></div>
+            </dl>
+            <div class="commit-track" aria-hidden="true"><span></span></div>
+            <dl class="dragon-network">
+              <div><dt>下载</dt><dd>2.4 MB/s</dd></div>
+              <div><dt>上传</dt><dd>128 KB/s</dd></div>
+            </dl>
+            <p class="alert-line">提交内存接近提醒线</p>
+          </div>
+          <div data-panel="ai" hidden>
+            <dl class="quota-list">
+              <div><dt>Codex <small>周额度</small></dt><dd>84% <small>明日重置</small></dd></div>
+              <div><dt>Kimi <small>主账号 · 5 小时</small></dt><dd>96% <small>2 小时重置</small></dd></div>
+              <div><dt>Kimi <small>第二账号 · 周额度</small></dt><dd>71% <small>3 天重置</small></dd></div>
+              <div><dt>GLM <small>5 小时额度</small></dt><dd>58% <small>1 小时重置</small></dd></div>
+              <div><dt>DeepSeek <small>API 余额</small></dt><dd>¥ 42.86</dd></div>
+            </dl>
+            <p class="sample-note">示例更新于 17:24</p>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
