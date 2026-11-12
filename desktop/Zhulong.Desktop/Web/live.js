@@ -292,6 +292,7 @@
       io: Number.isFinite(item.readMbS) && Number.isFinite(item.writeMbS) ? item.readMbS + item.writeMbS : null,
       createdTicks: item.createdTicks, path: item.executablePath })));
     const percent = value?.commitPercent;
+    const ratio = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
     const stale = sampleState({ value: percent, sampledAt: value?.timestamp }) === "旧采样";
     const state = !Number.isFinite(percent) ? ["候", "等待采样"] : health?.paused ? ["候", "处置已暂停"] : stale ? ["候", "等待新样本"] : percent >= 85 ? ["慎", "提交水位偏高"] : ["安", "当前平稳"];
     text(".verdict-character", state[0]); text(".verdict h2", state[1]);
@@ -299,9 +300,15 @@
     const facts = all(".hero-facts strong");
     facts[0].textContent = number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB";
     const dial = $(".instrument-dial");
-    dial.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => arc.setAttribute("stroke-dasharray", (Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + " 100"));
-    const caption = dial.querySelector(".dial-caption strong"); if (caption) caption.textContent = number(percent) + "%";
-    dial.setAttribute("aria-label", "提交内存占用 " + number(percent) + "%" + (stale ? "，旧采样" : ""));
+    dial.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => arc.setAttribute("stroke-dasharray", (ratio ?? 0) + " 100"));
+    const inkRatio = ratio ?? 50;
+    const core = dial.querySelector(".taiji-core");
+    if (core && core.dataset.inkRatio !== String(inkRatio)) {
+      core.innerHTML = balanceCoreMarkup(inkRatio);
+      core.dataset.inkRatio = String(inkRatio);
+    }
+    const caption = dial.querySelector(".dial-caption strong"); if (caption) caption.textContent = ratio === null ? "—" : percentText(ratio);
+    dial.setAttribute("aria-label", "提交内存占用 " + percentText(ratio) + (stale ? "，旧采样" : ""));
     dial.setAttribute("title", "提交 " + number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB，采样于 " + date(value?.timestamp));
     const showResource = (key, amount, note) => { text(".resource[data-detail='" + key + "'] strong", amount); text(".resource[data-detail='" + key + "'] span:last-child", note); };
     showResource("cpu", percentText(newestReadout()?.cpuPercent), "单核峰值 " + metricText("cpu_max_core"));

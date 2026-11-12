@@ -69,6 +69,7 @@ document.addEventListener("click", event => {
   if (!control || applyingTone) return;
   event.preventDefault();
   event.stopImmediatePropagation();
+  if (event.detail > 0 && control.hasAttribute("data-taiji-toggle") && document.activeElement === control) control.blur();
   const tone = control.dataset.unifiedTone || nextInkTone();
   const center = controlCenter(control);
   revealInkTheme(tone, event.detail > 0 ? event.clientX : center.x, event.detail > 0 ? event.clientY : center.y);

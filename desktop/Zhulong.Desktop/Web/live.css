@@ -82,6 +82,8 @@ html[data-live] .app-head {
   padding-inline:var(--live-gutter);
   background:var(--surface);
 }
+/* 菜单展开时让页头越过内容区的同级堆叠层。 */
+html[data-live] .app-head:has(.appearance[open]) { z-index:2; }
 html[data-live] .concept-body,html[data-live] .concept-main { display:flex; flex:1; flex-direction:column; min-height:0; }
 html[data-live] .concept-main { position:relative; }
 html[data-live] .navigation-row { padding:3px 0 6px; gap:16px; }
@@ -180,6 +182,9 @@ html[data-live] #events .event-item { padding:13px 8px; }
 @media(max-width:919px) { html[data-live] #events .event-list { max-height:none; } }
 
 /* 页头窗控与外观同排，留白仍是独立拖动区。 */
+html[data-native-chrome] body { user-select:none; }
+html[data-native-chrome] :is(input,textarea,[contenteditable]:not([contenteditable="false"])) { user-select:text; }
+html[data-native-chrome] :is(.scene-art img,.app-head .brand) { -webkit-user-drag:none; }
 .window-drag,.window-controls[hidden] { display:none; }
 html[data-native-chrome] .window-drag { display:block; flex:1; min-width:24px; align-self:stretch; user-select:none; touch-action:none; }
 html[data-native-drag="true"] .window-drag { -webkit-app-region:drag; app-region:drag; }

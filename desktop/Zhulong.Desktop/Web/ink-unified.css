@@ -38,6 +38,7 @@
   [data-motion="on"] [data-taiji-toggle] .taiji-core { transition:transform 360ms ease-in-out; }
   [data-motion="on"] [data-taiji-toggle]:hover .taiji-core { transform:scale(1.5892857143); }
 }
+[data-taiji-toggle]:focus:not(:focus-visible) { outline:none; }
 [data-taiji-toggle]:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:50%; }
 .taiji-hint { display:block; text-align:center; white-space:nowrap; font-size:10px; margin-left:-16px; margin-right:-16px; }
 :is(.instrument-dial,.demo-meter) .bagua-field { position:absolute; left:0; top:0; width:100%; aspect-ratio:1; margin:0; pointer-events:none; z-index:3; }
