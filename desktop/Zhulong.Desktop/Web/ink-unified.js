@@ -89,7 +89,7 @@ function bloomInk(target) {
   const animation = node.animate([
     { opacity:0, transform:"scale(.48,.66)" },
     { opacity:.26, transform:"scale(.8,.88)", offset:.32 },
-    { opacity:0, transform:"scale(1.12,1.06)" }
+    { opacity:0, transform:target.matches("html[data-live] .ranking") ? "scale(1)" : "scale(1.12,1.06)" }
   ], { duration:900, easing:"cubic-bezier(.2,.65,.3,1)" });
   activeBloom = { node, animation };
   animation.onfinish = animation.oncancel = () => {

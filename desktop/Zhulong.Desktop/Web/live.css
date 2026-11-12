@@ -99,6 +99,8 @@ html[data-live] .resource-strip .resource span:last-child { display:block; font-
 html[data-live] .live-metric-select { min-height:28px; max-width:118px; }
 html[data-live] .notice { overflow-wrap:anywhere; }
 html[data-live] :is(.notice,.event-list):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+/* 进程面板的墨晕从面板内展开，避免动画扩大可滚动区域。 */
+html[data-live] .ranking>.ink-bloom { inset:0; }
 
 @media(min-width:920px) {
   html[data-live] .concept-main:has(#overview:not([hidden])) { --live-hero-height:clamp(118px,16vh,152px); }
