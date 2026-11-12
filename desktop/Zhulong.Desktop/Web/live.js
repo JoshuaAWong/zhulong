@@ -3,6 +3,48 @@
 (() => {
   const nativeBridge = window.chrome?.webview;
   const bridge = nativeBridge || window.zhulongPortalBridge;
+  const windowMenu = $("#windowMenu");
+  function setWindowMode(value) {
+    const maximized = value === "maximized";
+    root.dataset.windowState = maximized ? "maximized" : "normal";
+    text("#windowMenu [data-window-command='toggle-maximize']", maximized ? "还原窗口" : "最大化");
+  }
+  function windowCommand(command) {
+    if (nativeBridge && token) nativeBridge.postMessage({ kind: "window-command", token, command });
+  }
+  function initWindowMenu() {
+    if (!nativeBridge || !windowMenu) return;
+    windowMenu.hidden = false;
+    const summary = windowMenu.querySelector("summary"), drag = $(".window-drag");
+    windowMenu.addEventListener("click", event => {
+      const command = event.target.closest("[data-window-command]")?.dataset.windowCommand;
+      if (!command) return;
+      windowMenu.open = false;
+      summary.focus();
+      windowCommand(command);
+    });
+    windowMenu.addEventListener("keydown", event => {
+      if (event.key !== "Escape" || !windowMenu.open) return;
+      event.preventDefault();
+      windowMenu.open = false;
+      summary.focus();
+    });
+    document.addEventListener("pointerdown", event => {
+      if (windowMenu.open && !windowMenu.contains(event.target)) windowMenu.open = false;
+    });
+    let start;
+    drag.addEventListener("pointerdown", event => {
+      if (root.dataset.nativeDrag !== "true" && event.isPrimary && event.button === 0) start = [event.clientX, event.clientY];
+    });
+    drag.addEventListener("pointermove", event => {
+      if (!start || !(event.buttons & 1) || Math.hypot(event.clientX - start[0], event.clientY - start[1]) < 4) return;
+      start = null;
+      windowCommand("drag");
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(type => drag.addEventListener(type, () => start = null));
+    drag.addEventListener("dblclick", () => { if (root.dataset.nativeDrag !== "true") windowCommand("toggle-maximize"); });
+  }
+
   const pending = new Map(), histories = new Map();
   let token = null, sequence = 0, refreshTimer = null, quotaTimer = null;
   let latest = null, liveReadout = null, usage = null, lastUsageRead = 0, refreshing = false, usageBusy = false;
@@ -388,12 +430,27 @@
   }
   const ledger = $(".ledger"), quotaSection = node("section", undefined, "panel live-quota");
   quotaSection.append(node("h2", "套餐额度与重置")); $("#usage .usage-layout").before(quotaSection);
-  const refreshButton = node("button", "刷新 Codex 统计", "text-button live-refresh");
-  const usageStatus = node("p", "等待读取本地 Codex 统计", "fine-print live-usage-status");
+  const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）" };
+  let selectedTool = "codex";
+  const toolPicker = node("div", undefined, "usage-tool-picker");
+  toolPicker.setAttribute("role", "group");
+  toolPicker.setAttribute("aria-label", "AI 工具");
+  for (const [tool, label] of Object.entries(toolNames)) {
+    const button = node("button", label, "text-button");
+    button.dataset.usageTool = tool;
+    button.addEventListener("click", () => { selectedTool = tool; applyUsage(usage); });
+    toolPicker.append(button);
+  }
+  const refreshButton = node("button", "刷新本机记录", "text-button live-refresh");
+  const usageStatus = node("p", "等待读取本机记录", "fine-print live-usage-status");
+  usageStatus.setAttribute("role", "status");
   const accountButton = node("button", "更新账户用量与额度", "text-button live-refresh");
-  $("#usage .page-title>div").append(refreshButton);
-  if (nativeBridge) $("#usage .page-title>div").append(accountButton);
-  $("#usage .page-title>div").append(usageStatus);
+  const providerSettings = node("button", "账户来源设置", "text-button live-refresh");
+  providerSettings.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
+  const usageHeading = $("#usage .page-title>div");
+  usageHeading.append(toolPicker);
+  if (nativeBridge) usageHeading.append(refreshButton, accountButton, providerSettings);
+  usageHeading.append(usageStatus);
   function sessionTable(rows, metadata) {
     const table = node("table"), head = node("thead"), header = node("tr"), body = node("tbody");
     ["会话", metadata ? "累计快照" : "已采集用量", metadata ? "来源" : "模型", "时间"].forEach(value => header.append(node("th", value)));
@@ -421,8 +478,12 @@
   }
   function applyUsage(value) {
     const wrapper = value && Object.hasOwn(value, "report") ? value : null;
-    value = wrapper ? wrapper.report : value;
     usage = value; quotaRows = [];
+    accountButton.hidden = selectedTool !== "codex";
+    providerSettings.hidden = selectedTool === "codex";
+    for (const button of toolPicker.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.usageTool === selectedTool));
+    if (selectedTool !== "codex") { renderProviderUsage(wrapper?.provider_reports?.find(provider => provider.tool === selectedTool)); return; }
+    value = wrapper ? wrapper.report : value;
     const totals = value?.totals;
     const accountUsage = wrapper?.account_usage, accountQuota = wrapper?.account_quota;
     text(".ai-summary h2", "Codex 已采集用量"); text(".ai-summary p", number(totals?.total_tokens, 0) + " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
@@ -468,10 +529,16 @@
     const row = node("div", undefined, "live-quota-window"), clock = node("p", "等待计算", "live-countdown");
     const used = window.used_percent;
     const remaining = window.remaining_percent;
-    const duration = window.window_minutes === 10080 ? "7 天窗口" : window.window_minutes === 300 ? "5 小时窗口" : window.window_minutes ? number(window.window_minutes, 0) + " 分钟窗口" : window.name || "额度窗口";
+    const knownNames = { limit5h: "5 小时窗口", limit7d: "7 天窗口", monthTotal: "本月总额度", monthCode: "本月代码额度" };
+    const duration = knownNames[window.name] || (window.window_minutes === 10080 ? "7 天窗口" : window.window_minutes === 300 ? "5 小时窗口" : window.window_minutes ? number(window.window_minutes, 0) + " 分钟窗口" : window.name || "额度窗口");
     const label = duration + " · 已用 " + percentText(used);
     const summary = node("strong", label + " · 剩余 " + percentText(remaining));
-    row.append(summary, node("p", "重置时间 " + date(window.resets_at)), clock);
+    row.append(summary);
+    if (Number.isFinite(window.used_units) || Number.isFinite(window.total_units)) {
+      const unit = window.unit ? " " + window.unit : "";
+      row.append(node("p", "已用 " + number(window.used_units, 2) + " / 总额 " + number(window.total_units, 2) + unit));
+    }
+    row.append(node("p", "重置时间 " + date(window.resets_at)), clock);
     quotaRows.push({ target: clock, reset: window.resets_at, label, summary });
     group.append(row);
   }
@@ -506,14 +573,81 @@
       quotaSection.append(group);
     }
   }
-  async function readUsage(api = "usage") {
+  function providerState(state, hasData) {
+    const labels = {
+      not_configured: "尚未配置账户来源", not_checked: "尚未读取账户数据", not_observed: "尚未观察到本机来源",
+      stale: "显示上次成功读取的数据", login_required: "账户需要登录", not_signed_in: "账户需要登录",
+      auth_required: "需要验证账户来源", unsupported: "该来源未提供账户额度", unsupported_auth: "认证方式不支持额度读取",
+      scanning: "正在补录本机历史", partial: "部分记录暂不可读", source_missing: "本机来源当前不可用", local_sources: "已读取本机记录",
+      cli_unavailable: "未找到 Kimi Code CLI", cli_unsupported: "当前 Kimi CLI 不支持账户接口", auth_rejected: "Key 未通过套餐接口验证",
+      auth_expired: "登录已过期", duplicate_account: "两个来源登录了同一账户", duplicate_profile: "此账户来源目录已被使用",
+      rate_limited: "达到读取频率限制", timeout: "读取超时", unavailable: "数据暂不可用", error: "读取失败"
+    };
+    return labels[state] || (hasData ? "已读取" : "暂未获取数据");
+  }
+  function renderProviderUsage(provider) {
+    const label = toolNames[selectedTool], report = provider?.report, totals = report?.totals;
+    const accounts = Array.isArray(provider?.accounts) ? provider.accounts : [];
+    text("#usage .page-title h2", label + " 会话账本");
+    text("#usage .page-title>div>p:nth-of-type(2)", "账户数据按来源展示。共享本机记录列在待归属会话中。");
+    const summary = all(".usage-summary>div");
+    const count = report?.session_count ?? report?.sessions?.length;
+    ["待归属 Token", Number.isFinite(report?.session_count) ? "待归属会话" : "已列出会话记录", "账户来源"].forEach((item, index) => summary[index].querySelector("span").textContent = item);
+    [number(totals?.total_tokens, 0), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
+    ledger.replaceChildren(node("h2", "本机待归属会话"), sessionTable(report?.sessions || [], false),
+      node("p", "会话没有可确认的账户归属。最多显示 100 行。", "fine-print"));
+    const breakdown = $(".token-breakdown");
+    breakdown.replaceChildren(node("h2", "待归属 Token 构成"));
+    const dl = node("dl");
+    [["输入", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => {
+      const row = node("div"); row.append(node("dt", name), node("dd", number(amount, 0))); dl.append(row);
+    });
+    breakdown.append(dl);
+    quotaSection.replaceChildren(node("h2", label + " 账户额度"));
+    const cards = node("div", undefined, "provider-account-grid");
+    for (const account of accounts) {
+      const card = node("article", undefined, "provider-account");
+      const head = node("div", undefined, "provider-account-head");
+      head.append(node("h3", account.label || "账户"));
+      if (nativeBridge && account.id) {
+        const button = node("button", "更新额度", "text-button");
+        button.dataset.providerRefresh = "true";
+        button.disabled = usageBusy;
+        button.setAttribute("aria-label", "更新 " + (account.label || "账户") + " 的额度");
+        button.addEventListener("click", () => readUsage("refresh-provider-account", { metric: account.id }));
+        head.append(button);
+      }
+      const windows = Array.isArray(account.windows) ? account.windows : [];
+      const state = providerState(account.state, windows.length > 0 || Number.isFinite(account.account_tokens));
+      card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", glm_official_plan: "GLM 官方套餐" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
+      card.append(node("p", "账户累计 " + (Number.isFinite(account.account_tokens) ? number(account.account_tokens, 0) + " Token" : "未知"), "fine-print"));
+      windows.forEach(window => quotaWindow(card, window));
+      if (!windows.length) card.append(node("p", "剩余额度和重置时间未知。", "fine-print"));
+      if (account.local_report) {
+        const detail = node("details", undefined, "provider-local-sessions");
+        detail.append(node("summary", "此来源本机累计 " + number(account.local_report.totals?.total_tokens, 0) + " Token"), sessionTable(account.local_report.sessions || [], false));
+        card.append(detail);
+      } else if (account.local_state) card.append(node("p", "本机来源 · " + providerState(account.local_state, false), "fine-print"));
+      cards.append(card);
+    }
+    if (accounts.length) quotaSection.append(cards);
+    else quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
+    usageStatus.textContent = providerState(provider?.state, Boolean(report));
+    if (report?.generated_at) usageStatus.textContent += " · 本机汇总于 " + date(report.generated_at);
+    countdown();
+  }
+  function setUsageBusy(value) {
+    usageBusy = value;
+    refreshButton.disabled = accountButton.disabled = value;
+    all("[data-provider-refresh]").forEach(button => button.disabled = value);
+  }
+  async function readUsage(api = "usage", parameters = {}) {
     if (usageBusy) return;
-    usageBusy = true;
-    refreshButton.disabled = accountButton.disabled = true;
-    if (api === "refresh-codex-account") usageStatus.textContent = "正在读取 Codex 账户用量与额度…";
-    try { const value = await request(api); applyUsage(value); lastUsageRead = Date.now(); }
+    setUsageBusy(true);
+    if (api === "refresh-codex-account" || api === "refresh-provider-account") usageStatus.textContent = "正在读取账户用量与额度…";
+    try { const value = await request(api, parameters); applyUsage(value); lastUsageRead = Date.now(); }
     catch (error) { usageStatus.textContent = "统计读取未完成：" + error.message; }
-    finally { usageBusy = false; refreshButton.disabled = accountButton.disabled = false; }
+    finally { setUsageBusy(false); }
   }
   refreshButton.addEventListener("click", () => readUsage("refresh-usage"));
   accountButton.addEventListener("click", () => readUsage("refresh-codex-account"));
@@ -558,10 +692,10 @@
     const message = event.data;
     if (message?.kind === "init") {
       token = message.token;
-      if (nativeBridge) root.dataset.windowState = message.windowState === "maximized" ? "maximized" : "normal";
+      if (nativeBridge) { setWindowMode(message.windowState); root.dataset.nativeDrag = String(message.nativeDrag === true); }
       sentTheme = null; syncWindowTheme(); timers(); refresh(); return;
     }
-    if (nativeBridge && message?.kind === "window-state") { root.dataset.windowState = message.state === "maximized" ? "maximized" : "normal"; return; }
+    if (nativeBridge && message?.kind === "window-state") { setWindowMode(message.state); return; }
     if (nativeBridge && message?.kind === "live-readout") { applyLiveReadout(message.value); return; }
     const item = pending.get(message?.id);
     if (!item) return;
@@ -573,7 +707,7 @@
     settingsButton.addEventListener("click",()=>request("show-settings").catch(error=>status(error.message)));$(".app-footer").append(settingsButton);
   }
   root.dataset.live = "true";
-  if (nativeBridge) root.dataset.nativeChrome = "true";
+  if (nativeBridge) { root.dataset.nativeChrome = "true"; initWindowMenu(); }
   text(".brand p", "本地系统守护"); text(".device-kind", "Windows · 本机运行");
   text(".ranking .section-subtitle", "单进程排行 · 前五项");
   text(".app-footer>span:first-child", "烛龙 · 本机监控与受限处置");

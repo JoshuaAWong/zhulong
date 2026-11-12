@@ -18,6 +18,7 @@ internal static class Program
     static bool restartRequested;
     static LocalPortal? portal;
     static SettingsWindow? settingsWindow;
+    static AiAccountSettingsWindow? aiSettingsWindow;
     static readonly object logGate = new();
     static readonly SemaphoreSlim portalOperation=new(1,1);
     const string InstanceMutexName = "Local\\ZhulongNextInstance";
@@ -69,6 +70,7 @@ internal static class Program
                 menu.Items.Add("切换限流", null, async (_, _) => await NativeAsync(async()=> { var result=await hub.ToggleThrottleAsync(); ShowActionResults(result,"限流结果"); }));
                 menu.Items.Add("恢复默认限流规则", null, async (_, _) => await NativeAsync(async()=>ShowActionResults(await hub.ResetThrottleAsync(),"恢复默认规则结果")));
                 menu.Items.Add("新版设置", null, async (_, _) => await NativeAsync(()=>{OpenSettings();return Task.CompletedTask;}));
+                menu.Items.Add("AI 账户", null, (_, _) => OpenAiSettings());
                 menu.Items.Add("导入旧版历史…", null, async (_, _) => await NativeAsync(ImportAsync));
                 menu.Items.Add("导出诊断…", null, async (_, _) => await NativeAsync(()=>{ExportDiagnostics();return Task.CompletedTask;}));
                 menu.Items.Add("登录后后台自启…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Logon)));
@@ -145,6 +147,7 @@ internal static class Program
             window.Lifecycle += WriteLifecycle;
             window.ExitRequested += async()=>await QuitAsync();
             window.SettingsRequested += async()=>await NativeAsync(()=>{OpenSettings();return Task.CompletedTask;});
+            window.AiSettingsRequested += OpenAiSettings;
             window.Closed += (_, _) => window = null;
             window.Show();
         }
@@ -164,6 +167,7 @@ internal static class Program
         tray!.Visible = false;
         window?.Close();
         settingsWindow?.Close();
+        aiSettingsWindow?.Close();
         try{await StartupTasks.WaitForIdleAsync();await ClosePortalAsync();if(hub is not null)await hub.StopAsync();}
         catch(Exception error)when(error is not(OutOfMemoryException or StackOverflowException)){WriteLifecycle("shutdown_failed",error.Message);}
         finally{WriteLifecycle("app_exited",new{pid=Environment.ProcessId});application!.Shutdown();}
@@ -187,6 +191,18 @@ internal static class Program
         if(quitting)return;
         MessageBox.Show(values.Count==0?"当前没有需要更改的目标。":string.Join("\n",values.Select(x=>x.Target+" · "+(x.Status=="throttled"?"已限流":x.Status=="restored"?"已还原":x.Status.StartsWith("degraded:")?"未完整完成":x.Status.StartsWith("blocked:")?"安全检查拒绝":"未执行")+" · "+x.Status+(x.Detail is null?"":" · "+x.Detail))),title);
     }
+    static void OpenAiSettings()
+    {
+        if (quitting) return;
+        if (aiSettingsWindow is null)
+        {
+            aiSettingsWindow = new AiAccountSettingsWindow(directory);
+            aiSettingsWindow.Closed += (_, _) => aiSettingsWindow = null;
+            aiSettingsWindow.Show();
+        }
+        else aiSettingsWindow.Activate();
+    }
+
     static void OpenSettings()
     {
         if(quitting)return;

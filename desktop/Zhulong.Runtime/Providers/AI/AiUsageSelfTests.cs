@@ -8,6 +8,32 @@ public static class AiUsageSelfTests
 {
     public static int Run(string directory) => RunAsync(directory).GetAwaiter().GetResult();
 
+    static async Task<int> TestAccountIsolationAsync(string directory)
+    {
+        var primary = Path.Combine(directory, "kimi-primary");
+        var secondary = AiAccountProfiles.SecondaryKimiHome(directory);
+        Directory.CreateDirectory(primary); Directory.CreateDirectory(secondary);
+        var secondIdentity = "fixture-b";
+        var reset = DateTimeOffset.UtcNow.AddHours(2);
+        await using var source = new AdditionalAiUsage(directory, primary, Path.Combine(directory, "missing-zcode.db"), (home, _) =>
+            Task.FromResult(new ProviderAccountReading("ok", home == primary ? "fixture-a" : secondIdentity, null,
+                [new("limit5h", home == primary ? 11 : 47, reset)])));
+        await source.RefreshAccountAsync("kimi-primary", CancellationToken.None);
+        await source.RefreshAccountAsync("kimi-secondary", CancellationToken.None);
+        var rows = JsonSerializer.SerializeToElement(source.Report())[0].GetProperty("accounts");
+        if (rows[0].GetProperty("windows")[0].GetProperty("remaining_percent").GetDouble() != 89 ||
+            rows[1].GetProperty("windows")[0].GetProperty("remaining_percent").GetDouble() != 53)
+            throw new InvalidOperationException("两个 Kimi 目录的额度不得串号。");
+        if (rows.GetRawText().Contains("fixture-a", StringComparison.Ordinal) || rows.GetRawText().Contains("fixture-b", StringComparison.Ordinal))
+            throw new InvalidOperationException("账号身份不得发送至面板。");
+        secondIdentity = "fixture-a";
+        await source.RefreshAccountAsync("kimi-secondary", CancellationToken.None);
+        rows = JsonSerializer.SerializeToElement(source.Report())[0].GetProperty("accounts");
+        if (rows[1].GetProperty("state").GetString() != "duplicate_account" || rows[1].GetProperty("windows").ValueKind != JsonValueKind.Null)
+            throw new InvalidOperationException("重复登录必须提示且不得重复展示额度。");
+        return 3;
+    }
+
     public static async Task<int> RunAsync(string directory)
     {
         Directory.CreateDirectory(directory);
@@ -127,6 +153,9 @@ public static class AiUsageSelfTests
         }
         await CheckStableFileMetadataAsync(test, now, Check);
         await CheckAccountAsync(test, home, now, Check);
+        assertions += await ZCodeSelfTests.RunAsync(directory);
+        assertions += KimiUsageSelfTests.Run(Path.Combine(directory, "kimi-usage"));
+        assertions += await TestAccountIsolationAsync(Path.Combine(directory, "profile-isolation"));
         return assertions;
     }
 

@@ -1,7 +1,7 @@
 namespace Zhulong.Runtime.Providers.AI;
 
 // 深度优先保留目录游标，每轮只访问有限目录项，不全量排序或缓存所有路径。
-internal sealed class IncrementalSources(IEnumerable<string> roots) : IDisposable
+internal sealed class IncrementalSources(IEnumerable<string> roots, string? fileName = null) : IDisposable
 {
     readonly IEnumerator<string> roots = roots.GetEnumerator();
     readonly Stack<IEnumerator<string>> stack = new();
@@ -32,7 +32,8 @@ internal sealed class IncrementalSources(IEnumerable<string> roots) : IDisposabl
             if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
             if ((attributes & FileAttributes.Directory) != 0)
                 stack.Push(Directory.EnumerateFileSystemEntries(entry).GetEnumerator());
-            else if (string.Equals(Path.GetExtension(entry), ".jsonl", StringComparison.OrdinalIgnoreCase))
+            else if (fileName is null ? string.Equals(Path.GetExtension(entry), ".jsonl", StringComparison.OrdinalIgnoreCase)
+                : string.Equals(Path.GetFileName(entry), fileName, StringComparison.OrdinalIgnoreCase))
                 return entry;
         }
         return null;

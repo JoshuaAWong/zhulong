@@ -25,6 +25,7 @@ public sealed class ParserState
     public bool SawDivergentCumulative { get; set; }
     public bool SawInterleaved { get; set; }
     public bool SawTokenCount { get; set; }
+    public bool SkippingLongLine { get; set; }
     public bool UnmatchedRecord { get; set; }
     public bool RecordOnly { get; set; }
     public UsageEvent? CompactionCandidate { get; set; }

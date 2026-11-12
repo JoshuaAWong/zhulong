@@ -121,7 +121,9 @@ public sealed partial class UsageStore : IDisposable
         command.ExecuteNonQuery();
     }
 
-    public string ReportJson(DateTimeOffset now)
+    public string ReportJson(DateTimeOffset now) => ReportJson(now, "codex", "openai");
+
+    internal string ReportJson(DateTimeOffset now, string tool, string provider)
     {
         // 明细只在显式查询时聚合，倒计时不触发来源扫描。
         var sessions = new List<object>();
@@ -135,7 +137,7 @@ public sealed partial class UsageStore : IDisposable
         using (var reader = command.ExecuteReader())
             while (reader.Read()) sessions.Add(new
             {
-                provider = "openai", tool = "codex", session_id = reader.GetString(0), parent_session_id = reader.IsDBNull(1) ? null : reader.GetString(1),
+                provider, tool, session_id = reader.GetString(0), parent_session_id = reader.IsDBNull(1) ? null : reader.GetString(1),
                 model = reader.GetString(2), first_usage_at = reader.GetString(3), last_usage_at = reader.GetString(4),
                 event_count = reader.GetInt64(5), input_tokens = reader.GetInt64(6),
                 cached_input_tokens = reader.GetInt64(7), cache_write_tokens = reader.GetInt64(8),
@@ -157,7 +159,7 @@ public sealed partial class UsageStore : IDisposable
         var metadata = new List<object>();
         using (var command = Command("SELECT session_id,total_tokens,source_updated_at,observed_at,source FROM session_snapshots ORDER BY source_updated_at DESC,session_id LIMIT 100"))
         using (var reader = command.ExecuteReader())
-            while (reader.Read()) metadata.Add(new { provider = "openai", tool = "codex", session_id = reader.GetString(0), total_tokens = reader.GetInt64(1),
+            while (reader.Read()) metadata.Add(new { provider, tool, session_id = reader.GetString(0), total_tokens = reader.GetInt64(1),
                 source_updated_at = reader.GetInt64(2), observed_at = reader.GetString(3), source = reader.GetString(4),
                 source_kind = "state_db_cumulative_snapshot", token_breakdown_available = false });
         using var countMetadata = Command("SELECT COUNT(*) FROM session_snapshots");

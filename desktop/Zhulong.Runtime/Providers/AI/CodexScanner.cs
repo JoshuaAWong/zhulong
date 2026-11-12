@@ -10,6 +10,10 @@ public sealed class CodexScanner(UsageStore store)
 {
     // 一个调用最多分配一批日志；游标只越过完整的换行。
     public ScanResult ScanFile(string path, int maxBytes = 4 * 1024 * 1024, CancellationToken cancellationToken = default)
+        => ScanFile(path, maxBytes, CodexParser.Parse, default, cancellationToken);
+
+    internal ScanResult ScanFile(string path, int maxBytes, Func<string, ParserState, ParsedLine> parse,
+        ReadOnlySpan<byte> requiredEvent, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         path = Path.GetFullPath(path);
@@ -56,17 +60,21 @@ public sealed class CodexScanner(UsageStore store)
         {
             if ((i & 65535) == 0) cancellationToken.ThrowIfCancellationRequested();
             if (buffer[i] != (byte)'\n') continue;
-            var line = Encoding.UTF8.GetString(buffer, start, i - start).TrimEnd('\r');
-            if (offset + start == 0) line = line.TrimStart('\uFEFF');
+            var bytes = buffer.AsSpan(start, i - start);
+            var fileStart = offset + start == 0;
+            start = i + 1;
+            lines++;
+            if (state.SkippingLongLine) { state.SkippingLongLine = false; continue; }
+            if (!requiredEvent.IsEmpty && bytes.IndexOf(requiredEvent) < 0) continue;
+            var line = Encoding.UTF8.GetString(bytes).TrimEnd('\r');
+            if (fileStart) line = line.TrimStart('\uFEFF');
             try
             {
-                var parsed = CodexParser.Parse(line, state);
+                var parsed = parse(line, state);
                 foreach (var value in parsed.Usage) added += store.Insert(value, transaction);
                 if (parsed.Quota is not null) store.SaveQuota(parsed.Quota, state.SessionId ?? path, transaction);
             }
             catch (JsonException) { malformed++; }
-            lines++;
-            start = i + 1;
         }
         // 修改历史内容时不能把旧状态和新字节提交到同一个游标。
         info.Refresh();
@@ -76,7 +84,16 @@ public sealed class CodexScanner(UsageStore store)
             throw new IOException("日志在读取期间被替换，请重新扫描。");
         var hasMore = read == maxBytes && offset + read < length;
         if (hasMore && start == 0)
-            throw new InvalidDataException("单条日志超过本批读取上限，游标未推进。");
+        {
+            if (requiredEvent.IsEmpty) throw new InvalidDataException("单条日志超过本批读取上限，游标未推进。");
+            // Kimi 的用量事件很短，允许跨批跳过超长记录，再从下一行恢复。
+            if (maxBytes >= 4 * 1024 * 1024 || state.SkippingLongLine)
+            {
+                if (!state.SkippingLongLine) malformed++;
+                state.SkippingLongLine = true;
+                start = read;
+            }
+        }
         var cursor = new Cursor(offset + start, length, writeTicks, created,
             Anchor(stream, offset + start, ref anchorBytes), state, malformed, hasMore);
         store.SaveCursor(path, cursor, transaction);

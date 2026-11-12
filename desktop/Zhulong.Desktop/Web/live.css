@@ -179,10 +179,17 @@ html[data-live] #events .event-list { min-height:0; max-height:clamp(240px,calc(
 html[data-live] #events .event-item { padding:13px 8px; }
 @media(max-width:919px) { html[data-live] #events .event-list { max-height:none; } }
 
-/* 桌面原生标题行承载应用标识，页面继续承载外观与导航。 */
-html[data-live][data-native-chrome] .app-head { height:38px; padding-top:0; }
-html[data-live][data-native-chrome] .app-head .brand { display:none; }
-html[data-live][data-native-chrome] .app-head .device { margin-left:0; }
+/* 桌面窗口操作与外观同处页头，独立留白负责拖动。 */
+.window-drag,.window-menu[hidden] { display:none; }
+html[data-native-chrome] .window-drag { display:block; flex:1; min-width:24px; align-self:stretch; user-select:none; touch-action:none; }
+html[data-native-drag="true"] .window-drag { -webkit-app-region:drag; app-region:drag; }
+html[data-native-chrome] .app-head { padding-top:0; }
+html[data-native-chrome] .app-head .head-actions { margin-left:0; }
+html[data-native-chrome] .app-head .device { margin-left:0; }
+.window-menu .appearance-panel { width:140px; padding:7px; }
+.window-menu .appearance-panel button { display:block; padding:8px 12px; width:100%; text-align:left; border-radius:8px; }
+.window-menu .appearance-panel button:hover { background:var(--wash); }
+.window-menu :is(button,summary):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 html[data-live] .hero-facts small { display:block; white-space:nowrap; }
 .live-process-meta,.live-device-sensors,html[data-live] .notes .timeline { display:none; }
 .live-refresh+.live-refresh { margin-left:18px; }
@@ -221,3 +228,16 @@ html[data-live] .token-breakdown h3 { margin-top:18px; font-size:14px; }
   html[data-live] .resource-strip .resource { border:0; }
   html[data-live] .navigation-row .tabs { min-width:0; gap:12px; flex-wrap:wrap; }
 }
+
+.usage-tool-picker { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.usage-tool-picker button { padding:6px 11px; border-radius:9px; }
+.usage-tool-picker button[aria-pressed="true"] { color:var(--ink); background:var(--wash); }
+.usage-tool-picker button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.provider-account-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:12px; margin-top:10px; }
+.provider-account { min-width:0; padding:11px 13px; border:1px solid var(--line); border-radius:14px; }
+.provider-account-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 10px; }
+.provider-account-head h3 { font-size:15px; }
+.provider-account>.fine-print { margin-top:6px; overflow-wrap:anywhere; }
+.provider-account .live-quota-window { margin-top:8px; padding:8px 10px; }
+.provider-local-sessions { margin-top:9px; }
+.provider-local-sessions summary { cursor:pointer; color:var(--chart); font-size:12px; }

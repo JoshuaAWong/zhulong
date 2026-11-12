@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Zhulong.Core;
 using Zhulong.Runtime.Actions;
 using Zhulong.Runtime.Collectors;
@@ -18,6 +19,7 @@ public sealed class RuntimeHost : IDisposable
     readonly RuleEngine rules;
     readonly ActionCoordinator actions;
     readonly AiUsageService usage;
+    readonly AdditionalAiUsage additionalUsage;
     readonly CancellationTokenSource stopped=new();
     readonly SemaphoreSlim throttleWorkflow=new(1,1);
     readonly Dictionary<string,AlertDecision> pending=new(),manualActions=new();
@@ -40,6 +42,7 @@ public sealed class RuntimeHost : IDisposable
         actions=new(Settings,statePath:Path.Combine(directory,"actions.json"),audit:result=>
         { Record(new(DateTimeOffset.UtcNow,"处置 · "+result.Action,result.Target+" · "+result.Status+" · "+result.Detail,result.Status=="ok"?"info":"warning","action"));return Task.CompletedTask; });
         usage=new(Path.Combine(directory,"ai.db"));
+        additionalUsage=new(directory);
         foreach(var policy in Settings.TrimProcesses)
             manualActions[Guid.NewGuid().ToString("N")]=new("manual_trim","手动整理白名单工作集 · "+policy.Name,$"将复核工作集{policy.MinWorkingSetGb:F1}GB、存活{policy.MinAgeSeconds}秒、路径及频次；不结束进程，不降低提交内存。","info",ProcessName:policy.Name,SuggestedAction:"mem_trim",Target:policy.Name);
         foreach(var service in Settings.RestartServices.Concat(Settings.RestartServiceRules.Select(p=>p.Name)).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -58,7 +61,7 @@ public sealed class RuntimeHost : IDisposable
                RunLoop("实时读数",TimeSpan.FromSeconds(3),ReadoutAsync),
                RunLoop("慢采集",TimeSpan.FromSeconds(60),()=>monitor.CollectSlowAsync(stopped.Token)),
                RunLoop("安全动作",TimeSpan.FromSeconds(5),ProcessActionsAsync),
-               RunLoop("AI统计",TimeSpan.FromSeconds(60),async()=>{await usage.RefreshAsync(stopped.Token);}),
+               RunLoop("AI统计",TimeSpan.FromSeconds(60),async()=>{await usage.RefreshAsync(stopped.Token);await additionalUsage.RefreshLocalAsync(stopped.Token);}),
                RunLoop("自身资源",TimeSpan.FromHours(1),()=>{using var process=Process.GetCurrentProcess();lock(storeGate)store.SaveSelf(DateTimeOffset.UtcNow,process.PrivateMemorySize64,process.WorkingSet64,process.HandleCount,process.TotalProcessorTime.TotalSeconds);return Task.CompletedTask;}),
                RunLoop("历史清理",TimeSpan.FromHours(6),()=>{lock(storeGate)store.Cleanup(Settings.RetentionDays);return Task.CompletedTask;})];
     }
@@ -140,15 +143,32 @@ public sealed class RuntimeHost : IDisposable
                 if(metric is null||hours is not(24 or 168 or 720))throw new ArgumentException("不支持的历史查询。");
                 return await Task.Run(()=>new {points=store.History(metric,hours)},stopped.Token);
             case "events":return await Task.Run(()=>new {events=store.Events(hours)},stopped.Token);
-            case "usage":return Json(await usage.ReportAsync(stopped.Token));
-            case "refresh-usage":return Json(await usage.RefreshAsync(stopped.Token));
-            case "refresh-codex-account":return Json(await usage.RefreshAccountAsync(stopped.Token));
+            case "usage":return AiReport(await usage.ReportAsync(stopped.Token));
+            case "refresh-usage":
+                var local=await usage.RefreshAsync(stopped.Token);
+                await additionalUsage.RefreshLocalAsync(stopped.Token);
+                return AiReport(local);
+            case "refresh-codex-account":return AiReport(await usage.RefreshAccountAsync(stopped.Token));
+            case "refresh-provider-account":
+                await additionalUsage.RefreshAccountAsync(metric ?? "",stopped.Token);
+                return AiReport(await usage.ReportAsync(stopped.Token));
             case "health":lock(failures)return new {paused=Paused,muted=Muted,failures=new Dictionary<string,string>(failures),sampleSeconds=Settings.SampleSeconds};
             case "actions":lock(decisionGate)return pending.Concat(manualActions).Select(x=>new {id=x.Key,title=x.Value.Title,text=x.Value.Text,action=x.Value.SuggestedAction,target=x.Value.Target??x.Value.ProcessName}).ToArray();
             default:throw new ArgumentException("不支持的面板请求。");
         }
     }
-    static JsonElement Json(string text){using var json=JsonDocument.Parse(text);return json.RootElement.Clone();}
+    JsonElement AiReport(string text)
+    {
+        var result=JsonNode.Parse(text)!.AsObject();
+        var providers=JsonSerializer.SerializeToNode(additionalUsage.Report())!.AsArray();
+        result["provider_reports"]=providers;
+        foreach(var status in result["providers"]!.AsArray())
+        {
+            var provider=providers.FirstOrDefault(item=>(string?)item?["tool"]==(string?)status?["tool"]);
+            if(provider is not null)status!["state"]=(string?)provider["state"];
+        }
+        return JsonSerializer.SerializeToElement(result);
+    }
     public AlertDecision? FindAction(string id){lock(decisionGate)return pending.GetValueOrDefault(id)??manualActions.GetValueOrDefault(id);}
     public Task<ActionResult> ExecuteConfirmedAsync(string id)=>RunManual(()=>ExecuteConfirmedCoreAsync(id));
     async Task<ActionResult> ExecuteConfirmedCoreAsync(string id)
@@ -224,6 +244,7 @@ public sealed class RuntimeHost : IDisposable
         if(activeImport is not null)try{await activeImport.ConfigureAwait(false);}catch(OperationCanceledException){}catch(Exception error)when(error is not(OutOfMemoryException or StackOverflowException)){WriteDiagnostic("历史导入",error.Message);}
         await actions.DisposeAsync().ConfigureAwait(false);
         await usage.DisposeAsync().ConfigureAwait(false);
+        await additionalUsage.DisposeAsync().ConfigureAwait(false);
     }
     public void Dispose(){StopAsync().GetAwaiter().GetResult();monitor.Dispose();store.Dispose();throttleWorkflow.Dispose();stopped.Dispose();}
 }
