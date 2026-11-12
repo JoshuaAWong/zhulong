@@ -81,7 +81,7 @@ internal static class Program
                 hub.Sampled += value => application.Dispatcher.BeginInvoke(() =>
                 {
                     if (!quitting && tray is not null)
-                        tray.Text = "烛龙新版 · 朱印 · 提交 " + (value.CommitPercent?.ToString("F0") ?? "—") + "%";
+                        tray.Text = FormatTrayTooltip(value);
                 });
                 registration = ThreadPool.RegisterWaitForSingleObject(wake,
                     (_, _) => application.Dispatcher.BeginInvoke(OpenWindow), null, Timeout.Infinite, false);
@@ -112,6 +112,17 @@ internal static class Program
             if(restartRequested)
             {var next=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=true};next.ArgumentList.Add("--data-dir");next.ArgumentList.Add(directory);try{Process.Start(next);}catch(Exception error)when(error is System.ComponentModel.Win32Exception or IOException){WriteLifecycle("restart_failed",error.Message);MessageBox.Show(error.Message,"新版未能重新打开");}}
         }
+    }
+
+    internal static string FormatTrayTooltip(SystemSnapshot value)
+    {
+        static string Percent(double? number) => number is { } percent ? $"{percent:F0}%" : "—";
+        static string Memory(double? percent, double? used, double? total) =>
+            $"{Percent(percent)}{(used.HasValue && total.HasValue ? $" ({used:F1}/{total:F1} GB)" : "")}";
+
+        return $"烛龙新版 · 朱印\nCPU {Percent(value.CpuPercent)}\n" +
+            $"物理内存 {Memory(value.MemoryPercent, value.MemoryUsedGb, value.MemoryTotalGb)}\n" +
+            $"提交内存 {Memory(value.CommitPercent, value.CommitUsedGb, value.CommitLimitGb)}";
     }
 
     static void OpenWindow()

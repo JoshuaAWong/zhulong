@@ -20,6 +20,13 @@ internal static class DesktopSelfTests
         try
         {
             var now = DateTimeOffset.UtcNow;
+            var traySample = new SystemSnapshot(now, 75, 30, 40, 50, 16, 32, 0, []);
+            using var tooltip = new System.Windows.Forms.NotifyIcon { Text = Program.FormatTrayTooltip(traySample) };
+            Check(tooltip.Text.Contains("CPU 0%") &&
+                tooltip.Text.Contains($"物理内存 50% ({16d:F1}/{32d:F1} GB)") &&
+                tooltip.Text.Contains($"提交内存 75% ({30d:F1}/{40d:F1} GB)"), "托盘应同时显示CPU和两种内存读数，零占用须保留");
+            Check(Program.FormatTrayTooltip(traySample with { CpuPercent = null }).Contains("CPU —\n"),
+                "首轮CPU未知时应显示破折号，不应显示0%或附加百分号");
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))
             {
