@@ -77,7 +77,10 @@
   if (nativeBridge && typeof MutationObserver === "function") {
     new MutationObserver(syncWindowTheme).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
   }
+  const desktopFrameGap = "desktop_frame_gap_ms";
+  const historyHours = { "1h": 1, "24h": 24, "7d": 168, "30d": 720 };
   const metricsByName = {
+    [desktopFrameGap]: ["桌面帧间隔", "桌面连续提交时的最长间隔，数值越高表示提交停顿越久", "ms"],
     pagefile_used_gb: ["分页文件已用", "分页文件承载的内存，结合提交水位观察", "GB"],
     pagefile_total_gb: ["分页文件总量", "Windows 报告的分页文件容量", "GB"],
     cpu_max_core: ["单核峰值", "最繁忙逻辑核心，区别于整机平均占用", "%"],
@@ -122,7 +125,18 @@
     if (name === "physical") return { title: "物理内存", meaning: "当前驻留物理内存的占用", value: readout?.memoryUsedGb, unit: "GB", plotUnit: "%", percent: readout?.memoryPercent, at: readout?.timestamp };
     if (name === "cpu") return { title: "处理器", meaning: "整机 CPU，按所有逻辑核心归一为 0–100%", value: readout?.cpuPercent, unit: "%", plotUnit: "%", percent: readout?.cpuPercent, at: readout?.timestamp };
     const item = metric(name), info = metricsByName[name] || [name, "系统指标", ""];
-    return { title: info[0], meaning: item?.label ? info[1] + " · " + item.label : info[1], value: ["有效", "旧采样"].includes(sampleState(item)) ? item?.value : null, unit: item?.unit || info[2], plotUnit: item?.unit || info[2], at: sampledAt(item), state: sampleState(item) };
+    return { title: info[0], meaning: item?.label ? info[1] + " · " + item.label : info[1], value: ["有效", "旧采样"].includes(sampleState(item)) ? item?.value : null, unit: item?.unit || info[2], plotUnit: item?.unit || info[2], at: sampledAt(item), state: sampleState(item), peak: name === desktopFrameGap };
+  }
+  ranges["1h"] = { label: "过去 1 小时" };
+  const frameHour = node("button", "1 小时");
+  frameHour.type = "button"; frameHour.dataset.range = "1h"; frameHour.hidden = true;
+  frameHour.setAttribute("aria-pressed", "false");
+  $(".range-switch").prepend(frameHour);
+  function syncHistoryRange() {
+    frameHour.hidden = currentMetric !== desktopFrameGap;
+    if (frameHour.hidden && currentRange === "1h") {
+      currentRange = "24h"; markButtons("[data-range]", "range", currentRange);
+    }
   }
   const moreMetrics = node("select", undefined, "live-metric-select");
   moreMetrics.setAttribute("aria-label", "选择更多历史指标");
@@ -131,7 +145,9 @@
   $(".metric-tabs").after(moreMetrics);
   moreMetrics.addEventListener("change", () => {
     if (!moreMetrics.value) return;
-    currentMetric = moreMetrics.value; markButtons("[data-metric]", "metric", currentMetric); renderChart();
+    currentMetric = moreMetrics.value;
+    if (currentMetric === desktopFrameGap) { currentRange = "1h"; markButtons("[data-range]", "range", currentRange); }
+    markButtons("[data-metric]", "metric", currentMetric); renderChart();
     readHistory().catch(error => status("历史读取失败：" + error.message));
   });
   const rankGroup = $(".ranking [data-rank]").parentElement;
@@ -207,7 +223,7 @@
       horizontal.setAttribute("d", hit.y === null ? "" : "M34 " + hit.y.toFixed(2) + "H602");
       dot.setAttribute("visibility", hit.y === null ? "hidden" : "visible");
       if (hit.y !== null) { dot.setAttribute("cx", hit.x); dot.setAttribute("cy", hit.y); }
-      tooltip.textContent = description.title + " · " + (Number.isFinite(hit.point.value) ? number(hit.point.value, 6) + " " + description.plotUnit : "暂无有效值") + "\n" + date(hit.point.timestamp) + "\n时间桶均值；时间为桶内最近记录，不作插值。";
+      tooltip.textContent = description.title + " · " + (Number.isFinite(hit.point.value) ? number(hit.point.value, 6) + " " + description.plotUnit : "暂无有效值") + "\n" + date(hit.point.timestamp) + "\n" + (description.peak ? "时间桶最高值，时间为该间隔开始时刻。" : "时间桶均值；时间为桶内最近记录，不作插值。");
       tooltip.hidden = false;
       const anchor = new DOMPoint(hit.x, hit.y ?? 20).matrixTransform(matrix), rect = box.getBoundingClientRect();
       tooltip.style.left = Math.max(8, Math.min(rect.width - tooltip.offsetWidth - 8, anchor.x - rect.left + 12)) + "px";
@@ -220,6 +236,7 @@
     };
   }
   renderChart = function () {
+    syncHistoryRange();
     clearChartHover();
     const description = describeMetric(currentMetric);
     const points = (histories.get(currentMetric + ":" + currentRange) || []).slice(-288);
@@ -233,7 +250,7 @@
     text("#chartValue", number(description.value, 2) + " " + description.unit);
     text("#chartLimit", (description.state ? description.state + " · " : "") + (Number.isFinite(description.percent) ? "当前占比 " + number(description.percent) + "% · " : "") + "量程 0–" + number(top, 2) + description.plotUnit);
     text("#chartLegend", description.title);
-    text("#chartInsight", "采样于 " + date(description.at) + "。" + (description.state && description.state !== "有效" ? description.state + "，等待新样本。" : "") + "空白表示缺少有效记录，零值按实际样本展示。");
+    text("#chartInsight", "采样于 " + date(description.at) + "。" + (description.state && description.state !== "有效" ? description.state + "，等待新样本。" : "") + (description.peak ? "空白表示桌面静止或采集不可用。将尖峰时间与事件记录对照。" : "空白表示缺少有效记录，零值按实际样本展示。"));
     text("#rangeSummary", ranges[currentRange].label + " · " + points.length + " 个历史点");
     const box = $("#chartContainer"); box.replaceChildren();
     if (!points.length) { box.append(node("p", "当前范围尚无该指标的历史记录", "live-empty")); return; }
@@ -243,10 +260,11 @@
       svg.append(svgElement("path", { class: "grid", d: "M34 " + (168 - index * 37) + "H602" }));
       const label = svgElement("text", { x: 25, y: 171 - index * 37, "text-anchor": "end" }); label.textContent = number(value, 2); svg.append(label);
     });
-    const hours = { "24h": 24, "7d": 168, "30d": 720 }[currentRange];
+    const hours = historyHours[currentRange];
     const end = Date.now(), start = end - hours * 3600000;
-    const hoverPoints = [];
-    let path = "", segment = false, lastPoint = null;
+    const hoverPoints = [], segmentStarts = [];
+    const maxGap = description.peak ? 2000 * Math.max(health?.sampleSeconds || 30, Math.ceil(hours * 3600 / 288)) : Infinity;
+    let path = "", segment = false, lastPoint = null, lastStamp = null;
     points.forEach(point => {
       const stamp = Date.parse(point.timestamp);
       if (!Number.isFinite(stamp)) { segment = false; return; }
@@ -254,17 +272,21 @@
       const y = Number.isFinite(point.value) ? 168 - Math.max(0, Math.min(top, point.value)) / top * 148 : null;
       hoverPoints.push({ point, x, y });
       if (y === null) { segment = false; return; }
-      path += (segment ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2) + " "; segment = true; lastPoint = [x, y];
+      if (lastStamp !== null && stamp - lastStamp > maxGap) segment = false;
+      if (!segment && description.peak) segmentStarts.push([x, y]);
+      path += (segment ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2) + " "; segment = true; lastPoint = [x, y]; lastStamp = stamp;
     });
     if (path) svg.append(svgElement("path", { class: "curve", d: path }));
+    for (const [x, y] of segmentStarts) svg.append(svgElement("circle", { class: "end-dot", cx: x, cy: y, r: 2 }));
     if (lastPoint) svg.append(svgElement("circle", { class: "end-dot", cx: lastPoint[0], cy: lastPoint[1], r: 3.3 }));
     const startText = svgElement("text", { x: 34, y: 194 }), endText = svgElement("text", { x: 602, y: 194, "text-anchor": "end" });
-    startText.textContent = new Date(start).toLocaleDateString("zh-CN"); endText.textContent = "现在"; svg.append(startText, endText); box.append(svg);
+    startText.textContent = hours === 1 ? new Date(start).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" }) : new Date(start).toLocaleDateString("zh-CN");
+    endText.textContent = "现在"; svg.append(startText, endText); box.append(svg);
     bindChartHover(svg, box, hoverPoints, description);
   };
   async function readHistory() {
     const metric = currentMetric, range = currentRange;
-    const result = await request("history", { metric, hours: { "24h": 24, "7d": 168, "30d": 720 }[range] });
+    const result = await request("history", { metric, hours: historyHours[range] });
     histories.set(metric + ":" + range, result?.points || []); renderChart();
   }
   function updateReadoutNumbers() {

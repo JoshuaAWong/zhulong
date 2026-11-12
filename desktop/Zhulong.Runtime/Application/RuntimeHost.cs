@@ -16,6 +16,7 @@ public sealed class RuntimeHost : IDisposable
     readonly string directory;
     readonly MonitorStore store;
     readonly SystemMonitor monitor;
+    readonly DesktopFrameMonitor desktopFrames=new();
     readonly RuleEngine rules;
     readonly ActionCoordinator actions;
     readonly AiUsageService usage;
@@ -59,6 +60,7 @@ public sealed class RuntimeHost : IDisposable
         if(Interlocked.Exchange(ref started,1)!=0)return;
         loops=[RunLoop("采样",TimeSpan.FromSeconds(Settings.SampleSeconds),SampleAsync),
                RunLoop("实时读数",TimeSpan.FromSeconds(3),ReadoutAsync),
+               RunLoop("桌面帧间隔",TimeSpan.FromMilliseconds(500),()=>{desktopFrames.Poll();return Task.CompletedTask;}),
                RunLoop("慢采集",TimeSpan.FromSeconds(60),()=>monitor.CollectSlowAsync(stopped.Token)),
                RunLoop("安全动作",TimeSpan.FromSeconds(5),ProcessActionsAsync),
                RunLoop("AI统计",TimeSpan.FromSeconds(60),async()=>{await usage.RefreshAsync(stopped.Token);await additionalUsage.RefreshLocalAsync(stopped.Token);}),
@@ -95,13 +97,14 @@ public sealed class RuntimeHost : IDisposable
     Task SampleAsync()
     {
         var value=monitor.Collect();
+        value.Metrics![DesktopFrameMonitor.MetricName]=desktopFrames.BeginSave(value.Timestamp);
         var decisions=rules.Evaluate(value,Clock).ToArray();
         var events=decisions.Select(d=>new RuntimeEvent(value.Timestamp,d.Title,d.Text,d.Level,"alert",d.ProcessName)).ToList();
         var prior=Volatile.Read(ref latest);
         if(!string.IsNullOrEmpty(value.Error)&&value.Error!=prior?.Error)events.Add(new(value.Timestamp,"部分指标采集失败",value.Error,"warning"));
         Volatile.Write(ref latest,value);
         Exception? storageError=null;
-        try{lock(storeGate)store.Save(value,events);}
+        try{lock(storeGate)store.Save(value,events);desktopFrames.CompleteSave();}
         catch(Exception error)when(error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException){storageError=error;}
         lock(decisionGate)
         {
@@ -140,7 +143,8 @@ public sealed class RuntimeHost : IDisposable
         {
             case "snapshot":return Volatile.Read(ref latest);
             case "history":
-                if(metric is null||hours is not(24 or 168 or 720))throw new ArgumentException("不支持的历史查询。");
+                if(metric is null || (hours is not (24 or 168 or 720) && (hours!=1 || metric!=DesktopFrameMonitor.MetricName)))
+                    throw new ArgumentException("不支持的历史查询。");
                 return await Task.Run(()=>new {points=store.History(metric,hours)},stopped.Token);
             case "events":return await Task.Run(()=>new {events=store.Events(hours)},stopped.Token);
             case "usage":return AiReport(await usage.ReportAsync(stopped.Token));

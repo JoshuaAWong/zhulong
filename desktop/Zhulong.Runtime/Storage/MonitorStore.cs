@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Zhulong.Core;
+using Zhulong.Runtime.Collectors;
 namespace Zhulong.Runtime.Storage;
 
 // 单个拥有者串行调用；新库独立，采样与同轮事件在同一事务提交。
@@ -63,6 +64,7 @@ public sealed class MonitorStore : IDisposable
         { ["commit"]=("commit_percent","memory","commit_percent"),["physical"]=("physical_percent","memory","mem_percent"),["cpu"]=("cpu_percent","cpu","cpu_percent") };
         var since=Iso(DateTimeOffset.UtcNow.AddHours(-Math.Clamp(hours,1,8760)));
         var bucket=Math.Max(1,(int)Math.Ceiling(hours*3600d/288));
+        if(metric==DesktopFrameMonitor.MetricName)return DesktopFrameHistory(since,bucket);
         string sql;
         if(known.TryGetValue(metric,out var map)) sql=$"SELECT timestamp,value FROM (SELECT timestamp,{map.Column} AS value FROM system_samples WHERE timestamp >= $since UNION ALL SELECT timestamp,value FROM legacy_metrics WHERE collector=$collector AND name=$name AND timestamp >= $since)";
         else sql="SELECT timestamp,value FROM metric_samples WHERE name=$name AND timestamp >= $since UNION ALL SELECT timestamp,value FROM legacy_metrics WHERE name=$name AND timestamp >= $since";
@@ -82,6 +84,31 @@ public sealed class MonitorStore : IDisposable
         if(File.Exists(legacyPath)&&!string.Equals(databasePath,legacyPath,StringComparison.OrdinalIgnoreCase))
         {using var archive=OpenArchive();Read(archive,"SELECT timestamp,value FROM legacy_metrics WHERE ($collector='' OR collector=$collector) AND name=$name AND timestamp >= $since");}
         return buckets.OrderBy(x=>x.Key).TakeLast(288).Select(x=>(object)new {timestamp=x.Value.Stamp,value=x.Value.Count==0?(double?)null:x.Value.Sum/x.Value.Count}).ToArray();
+    }
+    object[] DesktopFrameHistory(string since,int bucket)
+    {
+        // 保留桶内峰值发生时刻，避免平均值掩盖短卡、把时间移到下一条样本。
+        using var readerDb=OpenReadOnly(databasePath);
+        using var command=readerDb.CreateCommand();
+        command.CommandText="""
+            WITH samples AS (
+                SELECT timestamp,value,CAST(strftime('%s',timestamp) AS INTEGER)/$bucket AS bucket
+                FROM metric_samples WHERE name=$name AND timestamp >= $since
+            ), peaks AS (
+                SELECT timestamp,value,bucket,
+                    ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY value DESC,timestamp DESC) AS position
+                FROM samples
+            )
+            SELECT timestamp,value FROM peaks WHERE position=1 ORDER BY bucket DESC LIMIT 288
+            """;
+        command.Parameters.AddWithValue("$name",DesktopFrameMonitor.MetricName);
+        command.Parameters.AddWithValue("$since",since);
+        command.Parameters.AddWithValue("$bucket",bucket);
+        var rows=new List<object>();
+        using var reader=command.ExecuteReader();
+        while(reader.Read())rows.Add(new {timestamp=reader.GetString(0),value=reader.IsDBNull(1)?(double?)null:reader.GetDouble(1)});
+        rows.Reverse();
+        return rows.ToArray();
     }
     SqliteConnection OpenArchive()=>OpenReadOnly(legacyPath);
     static SqliteConnection OpenReadOnly(string path)

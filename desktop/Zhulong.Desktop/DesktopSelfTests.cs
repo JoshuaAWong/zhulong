@@ -72,6 +72,29 @@ internal static class DesktopSelfTests
                 Check(bounded.RootElement.GetArrayLength() is > 0 and <= 288, "历史输出必须有界");
                 Check(bounded.RootElement.EnumerateArray().All(row => row.GetProperty("value").GetDouble() == 50), "时间桶应保留人工核定的物理内存比例");
             }
+            using (var frameStore = new MonitorStore(Path.Combine(outputDirectory, "frames-test-" + Guid.NewGuid().ToString("N") + ".db")))
+            {
+                const string metric = "desktop_frame_gap_ms";
+                // 以整桶边界生成样本，确保峰值和随后正常值落进同一桶。
+                var bucketStart = DateTimeOffset.FromUnixTimeSeconds(now.ToUnixTimeSeconds() / 300 * 300).AddMinutes(-15);
+                void SaveFrame(int seconds, double? milliseconds)
+                {
+                    var sampleAt = bucketStart.AddSeconds(seconds);
+                    frameStore.Save(new SystemSnapshot(sampleAt.AddMilliseconds(500), 50, 20, 40, 50, 16, 32, 5, [])
+                    {
+                        Metrics = new Dictionary<string,MetricValue> { [metric] = new(metric, milliseconds, "ms", State: milliseconds is null ? "unavailable" : "ok", SampledAt: sampleAt) }
+                    });
+                }
+                SaveFrame(15, 85);
+                SaveFrame(42, 5);
+                SaveFrame(310, null);
+                using var history = JsonDocument.Parse(JsonSerializer.Serialize(frameStore.History(metric, 24)));
+                Check(history.RootElement.GetArrayLength() == 2, "桌面帧间隔历史应按桶保留峰值和空值");
+                var peak = history.RootElement[0];
+                Check(peak.GetProperty("value").GetDouble() == 85 &&
+                    peak.GetProperty("timestamp").GetDateTimeOffset() == bucketStart.AddSeconds(15), "帧间隔峰值必须保留原发生时间");
+                Check(history.RootElement[1].GetProperty("value").ValueKind == JsonValueKind.Null, "缺少桌面更新应留空");
+            }
             CheckOversizedLog(outputDirectory, Check);
             CheckSettingsAndImport(outputDirectory,Check);
             assertions += SettingsWindow.RunConversionTests();
