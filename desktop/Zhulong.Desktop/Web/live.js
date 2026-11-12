@@ -428,8 +428,9 @@
     }));
   }
   const ledger = $(".ledger"), quotaSection = node("section", undefined, "panel live-quota");
-  quotaSection.append(node("h2", "套餐额度与重置")); $("#usage .usage-layout").before(quotaSection);
-  const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）" };
+  const usageSummary = $("#usage .usage-summary"), usageLayout = $("#usage .usage-layout");
+  quotaSection.append(node("h2", "套餐额度与重置")); usageLayout.before(quotaSection);
+  const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）", deepseek: "DeepSeek" };
   let selectedTool = "codex";
   const toolPicker = node("div", undefined, "usage-tool-picker");
   toolPicker.setAttribute("role", "group");
@@ -478,6 +479,8 @@
   function applyUsage(value) {
     const wrapper = value && Object.hasOwn(value, "report") ? value : null;
     usage = value; quotaRows = [];
+    const walletOnly = selectedTool === "deepseek";
+    refreshButton.hidden = usageSummary.hidden = usageLayout.hidden = walletOnly;
     accountButton.hidden = selectedTool !== "codex";
     providerSettings.hidden = selectedTool === "codex";
     for (const button of toolPicker.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.usageTool === selectedTool));
@@ -578,47 +581,67 @@
       stale: "显示上次成功读取的数据", login_required: "账户需要登录", not_signed_in: "账户需要登录",
       auth_required: "需要验证账户来源", unsupported: "该来源未提供账户额度", unsupported_auth: "认证方式不支持额度读取",
       scanning: "正在补录本机历史", partial: "部分记录暂不可读", source_missing: "本机来源当前不可用", local_sources: "已读取本机记录",
-      cli_unavailable: "未找到 Kimi Code CLI", cli_unsupported: "当前 Kimi CLI 不支持账户接口", auth_rejected: "Key 未通过套餐接口验证",
+      cli_unavailable: "未找到 Kimi Code CLI", cli_unsupported: "当前 Kimi CLI 不支持账户接口", auth_rejected: "Key 未通过账户接口验证",
       auth_expired: "登录已过期", duplicate_account: "两个来源登录了同一账户", duplicate_profile: "此账户来源目录已被使用",
       rate_limited: "达到读取频率限制", timeout: "读取超时", unavailable: "数据暂不可用", error: "读取失败"
     };
     return labels[state] || (hasData ? "已读取" : "暂未获取数据");
   }
+  function renderWallet(card, balances, available) {
+    for (const balance of balances) {
+      const row = node("div", undefined, "live-quota-window");
+      row.append(node("strong", balance.currency + " 总余额 " + number(balance.total_balance, 8)),
+        node("p", "充值余额 " + number(balance.topped_up_balance, 8) + " · 赠金余额 " + number(balance.granted_balance, 8)));
+      card.append(row);
+    }
+    if (available === false) card.append(node("p", "余额不足以调用 API。", "fine-print"));
+  }
   function renderProviderUsage(provider) {
     const label = toolNames[selectedTool], report = provider?.report, totals = report?.totals;
     const accounts = Array.isArray(provider?.accounts) ? provider.accounts : [];
-    text("#usage .page-title h2", label + " 会话账本");
-    text("#usage .page-title>div>p:nth-of-type(2)", "账户数据按来源展示。共享本机记录列在待归属会话中。");
-    const summary = all(".usage-summary>div");
-    const count = report?.session_count ?? report?.sessions?.length;
-    ["待归属 Token", Number.isFinite(report?.session_count) ? "待归属会话" : "已列出会话记录", "账户来源"].forEach((item, index) => summary[index].querySelector("span").textContent = item);
-    [number(totals?.total_tokens, 0), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
-    ledger.replaceChildren(node("h2", "本机待归属会话"), sessionTable(report?.sessions || [], false),
-      node("p", "会话没有可确认的账户归属。最多显示 100 行。", "fine-print"));
-    const breakdown = $(".token-breakdown");
-    breakdown.replaceChildren(node("h2", "待归属 Token 构成"));
-    const dl = node("dl");
-    [["输入", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => {
-      const row = node("div"); row.append(node("dt", name), node("dd", number(amount, 0))); dl.append(row);
-    });
-    breakdown.append(dl);
-    quotaSection.replaceChildren(node("h2", label + " 账户额度"));
+    const walletOnly = selectedTool === "deepseek";
+    text("#usage .page-title h2", label + (walletOnly ? " API 钱包" : " 会话账本"));
+    text("#usage .page-title>div>p:nth-of-type(2)", walletOnly ? "按币种查看开放平台余额。"
+      : "账户数据按来源展示。共享本机记录列在待归属会话中。");
+    if (!walletOnly) {
+      const summary = all(".usage-summary>div");
+      const count = report?.session_count ?? report?.sessions?.length;
+      ["待归属 Token", Number.isFinite(report?.session_count) ? "待归属会话" : "已列出会话记录", "账户来源"].forEach((item, index) => summary[index].querySelector("span").textContent = item);
+      [number(totals?.total_tokens, 0), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
+      ledger.replaceChildren(node("h2", "本机待归属会话"), sessionTable(report?.sessions || [], false),
+        node("p", "会话没有可确认的账户归属。最多显示 100 行。", "fine-print"));
+      const breakdown = $(".token-breakdown");
+      breakdown.replaceChildren(node("h2", "待归属 Token 构成"));
+      const dl = node("dl");
+      [["输入", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => {
+        const row = node("div"); row.append(node("dt", name), node("dd", number(amount, 0))); dl.append(row);
+      });
+      breakdown.append(dl);
+    }
+    quotaSection.replaceChildren(node("h2", walletOnly ? "钱包余额" : label + " 账户额度"));
     const cards = node("div", undefined, "provider-account-grid");
     for (const account of accounts) {
       const card = node("article", undefined, "provider-account");
       const head = node("div", undefined, "provider-account-head");
       head.append(node("h3", account.label || "账户"));
       if (nativeBridge && account.id) {
-        const button = node("button", "更新额度", "text-button");
+        const actionLabel = walletOnly ? "余额" : "额度";
+        const button = node("button", "更新" + actionLabel, "text-button");
         button.dataset.providerRefresh = "true";
         button.disabled = usageBusy;
-        button.setAttribute("aria-label", "更新 " + (account.label || "账户") + " 的额度");
+        button.setAttribute("aria-label", "更新 " + (account.label || "账户") + " 的" + actionLabel);
         button.addEventListener("click", () => readUsage("refresh-provider-account", { metric: account.id }));
         head.append(button);
       }
       const windows = Array.isArray(account.windows) ? account.windows : [];
-      const state = providerState(account.state, windows.length > 0 || Number.isFinite(account.account_tokens));
-      card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", glm_official_plan: "GLM 官方套餐" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
+      const balances = Array.isArray(account.balances) ? account.balances : [];
+      const state = providerState(account.state, windows.length > 0 || balances.length > 0 || Number.isFinite(account.account_tokens));
+      card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
+      if (walletOnly) {
+        renderWallet(card, balances, account.is_available);
+        cards.append(card);
+        continue;
+      }
       card.append(node("p", "账户累计 " + (Number.isFinite(account.account_tokens) ? number(account.account_tokens, 0) + " Token" : "未知"), "fine-print"));
       windows.forEach(window => quotaWindow(card, window));
       if (!windows.length) card.append(node("p", "剩余额度和重置时间未知。", "fine-print"));
@@ -631,7 +654,7 @@
     }
     if (accounts.length) quotaSection.append(cards);
     else quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
-    usageStatus.textContent = providerState(provider?.state, Boolean(report));
+    usageStatus.textContent = walletOnly ? "" : providerState(provider?.state, Boolean(report));
     if (report?.generated_at) usageStatus.textContent += " · 本机汇总于 " + date(report.generated_at);
     countdown();
   }
@@ -643,7 +666,8 @@
   async function readUsage(api = "usage", parameters = {}) {
     if (usageBusy) return;
     setUsageBusy(true);
-    if (api === "refresh-codex-account" || api === "refresh-provider-account") usageStatus.textContent = "正在读取账户用量与额度…";
+    if (api === "refresh-codex-account" || api === "refresh-provider-account") usageStatus.textContent = parameters.metric === "deepseek"
+      ? "正在查询 DeepSeek API 余额…" : "正在读取账户用量与额度…";
     try { const value = await request(api, parameters); applyUsage(value); lastUsageRead = Date.now(); }
     catch (error) { usageStatus.textContent = "统计读取未完成：" + error.message; }
     finally { setUsageBusy(false); }

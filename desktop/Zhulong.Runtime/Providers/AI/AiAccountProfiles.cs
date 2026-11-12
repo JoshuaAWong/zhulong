@@ -45,52 +45,79 @@ public static class AiAccountProfiles
         File.WriteAllText(temporary, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
         if (newGlmKey is null && !removeGlmKey) { File.Move(temporary, path, true); return; }
         var previous = ReadGlmKey(dataDirectory);
-        SetGlmKey(dataDirectory, newGlmKey);
+        SetKey(dataDirectory, "GLM", newGlmKey);
         try { File.Move(temporary, path, true); }
-        catch (IOException) { SetGlmKey(dataDirectory, previous); throw; }
-        catch (UnauthorizedAccessException) { SetGlmKey(dataDirectory, previous); throw; }
+        catch (IOException) { SetKey(dataDirectory, "GLM", previous); throw; }
+        catch (UnauthorizedAccessException) { SetKey(dataDirectory, "GLM", previous); throw; }
     }
 
-    public static bool HasGlmKey(string dataDirectory)
+    public static bool HasGlmKey(string dataDirectory) => HasKey(dataDirectory, "GLM");
+    public static bool HasDeepSeekKey(string dataDirectory) => HasKey(dataDirectory, "DeepSeek");
+
+    public static void SaveDeepSeekKey(string dataDirectory, string? key)
     {
-        if (!ReadGlmCredential(dataDirectory, out var pointer)) return false;
+        if (key is not null && !DeepSeekAccountClient.IsValidKey(key))
+            throw new ArgumentException("DeepSeek API Key 格式不正确。", nameof(key));
+        SetKey(dataDirectory, "DeepSeek", key, Guid.NewGuid().ToString("N"));
+    }
+
+    static bool HasKey(string dataDirectory, string provider)
+    {
+        if (!ReadCredential(dataDirectory, provider, out var pointer)) return false;
         CredFree(pointer);
         return true;
     }
 
-    internal static string? ReadGlmKey(string dataDirectory)
+    internal static string? ReadGlmKey(string dataDirectory) => ReadKey(dataDirectory, "GLM", out _);
+    internal static string? ReadDeepSeekKey(string dataDirectory, out string? version) =>
+        ReadKey(dataDirectory, "DeepSeek", out version);
+
+    internal static string? DeepSeekKeyVersion(string dataDirectory)
     {
-        if (!ReadGlmCredential(dataDirectory, out var pointer)) return null;
+        if (!ReadCredential(dataDirectory, "DeepSeek", out var pointer)) return null;
+        try { return Version(Marshal.PtrToStructure<Credential>(pointer)); }
+        finally { CredFree(pointer); }
+    }
+
+    static string? ReadKey(string dataDirectory, string provider, out string? version)
+    {
+        version = null;
+        if (!ReadCredential(dataDirectory, provider, out var pointer)) return null;
         try
         {
             var credential = Marshal.PtrToStructure<Credential>(pointer);
+            version = Version(credential);
             return Marshal.PtrToStringUni(credential.Blob, credential.BlobSize / 2);
         }
         finally { CredFree(pointer); }
     }
 
-    static bool ReadGlmCredential(string dataDirectory, out IntPtr pointer)
+    static string Version(Credential value) =>
+        $"{value.Comment}:{value.LastWritten.dwHighDateTime:x8}{value.LastWritten.dwLowDateTime:x8}";
+
+    static bool ReadCredential(string dataDirectory, string provider, out IntPtr pointer)
     {
-        if (CredRead(Target(dataDirectory), Generic, 0, out pointer)) return true;
+        if (CredRead(Target(dataDirectory, provider), Generic, 0, out pointer)) return true;
         var error = Marshal.GetLastWin32Error();
         return error == NotFound ? false : throw new Win32Exception(error);
     }
 
-    static string Target(string directory) => "ZhulongNext/GLM/" + Convert.ToHexString(
+    static string Target(string directory, string provider) => $"ZhulongNext/{provider}/" + Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())));
 
-    static void SetGlmKey(string directory, string? key)
+    static void SetKey(string directory, string provider, string? key, string? version = null)
     {
+        var target = Target(directory, provider);
         if (key is null)
         {
-            if (!CredDelete(Target(directory), Generic, 0) && Marshal.GetLastWin32Error() != NotFound)
+            if (!CredDelete(target, Generic, 0) && Marshal.GetLastWin32Error() != NotFound)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             return;
         }
         var pointer = Marshal.StringToHGlobalUni(key);
         try
         {
-            var value = new Credential { Type = Generic, TargetName = Target(directory), Persist = 2,
+            var value = new Credential { Type = Generic, TargetName = target, Comment = version, Persist = 2,
                 BlobSize = key.Length * 2, Blob = pointer };
             if (!CredWrite(ref value, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
         }

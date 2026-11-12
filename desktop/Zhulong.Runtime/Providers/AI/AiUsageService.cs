@@ -282,7 +282,8 @@ public sealed class AiUsageService : IAsyncDisposable, IDisposable
             },
             providers = new[] { new { tool = "codex", provider = "openai", state = sourceState },
                 new { tool = "kimi", provider = "moonshot", state = "not_implemented" },
-                new { tool = "zcode", provider = "model_dependent", state = "not_implemented" } }
+                new { tool = "zcode", provider = "model_dependent", state = "not_implemented" },
+                new { tool = "deepseek", provider = "deepseek", state = "not_checked" } }
         });
     }
 

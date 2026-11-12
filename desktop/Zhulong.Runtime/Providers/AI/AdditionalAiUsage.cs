@@ -5,10 +5,10 @@ namespace Zhulong.Runtime.Providers.AI;
 
 internal sealed class AdditionalAiUsage : IAsyncDisposable
 {
-    const string Primary = "kimi-primary", Secondary = "kimi-secondary", Glm = "glm";
+    const string Primary = "kimi-primary", Secondary = "kimi-secondary", Glm = "glm", DeepSeek = "deepseek";
     readonly string directory, primaryHome, secondaryHome;
     readonly LocalUsage kimi, secondKimi, glm;
-    readonly Func<string, CancellationToken, Task<ProviderAccountReading>> readKimi;
+    readonly Func<string, CancellationToken, Task<ProviderAccountReading>> readKimi, readDeepSeek;
     readonly Dictionary<string, AccountSnapshot> accounts = new(StringComparer.Ordinal);
     readonly SemaphoreSlim localGate = new(1), accountGate = new(1);
     readonly CancellationTokenSource stopping = new();
@@ -17,10 +17,12 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
     readonly bool sharedKimiHome;
 
     internal AdditionalAiUsage(string directory, string? kimiHome = null, string? zcodePath = null,
-        Func<string, CancellationToken, Task<ProviderAccountReading>>? readKimi = null)
+        Func<string, CancellationToken, Task<ProviderAccountReading>>? readKimi = null,
+        Func<string, CancellationToken, Task<ProviderAccountReading>>? readDeepSeek = null)
     {
         this.directory = directory;
         this.readKimi = readKimi ?? KimiAccountClient.ReadAsync;
+        this.readDeepSeek = readDeepSeek ?? DeepSeekAccountClient.ReadAsync;
         primaryHome = kimiHome ?? AiAccountProfiles.DefaultKimiHome;
         secondaryHome = AiAccountProfiles.SecondaryKimiHome(directory);
         sharedKimiHome = string.Equals(Path.GetFullPath(primaryHome).TrimEnd(Path.DirectorySeparatorChar),
@@ -59,7 +61,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
 
     internal async Task RefreshAccountAsync(string id, CancellationToken cancellationToken)
     {
-        if (id is not (Primary or Secondary or Glm)) throw new ArgumentException("未知的 AI 账户。");
+        if (id is not (Primary or Secondary or Glm or DeepSeek)) throw new ArgumentException("未知的 AI 账户。");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token, cancellationToken);
         var token = linked.Token;
         if (!await accountGate.WaitAsync(0, token).ConfigureAwait(false)) return;
@@ -68,11 +70,17 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         {
             ProviderAccountReading result;
             AiAccountPreferences? preferences = null;
+            string? walletKeyVersion = null;
             try
             {
-                preferences = AiAccountProfiles.Load(directory);
-                if (id == Glm)
+                if (id == DeepSeek)
                 {
+                    var key = AiAccountProfiles.ReadDeepSeekKey(directory, out walletKeyVersion);
+                    result = key is null ? new("not_configured", null, null, []) : await readDeepSeek(key, token).ConfigureAwait(false);
+                }
+                else if (id == Glm)
+                {
+                    preferences = AiAccountProfiles.Load(directory);
                     var key = AiAccountProfiles.ReadGlmKey(directory);
                     result = key is null ? new("not_configured", null, null, [])
                         : await ZCodeAccountClient.ReadAsync(key, preferences.GlmDomestic, token).ConfigureAwait(false);
@@ -91,10 +99,10 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
             lock (gate)
             {
                 var now = DateTimeOffset.UtcNow;
-                var snapshot = new AccountSnapshot(result, now, preferences?.GlmKeyRevision, preferences?.GlmDomestic);
-                if (id == Glm && result.State is ("unavailable" or "timeout") &&
-                    accounts.TryGetValue(id, out var old) && old.Revision == snapshot.Revision && old.Domestic == snapshot.Domestic &&
-                    old.Reading.Windows.Count > 0)
+                var snapshot = new AccountSnapshot(result, now, preferences?.GlmKeyRevision, preferences?.GlmDomestic, walletKeyVersion);
+                if (result.State is ("unavailable" or "timeout") && accounts.TryGetValue(id, out var old) &&
+                    (id == Glm && old.Revision == snapshot.Revision && old.Domestic == snapshot.Domestic && old.Reading.Windows.Count > 0 ||
+                    id == DeepSeek && walletKeyVersion is not null && old.WalletKeyVersion == walletKeyVersion && old.Reading.Wallet is not null))
                     snapshot = old with { Reading = old.Reading with { State = "stale" } };
                 accounts[id] = snapshot;
             }
@@ -111,6 +119,10 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         AiAccountPreferences preferences;
         try { preferences = AiAccountProfiles.Load(directory); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { preferences = new(); }
+        string? walletKeyVersion = null, walletOverride = null;
+        try { walletKeyVersion = AiAccountProfiles.DeepSeekKeyVersion(directory); }
+        catch (Win32Exception) { walletOverride = "unavailable"; }
+        if (walletKeyVersion is null) walletOverride ??= "not_configured";
         var now = DateTimeOffset.UtcNow;
         lock (gate)
         {
@@ -118,6 +130,8 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
             var secondary = accounts.GetValueOrDefault(Secondary);
             var plan = accounts.GetValueOrDefault(Glm);
             if (plan is not null && (plan.Revision != preferences.GlmKeyRevision || plan.Domestic != preferences.GlmDomestic)) plan = null;
+            var wallet = accounts.GetValueOrDefault(DeepSeek);
+            if (wallet?.WalletKeyVersion != walletKeyVersion) wallet = null;
             var duplicate = primary?.Reading.Identity is { } identity && identity == secondary?.Reading.Identity;
             var (kimiState, kimiReport) = kimi.Snapshot;
             var (secondState, secondReport) = secondKimi.Snapshot;
@@ -134,6 +148,10 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                 new { tool = "zcode", state = glmState, report = glmReport, accounts = new[]
                 {
                     Account(Glm, preferences.Glm, "glm_official_plan", plan, now, null, null)
+                } },
+                new { tool = DeepSeek, state = AccountState(wallet, now, walletOverride), report = (JsonElement?)null, accounts = new[]
+                {
+                    Account(DeepSeek, "DeepSeek API 钱包", "deepseek_official_balance", wallet, now, walletOverride, null)
                 } }
             };
         }
@@ -143,8 +161,8 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         DateTimeOffset now, string? overrideState, JsonElement? localReport, string? localState = null)
     {
         var reading = snapshot?.Reading;
-        var state = overrideState ?? reading?.State ?? "not_checked";
-        if (state == "ok" && snapshot is not null && now - snapshot.Time > TimeSpan.FromMinutes(15)) state = "stale";
+        var state = AccountState(snapshot, now, overrideState);
+        var wallet = overrideState is null ? reading?.Wallet : null;
         var windows = overrideState is null ? reading?.Windows.Select(window =>
         {
             var seconds = window.ResetsAt is { } reset ? Math.Max(0, Math.Ceiling((reset - now).TotalSeconds)) : (double?)null;
@@ -158,9 +176,18 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
             };
         }).ToArray() : null;
         return new { id, label, state, source, plan_type = overrideState is null ? reading?.PlanType : null,
-            fetched_at = reading?.Windows.Count > 0 && overrideState is null ? snapshot?.Time : null,
+            fetched_at = overrideState is null && (reading?.Windows.Count > 0 || wallet is not null) ? snapshot?.Time : null,
             account_tokens = overrideState is null ? reading?.AccountTokens : null, windows,
+            is_available = wallet?.IsAvailable,
+            balances = wallet?.Balances.Select(balance => new { currency = balance.Currency, total_balance = balance.Total,
+                granted_balance = balance.Granted, topped_up_balance = balance.ToppedUp }).ToArray() ?? [],
             local_report = localReport, local_state = localState, refreshing = refreshingAccount == id };
+    }
+
+    static string AccountState(AccountSnapshot? snapshot, DateTimeOffset now, string? overrideState)
+    {
+        var state = overrideState ?? snapshot?.Reading.State ?? "not_checked";
+        return state == "ok" && snapshot is not null && now - snapshot.Time > TimeSpan.FromMinutes(15) ? "stale" : state;
     }
 
     public async ValueTask DisposeAsync()
@@ -176,7 +203,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         stopping.Dispose();
     }
 
-    sealed record AccountSnapshot(ProviderAccountReading Reading, DateTimeOffset Time, Guid? Revision, bool? Domestic);
+    sealed record AccountSnapshot(ProviderAccountReading Reading, DateTimeOffset Time, Guid? Revision, bool? Domestic, string? WalletKeyVersion);
 
     sealed class LocalUsage(string database, string tool, string provider, Func<bool> exists,
         Func<UsageStore, CancellationToken, ScanResult> scan, IDisposable? source = null) : IDisposable

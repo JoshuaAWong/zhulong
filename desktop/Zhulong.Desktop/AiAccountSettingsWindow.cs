@@ -60,6 +60,21 @@ internal sealed class AiAccountSettingsWindow : Window
         clear.Click += (_, _) => Try(() => Save(true));
         Try(UpdateKeyHint);
 
+        panel.Children.Add(Heading("DeepSeek API 钱包"));
+        var deepSeekKey = new PasswordBox { MaxLength = 512, Margin = new Thickness(0, 6, 0, 8) };
+        System.Windows.Automation.AutomationProperties.SetName(deepSeekKey, "DeepSeek API Key");
+        panel.Children.Add(deepSeekKey);
+        var deepSeekHint = Note("");
+        panel.Children.Add(deepSeekHint);
+        var saveDeepSeek = Button("保存 DeepSeek Key");
+        var clearDeepSeek = Button("移除已保存的 DeepSeek Key");
+        var deepSeekActions = new WrapPanel();
+        deepSeekActions.Children.Add(saveDeepSeek); deepSeekActions.Children.Add(clearDeepSeek);
+        panel.Children.Add(deepSeekActions);
+        saveDeepSeek.Click += (_, _) => Try(() => SaveDeepSeek(false), deepSeekHint);
+        clearDeepSeek.Click += (_, _) => Try(() => SaveDeepSeek(true), deepSeekHint);
+        Try(UpdateDeepSeekHint, deepSeekHint);
+
         TextBox Name(string value, string label)
         {
             panel.Children.Add(Note(label));
@@ -90,12 +105,33 @@ internal sealed class AiAccountSettingsWindow : Window
             clear.IsEnabled = exists;
         }
 
-        void Try(Action work)
+        void SaveDeepSeek(bool remove)
+        {
+            var token = deepSeekKey.Password.Trim();
+            if (!remove && token.Length == 0)
+            {
+                deepSeekHint.Text = "请输入 DeepSeek 开放平台的 API Key。";
+                return;
+            }
+            AiAccountProfiles.SaveDeepSeekKey(directory, remove ? null : token);
+            deepSeekKey.Clear();
+            UpdateDeepSeekHint();
+            deepSeekHint.Text = remove ? "DeepSeek Key 已移除。" : "已保存到 Windows 凭据管理器，可回到账本查询余额。";
+        }
+
+        void UpdateDeepSeekHint()
+        {
+            clearDeepSeek.IsEnabled = AiAccountProfiles.HasDeepSeekKey(directory);
+            deepSeekHint.Text = clearDeepSeek.IsEnabled ? "已保存 DeepSeek API Key。"
+                : "输入 DeepSeek 开放平台的 API Key 并保存，即可查询钱包余额。";
+        }
+
+        void Try(Action work, TextBlock? feedback = null)
         {
             try { work(); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException
-                or Win32Exception or InvalidOperationException)
-            { status.Text = "操作未完成。 " + error.Message; }
+                or Win32Exception or InvalidOperationException or ArgumentException)
+            { (feedback ?? status).Text = "操作未完成。 " + error.Message; }
         }
     }
 

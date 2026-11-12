@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -156,7 +157,81 @@ public static class AiUsageSelfTests
         assertions += await ZCodeSelfTests.RunAsync(directory);
         assertions += KimiUsageSelfTests.Run(Path.Combine(directory, "kimi-usage"));
         assertions += await TestAccountIsolationAsync(Path.Combine(directory, "profile-isolation"));
+        await CheckDeepSeekWalletAsync(test, Check);
         return assertions;
+    }
+
+    static async Task CheckDeepSeekWalletAsync(string directory, Action<bool, string> check)
+    {
+        var data = Path.Combine(directory, "deepseek-wallet");
+        Directory.CreateDirectory(data);
+        const string key = "fixture-deepseek";
+        const string body = """
+            {"is_available":false,"balance_infos":[
+              {"currency":"CNY","total_balance":"12.34","granted_balance":"0.00","topped_up_balance":"12.34"},
+              {"currency":"USD","total_balance":-0.01,"topped_up_balance":"invalid"}]}
+            """;
+        using var http = new WalletHttp(body, key);
+        using var client = new HttpClient(http);
+        await using var source = new AdditionalAiUsage(data, Path.Combine(data, "kimi"), Path.Combine(data, "zcode.db"),
+            readDeepSeek: (credential, token) => DeepSeekAccountClient.ReadAsync(client, credential, token));
+        JsonElement Account() => JsonSerializer.SerializeToElement(source.Report()).EnumerateArray()
+            .Single(provider => provider.GetProperty("tool").GetString() == "deepseek").GetProperty("accounts")[0];
+        var token = CancellationToken.None;
+        try
+        {
+            await source.RefreshAccountAsync("deepseek", token);
+            check(Account().GetProperty("state").GetString() == "not_configured" && http.Calls == 0,
+                "未配置 DeepSeek Key 时不能发送请求");
+
+            AiAccountProfiles.SaveDeepSeekKey(data, key);
+            check(AiAccountProfiles.HasDeepSeekKey(data) && !AiAccountProfiles.HasGlmKey(data) &&
+                !File.Exists(Path.Combine(data, "ai-profiles.json")), "DeepSeek Key 必须独立存放在 Windows 凭据中");
+            await source.RefreshAccountAsync("deepseek", token);
+            var wallet = Account();
+            var balances = wallet.GetProperty("balances");
+            check(http.Calls == 1 && http.IsExpectedRequest && wallet.GetProperty("state").GetString() == "ok" &&
+                wallet.GetProperty("fetched_at").GetDateTimeOffset() <= DateTimeOffset.UtcNow, "按需查询须调用固定的官方余额地址");
+            check(!wallet.GetProperty("is_available").GetBoolean() && wallet.GetProperty("windows").GetArrayLength() == 0 &&
+                balances.GetArrayLength() == 2 && balances[0].GetProperty("currency").GetString() == "CNY" &&
+                balances[0].GetProperty("total_balance").GetDecimal() == 12.34m && balances[0].GetProperty("granted_balance").GetDecimal() == 0 &&
+                balances[1].GetProperty("currency").GetString() == "USD" && balances[1].GetProperty("total_balance").GetDecimal() == -.01m &&
+                balances[1].GetProperty("topped_up_balance").ValueKind == JsonValueKind.Null &&
+                !wallet.GetRawText().Contains(key, StringComparison.Ordinal), "按币种保留余额、零值、未知值和可用状态，不产生套餐窗口或泄露凭据");
+
+            http.Status = HttpStatusCode.ServiceUnavailable;
+            await source.RefreshAccountAsync("deepseek", token);
+            check(Account().GetProperty("state").GetString() == "stale" &&
+                Account().GetProperty("fetched_at").GetDateTimeOffset() == wallet.GetProperty("fetched_at").GetDateTimeOffset(),
+                "临时查询失败时显示同一密钥下的上次成功快照");
+            AiAccountProfiles.SaveDeepSeekKey(data, "fixture-deepseek-new");
+            check(Account().GetProperty("state").GetString() == "not_checked" && Account().GetProperty("balances").GetArrayLength() == 0,
+                "更换密钥后隐藏之前的余额");
+            http.Status = HttpStatusCode.Unauthorized;
+            await source.RefreshAccountAsync("deepseek", token);
+            check(Account().GetProperty("state").GetString() == "auth_rejected", "DeepSeek 认证失败需保留独立状态");
+            AiAccountProfiles.SaveDeepSeekKey(data, null);
+            check(!AiAccountProfiles.HasDeepSeekKey(data) && Account().GetProperty("state").GetString() == "not_configured",
+                "移除密钥后回到未配置状态");
+        }
+        finally { AiAccountProfiles.SaveDeepSeekKey(data, null); }
+
+    }
+
+    // 捕获请求形状，不连接任何外部地址。
+    sealed class WalletHttp(string body, string expectedKey) : HttpMessageHandler
+    {
+        public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+        public int Calls { get; private set; }
+        public bool IsExpectedRequest { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            IsExpectedRequest = request.Method == HttpMethod.Get && request.RequestUri?.AbsoluteUri == "https://api.deepseek.com/user/balance" &&
+                request.Headers.Authorization?.Scheme == "Bearer" && request.Headers.Authorization?.Parameter == expectedKey;
+            return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(body) });
+        }
     }
 
     static async Task CheckStableFileMetadataAsync(string test, DateTimeOffset now, Action<bool, string> check)

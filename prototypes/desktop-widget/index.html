@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="day">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>烛龙桌面挂件 · 三案对照</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="widget.js"></script>
+</head>
+<body>
+  <main class="spread">
+    <header class="page-head">
+      <div class="title-lockup">
+        <img src="../../desktop/Zhulong.Desktop/Assets/zhulong-next.png" width="54" height="54" alt="">
+        <div>
+          <h1>烛龙桌面挂件</h1>
+          <p>拖动挂件可换边，点击可展开。桌面与读数均为示例。</p>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="choice theme-choice" role="group" aria-label="昼夜主题">
+          <button type="button" data-theme-option="day" aria-pressed="true">昼</button>
+          <button type="button" data-theme-option="night" aria-pressed="false">夜</button>
+        </div>
+        <div class="choice edge-choice" role="group" aria-label="贴边方向">
+          <button type="button" data-edge-option="left" aria-pressed="false">左侧</button>
+          <button type="button" data-edge-option="right" aria-pressed="true">右侧</button>
+        </div>
+        <label class="dock-choice"><input type="checkbox" id="dock-toggle"> 贴边收起</label>
+      </div>
+    </header>
+
+    <div class="studies" aria-label="挂件样式对照">
+      <section class="study seal-study">
+        <header class="study-heading">
+          <h2>朱印方钮</h2>
+          <p>收起后只露印边和告警点。</p>
+        </header>
+        <div class="desk" data-edge="right" data-docked="false" data-open="true">
+          <div class="edge-anchor">
+            <button class="widget-handle seal-handle" type="button" aria-label="展开或收起朱印方钮" aria-controls="seal-panel" aria-expanded="true">
+              <img src="../../desktop/Zhulong.Desktop/Assets/zhulong-next.png" width="48" height="48" alt="" draggable="false">
+              <i class="alert-dot" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div id="seal-panel" class="flyout"></div>
+        </div>
+      </section>
+      <section class="study taiji-study">
+        <header class="study-heading">
+          <h2>太极圆钮</h2>
+          <p>外环显示提交内存占比。</p>
+        </header>
+        <div class="desk" data-edge="right" data-docked="false" data-open="false">
+          <div class="edge-anchor">
+            <button class="widget-handle taiji-handle" type="button" aria-label="展开或收起太极圆钮，示例提交内存 73%" aria-controls="taiji-panel" aria-expanded="false">
+              <span class="taiji-face" aria-hidden="true"></span>
+              <i class="alert-dot" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div id="taiji-panel" class="flyout" hidden></div>
+        </div>
+      </section>
+      <section class="study ribbon-study">
+        <header class="study-heading">
+          <h2>横向墨条</h2>
+          <p>把 CPU 和物理内存留在桌面上。</p>
+        </header>
+        <div class="desk" data-edge="right" data-docked="false" data-open="false">
+          <div class="edge-anchor">
+            <button class="widget-handle ribbon-handle" type="button" aria-label="展开或收起横向墨条，示例 CPU 28%，物理内存 54%" aria-controls="ribbon-panel" aria-expanded="false">
+              <span class="ribbon-numbers" aria-hidden="true">
+                <span><small>CPU</small><strong>28%</strong></span>
+                <span><small>内存</small><strong>54%</strong></span>
+              </span>
+              <i class="alert-dot" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div id="ribbon-panel" class="flyout" hidden></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <template id="flyout-template">
+    <div class="flyout-head">
+      <div class="flyout-tabs" role="group" aria-label="挂件视图">
+        <button type="button" data-view="system" aria-pressed="true">系统</button>
+        <button type="button" data-view="ai" aria-pressed="false">AI 额度</button>
+      </div>
+      <button type="button" class="close-flyout" aria-label="收起挂件">×</button>
+    </div>
+    <div data-panel="system">
+      <dl class="system-metrics">
+        <div><dt>CPU</dt><dd>28<small>%</small></dd></div>
+        <div><dt>物理内存</dt><dd>54<small>%</small></dd></div>
+      </dl>
+      <dl class="commit-metric">
+        <div><dt>提交内存</dt><dd>73<small>%</small></dd></div>
+      </dl>
+      <div class="commit-track" aria-hidden="true"><span></span></div>
+      <p class="alert-line">提交内存接近提醒线</p>
+    </div>
+    <div data-panel="ai" hidden>
+      <dl class="quota-list">
+        <div><dt>Codex <small>周额度</small></dt><dd>84% <small>明日重置</small></dd></div>
+        <div><dt>Kimi <small>主账号 · 5 小时</small></dt><dd>96% <small>2 小时重置</small></dd></div>
+        <div><dt>Kimi <small>第二账号 · 周额度</small></dt><dd>71% <small>3 天重置</small></dd></div>
+        <div><dt>GLM <small>5 小时额度</small></dt><dd>58% <small>1 小时重置</small></dd></div>
+        <div><dt>DeepSeek <small>API 余额</small></dt><dd>¥ 42.86</dd></div>
+      </dl>
+      <p class="sample-note">示例更新于 17:24</p>
+    </div>
+  </template>
+</body>
+</html>
