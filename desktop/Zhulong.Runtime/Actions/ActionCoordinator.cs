@@ -125,8 +125,12 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         var fresh = processes.Read(process.Pid);
         if (fresh is null) return new("skipped:process_gone", action, target);
         if (fresh.CreatedTicks != process.CreatedTicks) return new("skipped:pid_reused", action, target);
-        processes.Trim(fresh);
-        return Account(action, target, "trimmed", "仅回收工作集物理页，提交内存不变；PID " + fresh.Pid);
+        if (SafetyPolicy.ProcessBlocked(fresh, processes.CurrentPid) is { } freshReason)
+            return new("blocked:" + freshReason, action, target);
+        if (fresh.WorkingSetGb < Math.Max(2, policy.MinWorkingSetGb)) return new("skipped:ws_below_threshold", action, target);
+        var reduction = processes.Trim(fresh);
+        var detail = reduction is { } bytes ? $"专用工作集下降 {bytes / 1048576d:F1} MiB" : "专用工作集变化不可测";
+        return Account(action, target, "trimmed", $"{detail}；PID {fresh.Pid}") with { PrivateWorkingSetReductionBytes = reduction };
     }
 
     bool OldEnough(ProcessIdentity process, int seconds) => process.CreatedTicks > 0 &&
@@ -160,7 +164,10 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
     {
         if (audit is null) return result;
         try { await audit(result).ConfigureAwait(false); return result; }
-        catch (Exception error) { return new("degraded:audit_failed", result.Action, result.Target, result.Status + "；" + error.Message); }
+        catch (Exception error)
+        {
+            return result with { Status = "degraded:audit_failed", Detail = result.Status + "；" + error.Message };
+        }
     }
     public async Task StopAsync()
     {

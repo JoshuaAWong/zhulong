@@ -189,13 +189,6 @@ public sealed class RuntimeHost : IDisposable
             .Where(decision => decision.SuggestedAction == action)
             .DistinctBy(decision => SafetyPolicy.Normalize(decision.Target!)).ToArray();
         if (decisions.Length == 0) return [];
-        var physical = NativeCounters.PhysicalMemory().Percent;
-        if (!physical.HasValue)
-            return [new("skipped:pressure_unavailable", action, "", "暂时无法读取物理内存占用。")];
-        if (physical.Value < Settings.TrimPressurePercent)
-            return [new("skipped:pressure_below_threshold", action, "",
-                $"物理内存占用 {physical.Value:F0}%，整理门槛 {Settings.TrimPressurePercent:0.##}%。")];
-
         var results = new List<ActionResult>(decisions.Length);
         foreach (var decision in decisions)
         {

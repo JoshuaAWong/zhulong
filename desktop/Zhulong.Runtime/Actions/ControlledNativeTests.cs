@@ -53,7 +53,7 @@ public static partial class RuntimeSafetyTests
             Check(restored.Any(value => value.Status == "restored") && native.ReadLimits(identity) == original, "真实限流原值恢复失败。");
             // 这里只证明EmptyWorkingSet系统边界成功；生产300秒eligibility不在此测试中绕过。
             var beforeTrim = native.Read(child.Id)!;
-            native.Trim(beforeTrim);
+            var reduction = native.Trim(beforeTrim);
             var afterTrim = native.Read(child.Id)!;
             Check(afterTrim.CreatedTicks == identity.CreatedTicks, "整理期间受控helper身份发生变化。");
             var decision = new AlertDecision("controlled_native", "受控原生验收", "仅处置本轮自建helper", "info",
@@ -63,7 +63,7 @@ public static partial class RuntimeSafetyTests
             await child.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
             Check(child.HasExited, "受控helper未确认退出。");
             var evidence = new { status = "PASS", assertions, helper, pid = child.Id, original, changed,
-                trim_before_gb = beforeTrim.WorkingSetGb, trim_after_gb = afterTrim.WorkingSetGb,
+                trim_before_gb = beforeTrim.WorkingSetGb, trim_after_gb = afterTrim.WorkingSetGb, trim_private_reduction_bytes = reduction,
                 trim_scope = "native_boundary_only; production_minimum_age_remains_300_seconds", killed,
                 real_services_touched = false, unrelated_user_processes_touched = false };
             File.WriteAllText(Path.Combine(directory, "native-actions.json"), JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }), System.Text.Encoding.UTF8);

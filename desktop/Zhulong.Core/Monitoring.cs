@@ -15,7 +15,11 @@ public sealed record RuntimeEvent(DateTimeOffset Timestamp, string Title, string
     string Kind = "observation", string? Target = null);
 public sealed record AlertDecision(string Rule, string Title, string Text, string Level,
     string? ProcessName = null, int? Pid = null, long? CreatedTicks = null, string? SuggestedAction = null, string? Target = null);
-public sealed record ActionResult(string Status, string Action, string Target, string? Detail = null);
+public sealed record ActionResult(string Status, string Action, string Target, string? Detail = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public long? PrivateWorkingSetReductionBytes { get; init; }
+}
 public sealed record ProcessPolicy(string Name, double MaxCommitGb = 15, int MinAgeSeconds = 60,
     int MaxActionsPerTenMinutes = 2, string? PathContains = null);
 public sealed record TrimPolicy(string Name, double MinWorkingSetGb = 2, int MinAgeSeconds = 300,

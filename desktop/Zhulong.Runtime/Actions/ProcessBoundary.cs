@@ -18,7 +18,7 @@ public interface IProcessBoundary
     IReadOnlyList<ProcessIdentity> Find(string name);
     ProcessIdentity? Read(int pid);
     void Terminate(ProcessIdentity expected);
-    void Trim(ProcessIdentity expected);
+    long? Trim(ProcessIdentity expected);
     ProcessLimits ReadLimits(ProcessIdentity expected);
     void SetLimits(ProcessIdentity expected, uint priority, ulong affinity);
 }
@@ -84,10 +84,22 @@ public sealed class NativeProcessBoundary : IProcessBoundary
         if (!TerminateProcess(handle.DangerousGetHandle(), 1)) throw new Win32Exception(Marshal.GetLastWin32Error());
     }
 
-    public void Trim(ProcessIdentity expected)
+    public long? Trim(ProcessIdentity expected)
     {
-        using var handle = CheckedOpen(expected, Query | 0x0100);
-        if (!EmptyWorkingSet(handle.DangerousGetHandle())) throw new Win32Exception(Marshal.GetLastWin32Error());
+        using var handle = CheckedOpen(expected, QueryMemory | 0x0100);
+        var process = handle.DangerousGetHandle();
+        var before = ReadPrivateWorkingSet(process);
+        if (!EmptyWorkingSet(process)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        var after = ReadPrivateWorkingSet(process);
+        return before is { } previous && after is { } remaining ? Math.Max(0, previous - remaining) : null;
+    }
+
+    static long? ReadPrivateWorkingSet(IntPtr process)
+    {
+        var counters = new ExtendedMemoryCounters();
+        counters.Base.Size = (uint)Marshal.SizeOf<ExtendedMemoryCounters>();
+        return GetExtendedProcessMemoryInfo(process, out counters, counters.Base.Size)
+            ? (long)counters.PrivateWorkingSet.ToUInt64() : null;
     }
 
     public ProcessLimits ReadLimits(ProcessIdentity expected)
@@ -144,10 +156,18 @@ public sealed class NativeProcessBoundary : IProcessBoundary
         public UIntPtr PeakWorkingSet, WorkingSet, QuotaPeakPaged, QuotaPaged, QuotaPeakNonpaged,
             QuotaNonpaged, PagefileUsage, PeakPagefileUsage, PrivateUsage;
     }
+    [StructLayout(LayoutKind.Sequential)] struct ExtendedMemoryCounters
+    {
+        public MemoryCounters Base;
+        public UIntPtr PrivateWorkingSet;
+        public ulong SharedCommitUsage;
+    }
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr handle, out FileTime created, out FileTime exited, out FileTime kernel, out FileTime user);
     [DllImport("psapi.dll", SetLastError = true)] static extern bool GetProcessMemoryInfo(IntPtr handle, out MemoryCounters counters, uint size);
+    [DllImport("psapi.dll", EntryPoint = "GetProcessMemoryInfo", SetLastError = true)]
+    static extern bool GetExtendedProcessMemoryInfo(IntPtr handle, out ExtendedMemoryCounters counters, uint size);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool QueryFullProcessImageName(IntPtr handle, uint flags, StringBuilder name, ref uint size);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();

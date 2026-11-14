@@ -32,6 +32,7 @@ internal sealed class ResourceDockWindow : Window
     readonly Ellipse diskRim;
     readonly Image disk, ripple;
     readonly Button meterButton;
+    readonly ZhulongContextMenu dockMenu;
     readonly RotateTransform diskRotation = new();
     readonly ScaleTransform rippleScale = new(1, 1);
     readonly TranslateTransform railOffset = new();
@@ -49,6 +50,8 @@ internal sealed class ResourceDockWindow : Window
     bool opened, rendering, expandedBounds, dockRight = true, dragging;
 
     internal event Action? AccelerateRequested;
+    internal event Action? OpenRequested;
+    internal event Action? HideRequested;
 
     internal ResourceDockWindow()
     {
@@ -149,11 +152,26 @@ internal sealed class ResourceDockWindow : Window
         details.Children.Add(accelerationStatus);
         contents.Children.Add(details);
         Content = scene;
+        dockMenu = new ZhulongContextMenu();
+        dockMenu.Add("打开烛龙", () => OpenRequested?.Invoke());
+        dockMenu.Add("整理内存", AccelerateFromMenu);
+        dockMenu.Items.Add(new Separator());
+        dockMenu.Add("仅在托盘显示", () => HideRequested?.Invoke());
+        dockMenu.Closed += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (IsVisible && !dockMenu.IsOpen && pulseElapsed >= PulseSeconds) SetExpanded(PointerOnDock());
+        }));
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(NoMouseActivation);
-        MouseEnter += (_, _) => { if (dragStart is null) SetExpanded(true); };
+        MouseEnter += (_, _) => { if (dragStart is null && !dockMenu.IsOpen) SetExpanded(true); };
         MouseLeave += (_, _) =>
         {
-            if (dragStart is null && pulseElapsed >= PulseSeconds) SetExpanded(false);
+            if (dragStart is null && !dockMenu.IsOpen && pulseElapsed >= PulseSeconds) SetExpanded(false);
+        };
+        PreviewMouseRightButtonUp += (_, e) =>
+        {
+            if (dragStart is not null || !panelClip.FillContains(e.GetPosition(scene))) return;
+            dockMenu.OpenAtPointer(this);
+            e.Handled = true;
         };
         PreviewMouseLeftButtonDown += BeginDrag;
         PreviewMouseMove += UpdateDrag;
@@ -169,7 +187,11 @@ internal sealed class ResourceDockWindow : Window
         {
             if (!IsVisible) SetExpanded(false);
         };
-        Closed += (_, _) => StopRendering();
+        Closed += (_, _) =>
+        {
+            dockMenu.IsOpen = false;
+            StopRendering();
+        };
         anchorY = workArea.Top + workArea.Height / 2;
         SetWindowBounds(false);
         UpdateVisual(0);
@@ -294,6 +316,20 @@ internal sealed class ResourceDockWindow : Window
         AccelerateRequested?.Invoke();
     }
 
+    void AccelerateFromMenu()
+    {
+        dockMenu.IsOpen = false;
+        SetExpanded(true);
+        ActivateAcceleration();
+    }
+
+    bool PointerOnDock()
+    {
+        if (PresentationSource.FromVisual(scene) is null) return false;
+        var cursor = System.Windows.Forms.Cursor.Position;
+        return panelClip.FillContains(scene.PointFromScreen(new Point(cursor.X, cursor.Y)));
+    }
+
     void StartPulse()
     {
         if (!opened || !IsVisible || !SystemParameters.ClientAreaAnimation) return;
@@ -370,7 +406,7 @@ internal sealed class ResourceDockWindow : Window
                 var spread = 1 - Math.Pow(1 - p, 3);
                 rippleScale.ScaleX = rippleScale.ScaleY = 1 + spread * 2;
                 ripple.Opacity = (1 - p) * .48;
-                if (p == 1 && dragStart is null && !IsMouseOver) SetExpanded(false);
+                if (p == 1 && dragStart is null && !dockMenu.IsOpen && !PointerOnDock()) SetExpanded(false);
             }
         }
         UpdateRendering();
@@ -595,6 +631,14 @@ internal sealed class ResourceDockWindow : Window
             dock.SnapDock(dock.workArea.Right);
             check(dock.Left == dock.workArea.Right - RailWidth && dock.Top == dock.workArea.Bottom - RailHeight,
                 "拖放到右下角应贴右并避开任务栏");
+            var openedFromMenu = 0;
+            var hiddenFromMenu = 0;
+            dock.OpenRequested += () => openedFromMenu++;
+            dock.HideRequested += () => hiddenFromMenu++;
+            foreach (var item in dock.dockMenu.Items.OfType<MenuItem>())
+                item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            check(dock.opened && openedFromMenu == 1 && hiddenFromMenu == 1 && accelerations == 2,
+                "收起态菜单应能打开烛龙、沿用内存整理，并发出隐藏挂件请求");
         }
         finally { dock.Close(); }
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using Forms = System.Windows.Forms;
 
 namespace Zhulong.Desktop;
@@ -12,6 +13,8 @@ internal static class Program
     static DataHub? hub;
     static DesktopWindow? window;
     static ResourceDockWindow? resourceDock;
+    static ZhulongContextMenu? trayMenu;
+    static SystemSnapshot? traySnapshot;
     static Forms.NotifyIcon? tray;
     static System.Drawing.Icon? trayIcon;
     static string directory = "";
@@ -19,6 +22,7 @@ internal static class Program
     static bool restartRequested;
     static bool preparingUpdate;
     static bool acceleratingMemory;
+    static bool checkingUpdate;
     static LocalPortal? portal;
     static SettingsWindow? settingsWindow;
     static AiAccountSettingsWindow? aiSettingsWindow;
@@ -71,58 +75,16 @@ internal static class Program
             try
             {
                 hub = new DataHub(directory);
-                var menu = new Forms.ContextMenuStrip();
-                SystemSnapshot? traySnapshot = null;
-                menu.Items.Add("打开烛龙", null, (_, _) => OpenWindow());
-                var dockItem = new Forms.ToolStripMenuItem("显示桌面贴边挂件");
-                dockItem.Click += async (_, _) => await NativeAsync(() =>
-                {
-                    if (resourceDock is { } existing) existing.Close();
-                    else
-                    {
-                        var dock = new ResourceDockWindow();
-                        dock.Closed += (_, _) => { resourceDock = null; dockItem.Checked = false; };
-                        dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
-                        dock.ApplySample(traySnapshot);
-                        dock.ApplyLive(hub.LiveReadout);
-                        dock.Show();
-                        resourceDock = dock;
-                        dockItem.Checked = true;
-                    }
-                    return Task.CompletedTask;
-                });
-                menu.Items.Add(dockItem);
-                menu.Items.Add("在浏览器打开新版",null,async(_,_)=>await NativeAsync(OpenBrowserAsync));
-                menu.Items.Add("关闭浏览器入口",null,async(_,_)=>await NativeAsync(ClosePortalAsync));
-                menu.Items.Add("暂停自动处置与提醒5分钟", null, (_, _) => hub.PauseFiveMinutes());
-                menu.Items.Add("静音提醒5分钟", null, (_, _) => hub.MuteFiveMinutes());
-                menu.Items.Add("恢复自动处置与提醒", null, (_, _) => hub.Resume());
-                menu.Items.Add("切换限流", null, async (_, _) => await NativeAsync(async()=> { var result=await hub.ToggleThrottleAsync(); ShowActionResults(result,"限流结果"); }));
-                menu.Items.Add("恢复默认限流规则", null, async (_, _) => await NativeAsync(async()=>ShowActionResults(await hub.ResetThrottleAsync(),"恢复默认规则结果")));
-                menu.Items.Add("新版设置", null, async (_, _) => await NativeAsync(()=>{OpenSettings();return Task.CompletedTask;}));
-                menu.Items.Add("AI 账户", null, (_, _) => OpenAiSettings());
-                menu.Items.Add("导入旧版历史…", null, async (_, _) => await NativeAsync(ImportAsync));
-                menu.Items.Add("导出诊断…", null, async (_, _) => await NativeAsync(()=>{ExportDiagnostics();return Task.CompletedTask;}));
-                menu.Items.Add("登录后后台自启…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Logon)));
-                menu.Items.Add("5 分钟存活守护…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Watchdog)));
-                var updateItem = new Forms.ToolStripMenuItem("检查更新…");
-                updateItem.Click += async (_, _) =>
-                {
-                    updateItem.Enabled = false;
-                    try { await NativeAsync(CheckUpdateAsync); }
-                    finally { if (!quitting) updateItem.Enabled = true; }
-                };
-                menu.Items.Add(updateItem);
-                menu.Items.Add(RestartMenuLabel(AppContext.BaseDirectory), null, async (_, _) =>
-                {
-                    if (preparingUpdate) return;
-                    restartRequested = true;
-                    await QuitAsync();
-                });
-                menu.Items.Add("退出烛龙", null, async (_, _) => await QuitAsync());
                 trayIcon = CreateIcon();
-                tray = new Forms.NotifyIcon { Text = "烛龙 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
-                tray.DoubleClick += (_, _) => OpenWindow();
+                tray = new Forms.NotifyIcon { Text = "烛龙 · 正在采样", Icon = trayIcon, Visible = true };
+                tray.MouseUp += (_, args) =>
+                {
+                    if (args.Button == Forms.MouseButtons.Right) OpenTrayMenu();
+                };
+                tray.MouseDoubleClick += (_, args) =>
+                {
+                    if (args.Button == Forms.MouseButtons.Left) OpenWindow();
+                };
                 hub.Sampled += value => application.Dispatcher.BeginInvoke(() =>
                 {
                     if (!quitting && tray is not null)
@@ -169,6 +131,45 @@ internal static class Program
         }
     }
 
+    static void OpenTrayMenu()
+    {
+        if (quitting || trayMenu?.IsOpen == true) return;
+        var menu = new ZhulongContextMenu();
+        trayMenu = menu;
+        menu.Add("打开烛龙", OpenWindow);
+        menu.Add("显示桌面贴边挂件", async () => await NativeAsync(Synchronous(ToggleDock)), resourceDock is not null);
+        menu.Add("整理内存", async () => await AccelerateMemoryAsync(null)).IsEnabled = !acceleratingMemory;
+        menu.Items.Add(new Separator());
+        menu.Add("设置", async () => await NativeAsync(Synchronous(OpenSettings)));
+        menu.Add(RestartMenuLabel(AppContext.BaseDirectory), async () =>
+        {
+            if (preparingUpdate) return;
+            restartRequested = true;
+            await QuitAsync();
+        });
+        menu.Add("退出烛龙", async () => await QuitAsync());
+        menu.Closed += (_, _) => { if (ReferenceEquals(trayMenu, menu)) trayMenu = null; };
+        menu.OpenAtPointer();
+    }
+
+    static void ToggleDock()
+    {
+        if (resourceDock is { } existing)
+        {
+            existing.Close();
+            return;
+        }
+        var dock = new ResourceDockWindow();
+        dock.Closed += (_, _) => resourceDock = null;
+        dock.OpenRequested += OpenWindow;
+        dock.HideRequested += dock.Close;
+        dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
+        dock.ApplySample(traySnapshot);
+        dock.ApplyLive(hub!.LiveReadout);
+        dock.Show();
+        resourceDock = dock;
+    }
+
     internal static string RestartMenuLabel(string programDirectory)
     {
         const string label = "重启当前版本";
@@ -189,6 +190,14 @@ internal static class Program
     }
 
     static async Task CheckUpdateAsync()
+    {
+        if (checkingUpdate) return;
+        checkingUpdate = true;
+        try { await CheckUpdateCoreAsync(); }
+        finally { checkingUpdate = false; }
+    }
+
+    static async Task CheckUpdateCoreAsync()
     {
         const string title = "烛龙更新";
         var programDirectory = AppContext.BaseDirectory;
@@ -257,6 +266,7 @@ internal static class Program
         try{File.WriteAllText(Path.Combine(directory,"intentional-exit"),DateTimeOffset.UtcNow.ToString("O"),System.Text.Encoding.UTF8);}
         catch(Exception error)when(error is IOException or UnauthorizedAccessException){WriteLifecycle("exit_intent_failed",error.Message);}
         tray!.Visible = false;
+        if (trayMenu is { } menu) menu.IsOpen = false;
         resourceDock?.Close();
         window?.Close();
         settingsWindow?.Close();
@@ -279,31 +289,51 @@ internal static class Program
         }
     }
 
-    static async Task AccelerateMemoryAsync(ResourceDockWindow dock)
+    static async Task AccelerateMemoryAsync(ResourceDockWindow? dock)
     {
         if (quitting || acceleratingMemory) return;
         acceleratingMemory = true;
+        void ShowResult(string status)
+        {
+            if (quitting) return;
+            if (dock is not null && resourceDock == dock) dock.SetAccelerationStatus(status);
+            else if (dock is null && tray is { } icon)
+            {
+                icon.BalloonTipTitle = "烛龙 · 整理内存";
+                icon.BalloonTipText = status;
+                icon.BalloonTipIcon = Forms.ToolTipIcon.Info;
+                icon.ShowBalloonTip(3500);
+            }
+        }
         try
         {
-            dock.SetAccelerationStatus("整理中…");
+            dock?.SetAccelerationStatus("整理中…");
             var results = await hub!.TrimWorkingSetsAsync();
-            if (quitting || resourceDock != dock) return;
-            var trimmed = results.Count(result => result.Status == "trimmed");
-            var degraded = results.Any(result => result.Status.StartsWith("degraded:", StringComparison.Ordinal)
-                && result.Status != "degraded:frequency_cap");
-            var status = trimmed > 0 ? $"已整理 {trimmed} 项" : "无可整理项";
-            if (results.Any(result => result.Status == "skipped:pressure_below_threshold")) status = "内存水位较低";
-            else if (results.Any(result => result.Status == "skipped:pressure_unavailable")) status = "内存读数未知";
-            else if (degraded) status = trimmed > 0 ? $"整理 {trimmed} 项，有异常" : "整理有异常";
-            dock.SetAccelerationStatus(status);
+            ShowResult(FormatMemoryAcceleration(results));
         }
         catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
         {
-            if (!quitting && resourceDock == dock)
-                dock.SetAccelerationStatus(error is InvalidOperationException ? "已有操作，请稍候" : "整理未完成");
+            ShowResult(error is InvalidOperationException ? "已有操作，请稍候" : "整理未完成");
             WriteLifecycle("dock_acceleration_failed", error.Message);
         }
         finally { acceleratingMemory = false; }
+    }
+
+    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results)
+    {
+        var measured = results.Where(item => item.PrivateWorkingSetReductionBytes.HasValue).ToArray();
+        var degraded = results.Any(item => item.Status.StartsWith("degraded:", StringComparison.Ordinal) && item.Status != "degraded:frequency_cap");
+        if (measured.Length > 0)
+        {
+            var bytes = measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value);
+            var amount = bytes >= 1073741824 ? $"{bytes / 1073741824d:F2} GiB" : $"{bytes / 1048576d:F1} MiB";
+            var incomplete = degraded || results.Any(item => item.Status == "trimmed" && !item.PrivateWorkingSetReductionBytes.HasValue);
+            return $"{(incomplete ? "已测部分" : bytes == 0 ? "下降" : "已释放")}\n{amount}";
+        }
+        if (results.Any(item => item.Status == "trimmed")) return "已整理\n变化不可测";
+        if (degraded) return "整理未完整完成";
+        if (results.Any(item => item.Status == "degraded:frequency_cap")) return "刚整理过\n请稍后再试";
+        return results.Count == 0 ? "未配置整理目标" : "无可整理后台进程";
     }
 
     static void ShowActionResults(IReadOnlyList<ActionResult> values,string title)
@@ -326,9 +356,30 @@ internal static class Program
     static void OpenSettings()
     {
         if(quitting)return;
-        if(settingsWindow is null){settingsWindow=new SettingsWindow(directory);settingsWindow.Closed+=(_,_)=>settingsWindow=null;settingsWindow.Show();}
-        else settingsWindow.Activate();
+        if(settingsWindow is not null) { settingsWindow.Activate(); return; }
+        (string Group, string Label, Func<Task> Run)[] tools =
+        [
+            ("监控与提醒", "暂停自动处置与提醒 5 分钟", Synchronous(hub!.PauseFiveMinutes)),
+            ("监控与提醒", "静音提醒 5 分钟", Synchronous(hub.MuteFiveMinutes)),
+            ("监控与提醒", "恢复自动处置与提醒", Synchronous(hub.Resume)),
+            ("监控与提醒", "切换限流", async () => ShowActionResults(await hub.ToggleThrottleAsync(), "限流结果")),
+            ("监控与提醒", "恢复默认限流规则", async () => ShowActionResults(await hub.ResetThrottleAsync(), "恢复默认规则结果")),
+            ("入口与启动", "在浏览器打开烛龙", OpenBrowserAsync),
+            ("入口与启动", "关闭浏览器入口", ClosePortalAsync),
+            ("入口与启动", "登录后后台自启…", () => ConfigureStartupAsync(StartupTasks.Kind.Logon)),
+            ("入口与启动", "5 分钟存活守护…", () => ConfigureStartupAsync(StartupTasks.Kind.Watchdog)),
+            ("账户与维护", "AI 账户", Synchronous(OpenAiSettings)),
+            ("账户与维护", "导入旧版历史…", ImportAsync),
+            ("账户与维护", "导出诊断…", Synchronous(ExportDiagnostics)),
+            ("账户与维护", "检查更新…", CheckUpdateAsync)
+        ];
+        settingsWindow = new SettingsWindow(directory,
+            tools.Select(tool => (tool.Group, tool.Label, (Func<Task>)(() => NativeAsync(tool.Run)))).ToArray());
+        settingsWindow.Closed += (_, _) => settingsWindow = null;
+        settingsWindow.Show();
     }
+
+    static Func<Task> Synchronous(Action action) => () => { action(); return Task.CompletedTask; };
     static async Task OpenBrowserAsync()
     {
         if(!await portalOperation.WaitAsync(0).ConfigureAwait(false))return;
@@ -394,7 +445,7 @@ internal static class Program
         using var singleton = new Mutex(true, InstanceMutexName, out var owns);
         if (!owns)
         {
-            Console.Error.WriteLine("新版正在运行，请使用托盘中的登录自启设置。");
+            Console.Error.WriteLine("烛龙正在运行，请打开设置里的工具与维护，管理登录自启。");
             return 2;
         }
         try

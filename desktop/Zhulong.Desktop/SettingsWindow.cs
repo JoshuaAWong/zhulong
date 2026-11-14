@@ -9,7 +9,7 @@ using System.Windows.Media;
 
 namespace Zhulong.Desktop;
 
-// 设置只有原生入口；两页编辑同一草稿，最终仍由中央验证与原子保存。
+// 两个设置页编辑同一草稿，最终仍由中央验证与原子保存。
 internal sealed class SettingsWindow : Window
 {
     static readonly JsonSerializerOptions Format = new() { WriteIndented = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
@@ -25,7 +25,7 @@ internal sealed class SettingsWindow : Window
     int activeTab;
     bool changingTab;
 
-    public SettingsWindow(string directory)
+    public SettingsWindow(string directory, IReadOnlyList<(string Group, string Label, Func<Task> Run)>? commands = null)
     {
         store = new SettingsStore(directory);
         var bytes = File.Exists(store.PathName) ? File.ReadAllBytes(store.PathName) : null;
@@ -55,7 +55,8 @@ internal sealed class SettingsWindow : Window
         DockPanel.SetDock(buttons, Dock.Top); footer.Children.Add(buttons); footer.Children.Add(status);
         DockPanel.SetDock(footer, Dock.Bottom); layout.Children.Add(footer);
 
-        var basic = BuildBasic();
+        var hasTools = commands is { Count: > 0 };
+        var basic = BuildBasic(hasTools);
         editor.AcceptsReturn = true; editor.AcceptsTab = true;
         editor.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         editor.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -69,12 +70,20 @@ internal sealed class SettingsWindow : Window
         advanced.Children.Add(explanation); advanced.Children.Add(editor);
         tabs.Items.Add(new TabItem { Header = "基础设置", Content = basic, Padding = new Thickness(18, 8, 18, 8) });
         tabs.Items.Add(new TabItem { Header = "高级 JSON", Content = advanced, Padding = new Thickness(18, 8, 18, 8) });
+        if (commands is { Count: > 0 })
+            tabs.Items.Add(new TabItem { Header = "工具与维护", Content = BuildTools(commands), Padding = new Thickness(18, 8, 18, 8) });
         layout.Children.Add(tabs); Content = layout;
         FillBasic(draft);
         activeTab = initialError is null ? 0 : 1; tabs.SelectedIndex = activeTab;
         if (initialError is null) ShowStatus("白名单和路径策略可在高级页调整；切换页面会保留有效编辑。", false);
         else ShowStatus("当前设置需要修正：" + initialError, true);
-        tabs.SelectionChanged += ChangePage;
+        tabs.SelectionChanged += (_, args) =>
+        {
+            if (!ReferenceEquals(args.Source, tabs)) return;
+            var editing = tabs.SelectedIndex is 0 or 1;
+            footer.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+            if (editing) ChangeEditorPage();
+        };
         reset.Click += (_, _) =>
         {
             draft = new RuntimeSettings(); FillBasic(draft); editor.Text = Serialize(draft);
@@ -83,13 +92,13 @@ internal sealed class SettingsWindow : Window
         save.Click += (_, _) => Save();
     }
 
-    ScrollViewer BuildBasic()
+    ScrollViewer BuildBasic(bool hasTools)
     {
         var panel = new StackPanel { Margin = new Thickness(18, 12, 18, 18) };
         Section(panel, "采样与记录");
         Numeric(panel, "sample", "采样间隔（秒）", "5–300秒；数值越小，采集越频繁。");
         Numeric(panel, "retention", "记录保留（天）", "1–365天；清理新版过期采样与事件，主动导入的原始历史保留。");
-        Toggle(panel, notifications, "显示系统提醒", "通知与采样独立；托盘可临时静音。");
+        Toggle(panel, notifications, "显示系统提醒", hasTools ? "通知与采样独立；可在工具与维护中临时静音。" : "通知与采样独立。");
         Section(panel, "网络探测");
         Toggle(panel, pingEnabled, "探测网关与公网延迟", "低频发送ICMP探测；关闭后仍可统计本地网络速率。");
         Row(panel, "公网目标 IP", pingHost, "填写有效IP地址，例如223.5.5.5。");
@@ -109,6 +118,34 @@ internal sealed class SettingsWindow : Window
         Numeric(thresholds, "coreSeconds", "单核持续时长（秒）", "默认90秒。");
         Numeric(thresholds, "trimPressure", "整理压力门槛（%）", "物理内存达到此值才考虑自动整理，默认60%。");
         panel.Children.Add(new Expander { Header = "告警与整理门槛", Content = thresholds, Margin = new Thickness(0, 16, 0, 0) });
+        return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    }
+
+    static ScrollViewer BuildTools(IReadOnlyList<(string Group, string Label, Func<Task> Run)> commands)
+    {
+        var panel = new StackPanel { Margin = new Thickness(18, 12, 18, 18) };
+        panel.Children.Add(Note("限流操作会立即更新配置。有未保存的编辑时，请先保存，再重新打开设置使用相应工具。"));
+        foreach (var group in commands.GroupBy(command => command.Group))
+        {
+            Section(panel, group.Key);
+            var actions = new WrapPanel();
+            foreach (var command in group)
+            {
+                var button = new Button
+                {
+                    Content = command.Label, MinWidth = 132, MinHeight = 34,
+                    Margin = new Thickness(0, 0, 8, 8), Padding = new Thickness(12, 5, 12, 5)
+                };
+                button.Click += async (_, _) =>
+                {
+                    button.IsEnabled = false;
+                    try { await command.Run(); }
+                    finally { button.IsEnabled = true; }
+                };
+                actions.Children.Add(button);
+            }
+            panel.Children.Add(actions);
+        }
         return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
     static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap,
@@ -163,9 +200,9 @@ internal sealed class SettingsWindow : Window
         value.TrimPressurePercent = Number("trimPressure", "整理压力门槛");
         SettingsStore.Validate(value); return value;
     }
-    void ChangePage(object sender, SelectionChangedEventArgs args)
+    void ChangeEditorPage()
     {
-        if (!ReferenceEquals(args.Source, tabs) || changingTab || tabs.SelectedIndex == activeTab) return;
+        if (changingTab || tabs.SelectedIndex == activeTab) return;
         try
         {
             if (activeTab == 0) { draft = ReadBasic(); editor.Text = Serialize(draft); }
@@ -199,7 +236,7 @@ internal sealed class SettingsWindow : Window
     void CheckUnchanged()
     {
         var current = File.Exists(store.PathName) ? File.ReadAllBytes(store.PathName) : null;
-        if (Hash(current) != openedHash) throw new IOException("设置文件已被其他窗口或托盘操作修改。为保留新设置，请关闭并重新打开本窗口；当前编辑仍保留在这里，可先复制高级页内容。");
+        if (Hash(current) != openedHash) throw new IOException("设置文件已被其他操作修改。为保留新设置，请关闭并重新打开本窗口；当前编辑仍保留在这里，可先复制高级页内容。");
     }
     void ShowStatus(string text, bool error)
     {

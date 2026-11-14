@@ -58,7 +58,13 @@ public static partial class RuntimeSafetyTests
         Check((await Kill(audited, audit: _ => throw new IOException("模拟事件库失败"))).Status == "degraded:audit_failed" && audited.Kills == 1, "动作后审计失败必须降级且不重复动作");
         var trimmed = Fake();
         await using (var coordinator = new ActionCoordinator(Settings(), trimmed, new FakeServices(), utcNow: () => now))
-            Check((await coordinator.ExecuteAsync("mem_trim", Decision(trimmed), CancellationToken.None)).Status == "trimmed" && trimmed.Trims == 1, "工作集整理使用同一拒绝链");
+        {
+            var outcome = await coordinator.ExecuteAsync("mem_trim", Decision(trimmed), CancellationToken.None);
+            Check(outcome.Status == "trimmed" && outcome.PrivateWorkingSetReductionBytes == 1048576 && trimmed.Trims == 1,
+                "工作集整理返回实测的专用工作集差值");
+            Check((await coordinator.ExecuteAsync("mem_trim", Decision(trimmed), CancellationToken.None)).Status == "degraded:frequency_cap" &&
+                trimmed.Trims == 1, "重复点击不能绕过工作集整理限频");
+        }
 
         var throttled = Fake(); var throttleSettings = Settings(); throttleSettings.ThrottleEnabled = true;
         var original = throttled.Limits;
@@ -124,7 +130,7 @@ public static partial class RuntimeSafetyTests
         var absent = "zhulong-fixture-" + Guid.NewGuid().ToString("N");
         var manualTrimSettings = new RuntimeSettings
         {
-            AutomaticActions = false, MemoryTrimEnabled = false, TrimPressurePercent = 1,
+            AutomaticActions = false, MemoryTrimEnabled = false, TrimPressurePercent = 100,
             TrimProcesses = [new(absent + ".exe"), new(absent)], RestartServices = ["FixtureService"]
         };
         new SettingsStore(trimDirectory).Save(manualTrimSettings);
@@ -132,7 +138,7 @@ public static partial class RuntimeSafetyTests
         {
             var trimResults = await runtime.TrimWorkingSetsAsync();
             Check(trimResults is [{ Status: "skipped:process_gone", Action: "mem_trim" }],
-                "手动入口不依赖自动整理开关，同名目标仅检查一次且仅提交工作集整理");
+                "点击不受自动整理开关和压力阈值限制，同名目标仅检查一次且仅提交工作集整理");
         }
         manualTrimSettings.TrimProcesses = [];
         new SettingsStore(trimDirectory).Save(manualTrimSettings);
@@ -243,7 +249,7 @@ public static partial class RuntimeSafetyTests
         public IReadOnlyList<ProcessIdentity> Find(string name) { FindCalls++; return [Value]; }
         public ProcessIdentity? Read(int pid) => ReuseOnRead ? Value with { CreatedTicks = Value.CreatedTicks + 1 } : Value;
         public void Terminate(ProcessIdentity expected) => Kills++;
-        public void Trim(ProcessIdentity expected) => Trims++;
+        public long? Trim(ProcessIdentity expected) { Trims++; return 1048576; }
         public ProcessLimits ReadLimits(ProcessIdentity expected) => Limits;
         public void SetLimits(ProcessIdentity expected, uint priority, ulong affinity) { Sets++; Limits = Limits with { Priority = priority, Affinity = affinity }; }
     }
