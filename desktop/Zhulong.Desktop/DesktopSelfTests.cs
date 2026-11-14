@@ -31,11 +31,15 @@ internal static class DesktopSelfTests
             Check(liveTray.Contains("CPU 21%") && liveTray.Contains("物理内存 60%") && liveTray.Contains("提交内存 75%"),
                 "实时读数仅替换CPU与物理内存，提交内存沿用完整采样");
             using var appMark = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"), 16, 16);
-            using var trayMark = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"), 16, 16);
-            Check(appMark.Size == new System.Drawing.Size(16, 16) && trayMark.Size == appMark.Size &&
-                !File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"))
-                    .SequenceEqual(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"))),
-                "朱印程序图标和玉龙托盘图标应为两个可独立加载的小尺寸资源");
+            using var trayMark = Program.CreateIcon();
+            using var traySmall = new System.Drawing.Icon(trayMark, 16, 16);
+            using var expectedMark = new MemoryStream();
+            using var actualMark = new MemoryStream();
+            appMark.Save(expectedMark);
+            traySmall.Save(actualMark);
+            Check(traySmall.Size == new System.Drawing.Size(16, 16) &&
+                expectedMark.ToArray().SequenceEqual(actualMark.ToArray()),
+                "系统托盘应加载与程序图标一致的 C 朱印");
             ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))

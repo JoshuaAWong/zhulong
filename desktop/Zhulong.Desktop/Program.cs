@@ -381,6 +381,6 @@ internal static class Program
         finally { singleton.ReleaseMutex(); }
     }
 
-    static System.Drawing.Icon CreateIcon() =>
-        new(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"));
+    internal static System.Drawing.Icon CreateIcon() =>
+        new(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"));
 }
