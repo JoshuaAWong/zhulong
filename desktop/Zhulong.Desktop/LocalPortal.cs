@@ -17,7 +17,7 @@ namespace Zhulong.Desktop;
 internal sealed class LocalPortal : IAsyncDisposable
 {
     static readonly HashSet<string> Files = new(StringComparer.Ordinal)
-    { "index.html", "styles.css", "ink-ui.css", "ink-layouts.css", "ink-atmospheres.css", "ink-taiji.css", "ink-unified.css", "ink-tray.css", "app.js", "ink-ui.js", "ink-layouts.js", "ink-atmospheres.js", "ink-taiji.js", "ink-unified.js", "ink-taiji-control.js", "ink-tray.js", "live.js", "live.css", "portal.js", "assets/ink-day-v7.png", "assets/ink-night-v7.png", "assets/ink-header-day-v3.png", "assets/ink-header-night-v3.png", "assets/zhulong-coiled-mark.svg", "assets/zhulong-next.svg" };
+    { "index.html", "styles.css", "ink-ui.css", "ink-layouts.css", "ink-atmospheres.css", "ink-taiji.css", "ink-unified.css", "ink-tray.css", "app.js", "ink-ui.js", "ink-layouts.js", "ink-atmospheres.js", "ink-taiji.js", "ink-unified.js", "ink-taiji-control.js", "ink-tray.js", "live.js", "live.css", "portal.js", "assets/ink-day-v7.png", "assets/ink-night-v7.png", "assets/ink-header-day-v3.png", "assets/ink-header-night-v3.png", "assets/zhulong-coiled-mark.svg", "assets/zhulong-next.png" };
     static readonly HashSet<string> Queries = new(StringComparer.Ordinal)
     { "snapshot", "history", "events", "usage", "refresh-usage", "health", "actions" };
     readonly CancellationTokenSource stopped = new();

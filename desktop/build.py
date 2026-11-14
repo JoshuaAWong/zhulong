@@ -12,7 +12,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "desktop" / "Zhulong.Desktop"
 WEB_SOURCE = PROJECT / "Web"
-VERSION = "0.2.6-replacement"
+VERSION = "0.2.7"
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
                        DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1")
     subprocess.run([str(args.sdk), "publish", str(PROJECT / "Zhulong.Desktop.csproj"),
                     "-c", "Release", "-r", "win-x64", "--self-contained", "true", "-o", str(output),
-                    "-p:UseSharedCompilation=false", "-p:DebugType=None"], check=True, env=environment)
+                    "-p:Version=" + VERSION, "-p:UseSharedCompilation=false", "-p:DebugType=None"], check=True, env=environment)
     web = output / "Web"
     web.mkdir(exist_ok=True)
     html = (WEB_SOURCE / "index.html").read_text(encoding="utf-8")
@@ -41,9 +41,9 @@ def main():
     # 仅当前已选两组昼夜图和品牌，不分发候选图、源工程或设计记录。
     for name in ["ink-day-v7.png", "ink-night-v7.png", "ink-header-day-v3.png", "ink-header-night-v3.png", "zhulong-coiled-mark.svg"]:
         shutil.copy2(WEB_SOURCE / "assets" / name, assets / name)
-    shutil.copy2(PROJECT / "Assets" / "zhulong-next.svg", assets / "zhulong-next.svg")
-    html = html.replace("assets/zhulong-coiled-mark.svg", "assets/zhulong-next.svg")
-    html = re.sub(r'(<span class="brand-seal"[^>]*>).*?(</span>)', r'\1<img src="assets/zhulong-next.svg" alt="" aria-hidden="true">\2', html, flags=re.S)
+    shutil.copy2(PROJECT / "Assets" / "zhulong-next.png", assets / "zhulong-next.png")
+    html = html.replace('href="assets/zhulong-coiled-mark.svg" type="image/svg+xml"', 'href="assets/zhulong-next.png" type="image/png"')
+    html = re.sub(r'(<span class="brand-seal"[^>]*>).*?(</span>)', r'\1<img src="assets/zhulong-next.png" alt="" aria-hidden="true">\2', html, flags=re.S)
     for name in ("live.js", "live.css", "portal.js"):
         shutil.copy2(PROJECT / "Web" / name, web / name)
     html = html.replace("</head>", '<link rel="stylesheet" href="live.css"><script src="portal.js" defer></script><script src="live.js" defer></script></head>')
@@ -58,14 +58,13 @@ def main():
         "本程序独立采样，不连接旧烛龙；托盘提供设置、暂停、限流、导入及按需浏览器入口。\n", encoding="utf-8", newline="\n")
     files = {}
     for file in output.rglob("*"):
-        if file.is_file() and "data" not in file.relative_to(output).parts and file.name != "runtime-manifest.json":
+        if file.is_file() and not any(part.casefold() in {"data", "updates"} for part in file.relative_to(output).parts) and file.name not in {"runtime-manifest.json", "installation.json"}:
             files[file.relative_to(output).as_posix()] = {"size": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
     (output / "runtime-manifest.json").write_text(json.dumps({"version": VERSION, "mode": "portable", "files": files}, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     archive = output.parent / f"Zhulong-{VERSION}-win-x64.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as package:
-        for file in output.rglob("*"):
-            if file.is_file() and "data" not in file.relative_to(output).parts:
-                package.write(file, "Zhulong/" + file.relative_to(output).as_posix())
+        for name in (*files, "runtime-manifest.json"):
+            package.write(output / name, "Zhulong/" + name)
     print(json.dumps({"runtime": str(output), "archive": str(archive), "files": len(files), "bytes": sum(item["size"] for item in files.values())}, ensure_ascii=False))
 
 

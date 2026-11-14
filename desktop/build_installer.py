@@ -44,7 +44,8 @@ def main():
         checked += 1
     output.mkdir(parents=True, exist_ok=True)
     command = [str(compiler), "/Q", "/DRuntimeDir=" + str(runtime),
-               "/DOutputDir=" + str(output), "/DAppVersion=" + VERSION]
+               "/DOutputDir=" + str(output), "/DAppVersion=" + VERSION,
+               "/DVersionInfoNumber=" + VERSION.split("-", 1)[0] + ".0"]
     if args.task_cleanup:
         command.append("/DEnableOwnedTaskCleanup")
     command.append(str(ROOT / "desktop/installer.iss"))

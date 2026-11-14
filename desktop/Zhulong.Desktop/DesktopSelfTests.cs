@@ -30,6 +30,12 @@ internal static class DesktopSelfTests
             var liveTray = Program.FormatTrayTooltip(traySample, new(now, 21, 60, 19.2, 32));
             Check(liveTray.Contains("CPU 21%") && liveTray.Contains("物理内存 60%") && liveTray.Contains("提交内存 75%"),
                 "实时读数仅替换CPU与物理内存，提交内存沿用完整采样");
+            using var appMark = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"), 16, 16);
+            using var trayMark = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"), 16, 16);
+            Check(appMark.Size == new System.Drawing.Size(16, 16) && trayMark.Size == appMark.Size &&
+                !File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"))
+                    .SequenceEqual(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"))),
+                "朱印程序图标和玉龙托盘图标应为两个可独立加载的小尺寸资源");
             ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))
@@ -99,6 +105,8 @@ internal static class DesktopSelfTests
             CheckOversizedLog(outputDirectory, Check);
             CheckSettingsAndImport(outputDirectory,Check);
             assertions += SettingsWindow.RunConversionTests();
+            assertions += UpdateDownloadTests.Run();
+            UpdateApply.CheckBehavior(Check, outputDirectory);
             assertions += WatchdogRecovery.RunSafetyTests(outputDirectory);
             assertions += StartupTasks.RunSafetyTestsAsync().GetAwaiter().GetResult();
             using(var portalHost=new DataHub(Path.Combine(outputDirectory,"portal-data-"+Guid.NewGuid().ToString("N"))))

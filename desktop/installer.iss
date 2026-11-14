@@ -6,7 +6,10 @@
   #define OutputDir "..\dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.2.6-replacement"
+  #define AppVersion "0.2.7"
+#endif
+#ifndef VersionInfoNumber
+  #define VersionInfoNumber "0.2.7.0"
 #endif
 
 [Setup]
@@ -35,7 +38,7 @@ OutputBaseFilename=Zhulong-{#AppVersion}-setup
 Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
-VersionInfoVersion=0.2.0.0
+VersionInfoVersion={#VersionInfoNumber}
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: unchecked

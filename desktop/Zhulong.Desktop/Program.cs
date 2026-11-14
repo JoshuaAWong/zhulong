@@ -17,16 +17,19 @@ internal static class Program
     static string directory = "";
     static bool quitting;
     static bool restartRequested;
+    static bool preparingUpdate;
     static LocalPortal? portal;
     static SettingsWindow? settingsWindow;
     static AiAccountSettingsWindow? aiSettingsWindow;
     static readonly object logGate = new();
     static readonly SemaphoreSlim portalOperation=new(1,1);
+    static readonly CancellationTokenSource shutdown = new();
     const string InstanceMutexName = "Local\\ZhulongNextInstance";
 
     [STAThread]
     static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--apply-update") return UpdateApply.Run(args[1]);
         if (args.Length == 2 && args[0] == "--self-test") return DesktopSelfTests.Run(args[1]);
         if(args.Length==3&&args[0]=="--self-test-native")return NativeSafety(args[1],args[2]);
         if(args.Length==3&&args[0]=="--runtime-probe")return RuntimeProbe.Run(args[1],int.Parse(args[2]));
@@ -34,6 +37,7 @@ internal static class Program
         if(args.Length==2&&args[0]=="--diagnose")return WriteDiagnostics(args[1]);
         if (args.Length > 0 && (args[0] == "--enable-logon-startup" || args[0] == "--disable-logon-startup"))
             return args.Length == 1 ? ConfigureLogonFromCommandLine(args[0] == "--enable-logon-startup") : 2;
+        if (UpdateApply.IsApplying(AppContext.BaseDirectory)) return 0;
         var dataIndex=Array.IndexOf(args,"--data-dir");
         if(dataIndex>=0&&(dataIndex+1>=args.Length||args[dataIndex+1].StartsWith("--",StringComparison.Ordinal)))return 2;
         directory = dataIndex>=0 ? Path.GetFullPath(args[dataIndex+1]) : Path.Combine(AppContext.BaseDirectory, "data");
@@ -53,6 +57,11 @@ internal static class Program
             if(recovery.Recovered)try{owns=singleton.WaitOne(TimeSpan.FromSeconds(5));}catch(AbandonedMutexException){owns=true;}
         }
         if(!owns){if(!background)wake.Set();return 0;}
+        if (UpdateApply.IsApplying(AppContext.BaseDirectory))
+        {
+            singleton.ReleaseMutex();
+            return 0;
+        }
         if(!args.Contains("--watchdog"))File.Delete(suppress);
         application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         RegisteredWaitHandle? registration = null;
@@ -63,7 +72,7 @@ internal static class Program
                 hub = new DataHub(directory);
                 var menu = new Forms.ContextMenuStrip();
                 SystemSnapshot? traySnapshot = null;
-                menu.Items.Add("打开烛龙新版（朱印）", null, (_, _) => OpenWindow());
+                menu.Items.Add("打开烛龙", null, (_, _) => OpenWindow());
                 var dockItem = new Forms.ToolStripMenuItem("显示桌面贴边挂件");
                 dockItem.Click += async (_, _) => await NativeAsync(() =>
                 {
@@ -94,10 +103,23 @@ internal static class Program
                 menu.Items.Add("导出诊断…", null, async (_, _) => await NativeAsync(()=>{ExportDiagnostics();return Task.CompletedTask;}));
                 menu.Items.Add("登录后后台自启…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Logon)));
                 menu.Items.Add("5 分钟存活守护…", null, async (_, _) => await NativeAsync(() => ConfigureStartupAsync(StartupTasks.Kind.Watchdog)));
-                menu.Items.Add(RestartMenuLabel(AppContext.BaseDirectory), null, async (_, _) => {restartRequested=true;await QuitAsync();});
-                menu.Items.Add("退出新版烛龙", null, async (_, _) => await QuitAsync());
+                var updateItem = new Forms.ToolStripMenuItem("检查更新…");
+                updateItem.Click += async (_, _) =>
+                {
+                    updateItem.Enabled = false;
+                    try { await NativeAsync(CheckUpdateAsync); }
+                    finally { if (!quitting) updateItem.Enabled = true; }
+                };
+                menu.Items.Add(updateItem);
+                menu.Items.Add(RestartMenuLabel(AppContext.BaseDirectory), null, async (_, _) =>
+                {
+                    if (preparingUpdate) return;
+                    restartRequested = true;
+                    await QuitAsync();
+                });
+                menu.Items.Add("退出烛龙", null, async (_, _) => await QuitAsync());
                 trayIcon = CreateIcon();
-                tray = new Forms.NotifyIcon { Text = "烛龙新版 · 朱印 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
+                tray = new Forms.NotifyIcon { Text = "烛龙 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
                 tray.DoubleClick += (_, _) => OpenWindow();
                 hub.Sampled += value => application.Dispatcher.BeginInvoke(() =>
                 {
@@ -150,13 +172,46 @@ internal static class Program
         const string label = "重启当前版本";
         try
         {
-            using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(programDirectory, "runtime-manifest.json"), System.Text.Encoding.UTF8));
-            if (manifest.RootElement.ValueKind == JsonValueKind.Object && manifest.RootElement.TryGetProperty("version", out var value) &&
-                value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } version)
+            if (ReadProgramVersion(programDirectory) is { Length: > 0 } version)
                 return label + "（" + version.Split('-', 2)[0] + "）";
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
         return label;
+    }
+
+    static string? ReadProgramVersion(string programDirectory)
+    {
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(programDirectory, "runtime-manifest.json"), System.Text.Encoding.UTF8));
+        return manifest.RootElement.ValueKind == JsonValueKind.Object && manifest.RootElement.TryGetProperty("version", out var value) &&
+            value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
+    static async Task CheckUpdateAsync()
+    {
+        const string title = "烛龙更新";
+        var programDirectory = AppContext.BaseDirectory;
+        var version = ReadProgramVersion(programDirectory) ?? throw new InvalidDataException("无法读取当前运行版本。");
+        var installed = File.Exists(Path.Combine(programDirectory, "installation.json"));
+        var cancellationToken = shutdown.Token;
+        var package = await UpdateDownload.CheckAsync(version, installed, cancellationToken);
+        if (quitting) return;
+        if (package is null)
+        {
+            MessageBox.Show($"当前版本 {version}，暂无可用的正式更新。", title);
+            return;
+        }
+        if (MessageBox.Show($"当前版本 {version}\n可用更新 {package.Version}（{package.Size / 1048576.0:F1} MB）\n\n下载到程序目录的 updates？",
+                title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        tray!.BalloonTipTitle = title;
+        tray.BalloonTipText = $"正在下载 {package.Version}，可继续使用烛龙。";
+        tray.ShowBalloonTip(3500);
+        var path = await UpdateDownload.StageAsync(package, programDirectory, cancellationToken);
+        if (quitting || MessageBox.Show($"已下载并校验 {package.Version}。\n现在应用更新？后台采样将短暂停止。",
+                title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        preparingUpdate = true;
+        try { await UpdateApply.StartAsync(programDirectory, directory, package, path, cancellationToken); }
+        finally { preparingUpdate = false; }
+        await QuitAsync();
     }
 
     internal static string FormatTrayTooltip(SystemSnapshot value, LiveSystemReadout? readout = null)
@@ -168,7 +223,7 @@ internal static class Program
         var cpu = readout is null ? value.CpuPercent : readout.CpuPercent;
         var physical = readout is null ? Memory(value.MemoryPercent, value.MemoryUsedGb, value.MemoryTotalGb)
             : Memory(readout.MemoryPercent, readout.MemoryUsedGb, readout.MemoryTotalGb);
-        return $"烛龙新版 · 朱印\nCPU {Percent(cpu)}\n物理内存 {physical}\n" +
+        return $"烛龙\nCPU {Percent(cpu)}\n物理内存 {physical}\n" +
             $"提交内存 {Memory(value.CommitPercent, value.CommitUsedGb, value.CommitLimitGb)}";
     }
 
@@ -194,8 +249,9 @@ internal static class Program
 
     static async Task QuitAsync()
     {
-        if (quitting) return;
+        if (quitting || preparingUpdate) return;
         quitting = true;
+        shutdown.Cancel();
         try{File.WriteAllText(Path.Combine(directory,"intentional-exit"),DateTimeOffset.UtcNow.ToString("O"),System.Text.Encoding.UTF8);}
         catch(Exception error)when(error is IOException or UnauthorizedAccessException){WriteLifecycle("exit_intent_failed",error.Message);}
         tray!.Visible = false;
@@ -326,5 +382,5 @@ internal static class Program
     }
 
     static System.Drawing.Icon CreateIcon() =>
-        new(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico"));
+        new(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-tray.ico"));
 }

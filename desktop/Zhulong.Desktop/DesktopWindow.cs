@@ -227,7 +227,7 @@ internal sealed class DesktopWindow : Window
 
     void ProcessFailed(object? sender,CoreWebView2ProcessFailedEventArgs args)
     {
-        Dispatcher.BeginInvoke(()=>{if(closed)return;Lifecycle?.Invoke("webview_process_failed",args.ProcessFailedKind.ToString());DisposeView();page.Content=new TextBlock{Text="界面进程已停止，后台仍继续采样。请关闭窗口后从朱印托盘重新打开。",Foreground=captionInk,Margin=new Thickness(36),TextWrapping=TextWrapping.Wrap};});
+        Dispatcher.BeginInvoke(()=>{if(closed)return;Lifecycle?.Invoke("webview_process_failed",args.ProcessFailedKind.ToString());DisposeView();page.Content=new TextBlock{Text="界面进程已停止，后台仍继续采样。请关闭窗口后从玉龙托盘重新打开。",Foreground=captionInk,Margin=new Thickness(36),TextWrapping=TextWrapping.Wrap};});
     }
 
     static void NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
