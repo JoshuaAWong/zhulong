@@ -11,6 +11,7 @@ internal static class Program
     static Application? application;
     static DataHub? hub;
     static DesktopWindow? window;
+    static ResourceDockWindow? resourceDock;
     static Forms.NotifyIcon? tray;
     static System.Drawing.Icon? trayIcon;
     static string directory = "";
@@ -61,7 +62,25 @@ internal static class Program
             {
                 hub = new DataHub(directory);
                 var menu = new Forms.ContextMenuStrip();
+                SystemSnapshot? traySnapshot = null;
                 menu.Items.Add("打开烛龙新版（朱印）", null, (_, _) => OpenWindow());
+                var dockItem = new Forms.ToolStripMenuItem("显示桌面贴边挂件");
+                dockItem.Click += async (_, _) => await NativeAsync(() =>
+                {
+                    if (resourceDock is { } existing) existing.Close();
+                    else
+                    {
+                        var dock = new ResourceDockWindow();
+                        dock.Closed += (_, _) => { resourceDock = null; dockItem.Checked = false; };
+                        dock.ApplySample(traySnapshot);
+                        dock.ApplyLive(hub.LiveReadout);
+                        dock.Show();
+                        resourceDock = dock;
+                        dockItem.Checked = true;
+                    }
+                    return Task.CompletedTask;
+                });
+                menu.Items.Add(dockItem);
                 menu.Items.Add("在浏览器打开新版",null,async(_,_)=>await NativeAsync(OpenBrowserAsync));
                 menu.Items.Add("关闭浏览器入口",null,async(_,_)=>await NativeAsync(ClosePortalAsync));
                 menu.Items.Add("暂停自动处置与提醒5分钟", null, (_, _) => hub.PauseFiveMinutes());
@@ -80,19 +99,20 @@ internal static class Program
                 trayIcon = CreateIcon();
                 tray = new Forms.NotifyIcon { Text = "烛龙新版 · 朱印 · 正在采样", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
                 tray.DoubleClick += (_, _) => OpenWindow();
-                SystemSnapshot? traySnapshot = null;
                 hub.Sampled += value => application.Dispatcher.BeginInvoke(() =>
                 {
                     if (!quitting && tray is not null)
                     {
                         traySnapshot = value;
                         tray.Text = FormatTrayTooltip(value, hub.LiveReadout);
+                        resourceDock?.ApplySample(value);
                     }
                 });
                 hub.ReadoutChanged += value => application.Dispatcher.BeginInvoke(() =>
                 {
                     if (!quitting && tray is not null && traySnapshot is { } snapshot)
                         tray.Text = FormatTrayTooltip(snapshot, value);
+                    if (!quitting) resourceDock?.ApplyLive(value);
                 });
                 registration = ThreadPool.RegisterWaitForSingleObject(wake,
                     (_, _) => application.Dispatcher.BeginInvoke(OpenWindow), null, Timeout.Infinite, false);
@@ -179,6 +199,7 @@ internal static class Program
         try{File.WriteAllText(Path.Combine(directory,"intentional-exit"),DateTimeOffset.UtcNow.ToString("O"),System.Text.Encoding.UTF8);}
         catch(Exception error)when(error is IOException or UnauthorizedAccessException){WriteLifecycle("exit_intent_failed",error.Message);}
         tray!.Visible = false;
+        resourceDock?.Close();
         window?.Close();
         settingsWindow?.Close();
         aiSettingsWindow?.Close();

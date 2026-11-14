@@ -30,6 +30,7 @@ internal static class DesktopSelfTests
             var liveTray = Program.FormatTrayTooltip(traySample, new(now, 21, 60, 19.2, 32));
             Check(liveTray.Contains("CPU 21%") && liveTray.Contains("物理内存 60%") && liveTray.Contains("提交内存 75%"),
                 "实时读数仅替换CPU与物理内存，提交内存沿用完整采样");
+            ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))
             {

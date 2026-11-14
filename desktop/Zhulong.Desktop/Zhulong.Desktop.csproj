@@ -16,6 +16,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../Zhulong.Runtime/Zhulong.Runtime.csproj" />
     <Content Include="Assets/zhulong-next.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Resource Include="Assets/zhulong-jade-mask.png" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
   </ItemGroup>
 </Project>
