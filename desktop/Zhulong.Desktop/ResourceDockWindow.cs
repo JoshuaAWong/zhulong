@@ -14,7 +14,7 @@ namespace Zhulong.Desktop;
 internal sealed class ResourceDockWindow : Window
 {
     const double RailWidth = 14, RailHeight = 88, PanelWidth = 72, PanelHeight = 244;
-    const double TransitionSeconds = .215, PulseSeconds = 1.35, CircleRadius = 22, CircleCenter = 24;
+    const double BurstMargin = 36, TransitionSeconds = .22, PulseSeconds = 1.35, CircleRadius = 22, CircleCenter = 24;
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
     static readonly Brush PanelBrush = FrozenBrush(49, 49, 49), BorderBrushDark = FrozenBrush(77, 77, 76),
@@ -23,23 +23,32 @@ internal sealed class ResourceDockWindow : Window
         Ink = FrozenBrush(21, 32, 30), ProgressBrush = FrozenBrush(Red);
     static readonly Brush JadeMask = CreateJadeMask();
 
-    readonly Border shell;
+    readonly Canvas scene;
+    readonly RectangleGeometry panelClip = new();
     readonly Grid rail;
     readonly StackPanel details;
     readonly Rectangle dragon, progress, progressTrack;
-    readonly TextBlock memory, cpu, commit, download, upload;
-    readonly Ellipse diskRim, ripple, darkEye, lightEye;
-    readonly ShapePath yin;
+    readonly TextBlock memory, cpu, commit, download, upload, accelerationStatus;
+    readonly Ellipse diskRim;
+    readonly Image disk, ripple;
+    readonly Button meterButton;
     readonly RotateTransform diskRotation = new();
     readonly ScaleTransform rippleScale = new(1, 1);
+    readonly TranslateTransform railOffset = new();
     readonly RectAnimation move = new();
 
     SystemSnapshot? sample;
     double? memoryPercent, cpuPercent;
     Rect workArea = SystemParameters.WorkArea;
+    double anchorY, panelTop, panelLeft;
     double angle, pulseElapsed = PulseSeconds;
     long previousFrame;
-    bool opened, rendering;
+    Point? dragStart;
+    Point lastDragPoint;
+    double dragAnchorY, dragLeft;
+    bool opened, rendering, expandedBounds, dockRight = true, dragging;
+
+    internal event Action? AccelerateRequested;
 
     internal ResourceDockWindow()
     {
@@ -54,14 +63,16 @@ internal sealed class ResourceDockWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         UseLayoutRounding = true;
 
-        var scene = new Grid { ClipToBounds = true };
-        shell = new Border { Background = PanelBrush, BorderBrush = BorderBrushDark, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7) };
+        scene = new Canvas { ClipToBounds = true };
+        var shell = new ShapePath { Data = panelClip, Fill = PanelBrush, Stroke = BorderBrushDark, StrokeThickness = 1 };
         scene.Children.Add(shell);
+        var contents = new Canvas { Width = PanelWidth + BurstMargin, Height = PanelHeight + BurstMargin, Clip = panelClip };
+        scene.Children.Add(contents);
 
-        rail = new Grid { Width = RailWidth, Height = RailHeight, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        rail = new Grid { Width = RailWidth, Height = RailHeight, RenderTransform = railOffset };
         dragon = new Rectangle
         {
-            Width = 10, Height = 12, HorizontalAlignment = HorizontalAlignment.Center,
+            Width = 12, Height = 15, HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 5, 0, 0), Fill = FrozenBrush(Gray),
             OpacityMask = JadeMask
         };
@@ -77,7 +88,7 @@ internal sealed class ResourceDockWindow : Window
         track.Children.Add(progressTrack);
         track.Children.Add(progress);
         rail.Children.Add(track);
-        scene.Children.Add(rail);
+        contents.Children.Add(rail);
 
         details = new StackPanel
         {
@@ -88,42 +99,33 @@ internal sealed class ResourceDockWindow : Window
         diskRim = new Ellipse { Margin = new Thickness(0), Stroke = dragon.Fill, StrokeThickness = 1 };
         meter.Children.Add(diskRim);
 
-        var disk = new Canvas { Width = 48, Height = 48, RenderTransformOrigin = new Point(.5, .5), RenderTransform = diskRotation };
-        var baseDisk = new Ellipse { Fill = Paper, Width = 44, Height = 44 };
-        Canvas.SetLeft(baseDisk, 2);
-        Canvas.SetTop(baseDisk, 2);
-        disk.Children.Add(baseDisk);
-        yin = new ShapePath { Fill = Ink };
-        disk.Children.Add(yin);
-        darkEye = new Ellipse { Fill = Ink };
-        lightEye = new Ellipse { Fill = Paper };
-        disk.Children.Add(darkEye);
-        disk.Children.Add(lightEye);
+        disk = new Image { Width = 48, Height = 48, RenderTransformOrigin = new Point(.5, .5), RenderTransform = diskRotation };
         meter.Children.Add(disk);
 
-        ripple = new Ellipse
+        var rippleTransform = new TransformGroup();
+        rippleTransform.Children.Add(diskRotation);
+        rippleTransform.Children.Add(rippleScale);
+        ripple = new Image
         {
-            Stroke = dragon.Fill, StrokeThickness = 1.1, Opacity = 0, RenderTransformOrigin = new Point(.5, .5),
-            RenderTransform = rippleScale, IsHitTestVisible = false
+            Width = 48, Height = 48, Opacity = 0, RenderTransformOrigin = new Point(.5, .5),
+            RenderTransform = rippleTransform, IsHitTestVisible = false
         };
+        scene.Children.Add(ripple);
+        // 扩散图盖在面板上方，透明区域保持可穿透。
+        System.Windows.Controls.Panel.SetZIndex(ripple, 1);
         var meterLayer = new Grid { Height = 66 };
-        var meterButton = new Button
+        meterButton = new Button
         {
-            Width = 54, Height = 58, VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 9, 0, 0), Padding = new Thickness(0),
+            Width = 48, Height = 48, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(0),
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), Content = meter,
-            ToolTip = "点击太极，短暂加速并扩散"
+            ToolTip = "点击太极整理白名单进程内存"
         };
         var buttonTemplate = new ControlTemplate(typeof(Button));
         buttonTemplate.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
         meterButton.Template = buttonTemplate;
-        System.Windows.Automation.AutomationProperties.SetName(meterButton, "太极动效");
-        meterButton.Click += (_, _) => StartPulse();
-        ripple.Width = 48;
-        ripple.Height = 48;
-        ripple.Margin = new Thickness(0, 14, 0, 0);
-        ripple.VerticalAlignment = VerticalAlignment.Top;
-        meterLayer.Children.Add(ripple);
+        System.Windows.Automation.AutomationProperties.SetName(meterButton, "内存加速");
+        meterButton.Click += (_, _) => ActivateAcceleration();
         meterLayer.Children.Add(meterButton);
         details.Children.Add(meterLayer);
 
@@ -138,18 +140,38 @@ internal sealed class ResourceDockWindow : Window
         commit = AddMetric("提交");
         download = AddMetric("↓");
         upload = AddMetric("↑");
-        scene.Children.Add(details);
+        accelerationStatus = Text("", 9, MutedBrush);
+        accelerationStatus.Margin = new Thickness(5, 4, 5, 0);
+        accelerationStatus.TextAlignment = TextAlignment.Center;
+        accelerationStatus.TextWrapping = TextWrapping.Wrap;
+        accelerationStatus.TextTrimming = TextTrimming.CharacterEllipsis;
+        accelerationStatus.MaxHeight = 32;
+        details.Children.Add(accelerationStatus);
+        contents.Children.Add(details);
         Content = scene;
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(NoMouseActivation);
-        MouseEnter += (_, _) => SetExpanded(true);
-        MouseLeave += (_, _) => SetExpanded(false);
-        KeyDown += (_, e) => { if (e.Key == Key.Escape) SetExpanded(false); };
+        MouseEnter += (_, _) => { if (dragStart is null) SetExpanded(true); };
+        MouseLeave += (_, _) =>
+        {
+            if (dragStart is null && pulseElapsed >= PulseSeconds) SetExpanded(false);
+        };
+        PreviewMouseLeftButtonDown += BeginDrag;
+        PreviewMouseMove += UpdateDrag;
+        PreviewMouseLeftButtonUp += EndDrag;
+        LostMouseCapture += (_, _) => FinishDrag();
+        KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            FinishDrag();
+            SetExpanded(false);
+        };
         IsVisibleChanged += (_, _) =>
         {
             if (!IsVisible) SetExpanded(false);
         };
         Closed += (_, _) => StopRendering();
-        UpdateGeometry(.0);
+        anchorY = workArea.Top + workArea.Height / 2;
+        SetWindowBounds(false);
         UpdateVisual(0);
         UpdateDisk();
     }
@@ -162,7 +184,7 @@ internal sealed class ResourceDockWindow : Window
         {
             memoryPercent = next;
             var brush = FrozenBrush(LoadColor(next));
-            dragon.Fill = diskRim.Stroke = ripple.Stroke = brush;
+            dragon.Fill = diskRim.Stroke = brush;
             progress.Height = next * .59 ?? 0;
             if (opened) UpdateDisk();
             UpdateRendering();
@@ -176,6 +198,68 @@ internal sealed class ResourceDockWindow : Window
         if (opened) UpdateReadings();
     }
 
+    internal void SetAccelerationStatus(string text)
+    {
+        accelerationStatus.Text = text;
+        accelerationStatus.ToolTip = text;
+    }
+
+    void BeginDrag(object sender, MouseButtonEventArgs e)
+    {
+        if (meterButton.IsMouseOver) return;
+        workArea = SystemParameters.WorkArea;
+        dragStart = lastDragPoint = DesktopPoint(e);
+        dragAnchorY = anchorY;
+        dragLeft = Left;
+        if (!CaptureMouse()) dragStart = null;
+        e.Handled = true;
+    }
+
+    void UpdateDrag(object sender, MouseEventArgs e)
+    {
+        if (dragStart is not { } start || e.LeftButton != MouseButtonState.Pressed) return;
+        Point point = lastDragPoint = DesktopPoint(e);
+        if (!dragging)
+        {
+            if (Math.Abs(point.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(point.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+            dragging = true;
+        }
+        anchorY = dragAnchorY + point.Y - start.Y;
+        SetWindowBounds(expandedBounds, dragLeft + point.X - start.X);
+    }
+
+    void EndDrag(object sender, MouseButtonEventArgs e)
+    {
+        if (dragStart is null) return;
+        e.Handled = true;
+        FinishDrag();
+    }
+
+    void FinishDrag()
+    {
+        if (dragStart is null) return;
+        if (dragging) SnapDock(lastDragPoint.X);
+        var pointerOnPanel = panelClip.Rect.Contains(new Point(lastDragPoint.X - Left, lastDragPoint.Y - Top));
+        dragStart = null;
+        dragging = false;
+        if (IsMouseCaptured) ReleaseMouseCapture();
+        SetExpanded(pointerOnPanel);
+    }
+
+    Point DesktopPoint(MouseEventArgs e)
+    {
+        Point pixels = PointToScreen(e.GetPosition(this));
+        return PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice.Transform(pixels) ?? pixels;
+    }
+
+    void SnapDock(double x)
+    {
+        dockRight = x >= workArea.Left + workArea.Width / 2;
+        anchorY = Math.Clamp(anchorY, workArea.Top + RailHeight / 2, Math.Max(workArea.Top + RailHeight / 2, workArea.Bottom - RailHeight / 2));
+        SetWindowBounds(expandedBounds);
+    }
+
     void SetExpanded(bool expand)
     {
         if (opened == expand && IsVisible) return;
@@ -186,6 +270,7 @@ internal sealed class ResourceDockWindow : Window
             details.Visibility = Visibility.Visible;
             UpdateReadings();
             UpdateDisk();
+            SetWindowBounds(true);
         }
         else
         {
@@ -195,7 +280,7 @@ internal sealed class ResourceDockWindow : Window
         if (!IsVisible || !SystemParameters.ClientAreaAnimation)
         {
             move.Finish(expand);
-            UpdateGeometry(move.Progress);
+            SetWindowBounds(expand);
             UpdateVisual(move.Progress);
             if (!expand) details.Visibility = Visibility.Collapsed;
         }
@@ -203,10 +288,18 @@ internal sealed class ResourceDockWindow : Window
         UpdateRendering();
     }
 
+    void ActivateAcceleration()
+    {
+        StartPulse();
+        AccelerateRequested?.Invoke();
+    }
+
     void StartPulse()
     {
         if (!opened || !IsVisible || !SystemParameters.ClientAreaAnimation) return;
         pulseElapsed = 0;
+        rippleScale.ScaleX = rippleScale.ScaleY = 1;
+        ripple.Opacity = .48;
         UpdateRendering();
     }
 
@@ -237,7 +330,7 @@ internal sealed class ResourceDockWindow : Window
         if (!IsVisible || !SystemParameters.ClientAreaAnimation)
         {
             move.Finish(opened);
-            UpdateGeometry(move.Progress);
+            SetWindowBounds(opened);
             UpdateVisual(move.Progress);
             pulseElapsed = PulseSeconds;
             ripple.Opacity = 0;
@@ -248,22 +341,26 @@ internal sealed class ResourceDockWindow : Window
 
         long now = Stopwatch.GetTimestamp();
         double dt = Stopwatch.GetElapsedTime(previousFrame, now).TotalSeconds;
-        if (dt < 1d / 34) return;
+        if (dt < (move.Pending || pulseElapsed < PulseSeconds ? 1d / 65 : 1d / 34)) return;
         previousFrame = now;
 
         if (move.Pending)
         {
             move.Advance(dt);
-            UpdateGeometry(move.Progress);
             UpdateVisual(move.Progress);
-            if (!move.Pending && !opened) details.Visibility = Visibility.Collapsed;
+            if (!move.Pending && !opened)
+            {
+                details.Visibility = Visibility.Collapsed;
+                SetWindowBounds(false);
+            }
         }
         if (opened)
         {
-            if (memoryPercent is { } percent)
+            if (memoryPercent.HasValue || pulseElapsed < PulseSeconds)
             {
-                var pulseFactor = PulseMultiplier((pulseElapsed + Math.Min(PulseSeconds, pulseElapsed + dt)) * .5);
-                angle = (angle + dt * 360 / RotationPeriod(percent) * pulseFactor) % 360;
+                var phase = (pulseElapsed + Math.Min(PulseSeconds, pulseElapsed + dt)) * .5;
+                var factor = PulseMultiplier(phase, meterButton.IsMouseOver);
+                angle = (angle + dt * 360 / RotationPeriod(memoryPercent ?? 0) * factor) % 360;
                 diskRotation.Angle = angle;
             }
             if (pulseElapsed < PulseSeconds)
@@ -271,47 +368,71 @@ internal sealed class ResourceDockWindow : Window
                 pulseElapsed = Math.Min(PulseSeconds, pulseElapsed + dt);
                 var p = pulseElapsed / PulseSeconds;
                 var spread = 1 - Math.Pow(1 - p, 3);
-                rippleScale.ScaleX = rippleScale.ScaleY = 1 + spread * .40;
-                ripple.Opacity = (1 - p) * .85;
+                rippleScale.ScaleX = rippleScale.ScaleY = 1 + spread * 2;
+                ripple.Opacity = (1 - p) * .48;
+                if (p == 1 && dragStart is null && !IsMouseOver) SetExpanded(false);
             }
         }
         UpdateRendering();
     }
 
-    void UpdateGeometry(double progress)
+    void SetWindowBounds(bool expand) => SetWindowBounds(expand, null);
+
+    void SetWindowBounds(bool expand, double? dragX)
     {
-        var width = RailWidth + (PanelWidth - RailWidth) * progress;
-        var height = RailHeight + (PanelHeight - RailHeight) * progress;
+        expandedBounds = expand;
+        var height = expand ? PanelHeight : RailHeight;
+        var visualTop = Math.Clamp(anchorY - height / 2, workArea.Top,
+            Math.Max(workArea.Top, workArea.Bottom - height));
+        var width = expand ? PanelWidth + BurstMargin : RailWidth;
         Width = width;
-        Height = height;
-        Left = workArea.Right - width;
-        Top = workArea.Top + (workArea.Height - height) / 2;
+        Height = height + (expand ? BurstMargin : 0);
+        var rightmost = Math.Max(workArea.Left, workArea.Right - width);
+        Left = dragX is { } x ? Math.Clamp(x, workArea.Left, rightmost) : dockRight ? rightmost : workArea.Left;
+        Top = visualTop - (expand ? BurstMargin : 0);
+        panelLeft = expand && dockRight ? BurstMargin : 0;
+        panelTop = expand ? BurstMargin : 0;
+        Canvas.SetLeft(details, panelLeft);
+        Canvas.SetTop(details, panelTop);
+        Canvas.SetLeft(ripple, panelLeft + (PanelWidth - 48) / 2);
+        Canvas.SetTop(ripple, panelTop + 14);
+        UpdateVisual(move.Progress);
     }
 
     void UpdateVisual(double value)
     {
+        var width = RailWidth + (PanelWidth - RailWidth) * value;
+        var height = RailHeight + (PanelHeight - RailHeight) * value;
+        var left = expandedBounds && dockRight ? panelLeft + PanelWidth - width : panelLeft;
+        var top = expandedBounds ? Math.Clamp(anchorY - height / 2 - Top, panelTop, panelTop + PanelHeight - height) : 0;
+        panelClip.Rect = new Rect(left, top, width, height);
+        panelClip.RadiusX = panelClip.RadiusY = 7 + value * 7;
+        railOffset.X = dockRight ? left + width - RailWidth : left;
+        railOffset.Y = top + (height - RailHeight) / 2;
         rail.Opacity = 1 - Math.Min(1, value * 2.4);
+        rail.IsHitTestVisible = rail.Opacity > 0;
         details.Opacity = Math.Clamp((value - .25) * 1.45, 0, 1);
         details.IsHitTestVisible = value > .50 && opened;
-        shell.CornerRadius = new CornerRadius(7 + value * 7);
     }
 
     void UpdateDisk()
     {
         var percent = memoryPercent ?? 50;
-        yin.Data = YinGeometry(percent);
         var lower = CircleRadius * percent / 100;
         var upper = CircleRadius - lower;
         var eye = Math.Min(lower, upper) * .23;
-        PositionEye(darkEye, CircleCenter - CircleRadius + upper, eye);
-        PositionEye(lightEye, CircleCenter + CircleRadius - lower, eye);
-    }
-
-    static void PositionEye(Ellipse eye, double y, double radius)
-    {
-        eye.Width = eye.Height = radius * 2;
-        Canvas.SetLeft(eye, CircleCenter - radius);
-        Canvas.SetTop(eye, y - radius);
+        var drawing = new DrawingGroup();
+        using (DrawingContext context = drawing.Open())
+        {
+            context.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, 48, 48));
+            context.DrawEllipse(Paper, null, new Point(CircleCenter, CircleCenter), CircleRadius, CircleRadius);
+            context.DrawGeometry(Ink, null, YinGeometry(percent));
+            context.DrawEllipse(Ink, null, new Point(CircleCenter, CircleCenter - CircleRadius + upper), eye, eye);
+            context.DrawEllipse(Paper, null, new Point(CircleCenter, CircleCenter + CircleRadius - lower), eye, eye);
+        }
+        var image = new DrawingImage(drawing);
+        image.Freeze();
+        disk.Source = ripple.Source = image;
     }
 
     void UpdateReadings()
@@ -350,12 +471,14 @@ internal sealed class ResourceDockWindow : Window
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    static IntPtr NoMouseActivation(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    IntPtr NoMouseActivation(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        const int mouseActivate = 0x21;
+        const int mouseActivate = 0x21, leftButtonDown = 0x0201, activate = 1, noActivate = 3;
         if (message != mouseActivate) return IntPtr.Zero;
         handled = true;
-        return new IntPtr(3);
+        // 只有拖动区域的左键按下需要前台状态，以便鼠标跨出挂件仍能捕获。
+        var trigger = (lParam.ToInt64() >> 16) & 0xffff;
+        return new IntPtr(trigger == leftButtonDown && !meterButton.IsMouseOver ? activate : noActivate);
     }
 
     static Brush CreateJadeMask()
@@ -384,7 +507,11 @@ internal sealed class ResourceDockWindow : Window
     static string Percent(double? value) => Normalize(value) is { } n ? $"{n:F0}%" : "—";
     internal static Color LoadColor(double? value) => Normalize(value) switch { null => Gray, < 70 => Jade, < 85 => Amber, _ => Red };
     internal static double RotationPeriod(double value) => 60 / (1 + .09 * (Normalize(value) ?? 0));
-    static double PulseMultiplier(double elapsed) => 1 + 2 * Math.Pow(Math.Clamp(1 - elapsed / PulseSeconds, 0, 1), 2);
+    static double PulseMultiplier(double elapsed, bool hover)
+    {
+        var baseSpeed = hover ? 3 : 1;
+        return baseSpeed + (10 - baseSpeed) * Math.Pow(Math.Clamp(1 - elapsed / PulseSeconds, 0, 1), 2);
+    }
 
     internal static Geometry YinGeometry(double value)
     {
@@ -424,8 +551,9 @@ internal sealed class ResourceDockWindow : Window
         check(LoadColor(null) == Gray && LoadColor(69) == Jade && LoadColor(70) == Amber &&
             LoadColor(84) == Amber && LoadColor(85) == Red, "龙纹颜色须覆盖未知及两道占用边界");
         check(RotationPeriod(0) == 60 && RotationPeriod(100) == 6 && RotationPeriod(75) < RotationPeriod(50), "太极转速须随占用变化");
-        check(PulseMultiplier(0) == 3 && PulseMultiplier(PulseSeconds) == 1 && PulseMultiplier(.7) < PulseMultiplier(.2),
-            "太极点击后从三倍加速回落至基础转速");
+        check(PulseMultiplier(0, false) == 10 && PulseMultiplier(0, true) == 10 &&
+            PulseMultiplier(PulseSeconds, false) == 1 && PulseMultiplier(PulseSeconds, true) == 3 &&
+            PulseMultiplier(.7, true) < PulseMultiplier(.2, true), "太极悬停三倍、点击十倍，点击后应回到当前悬停状态对应的转速");
         var transition = new RectAnimation();
         transition.Start(true);
         transition.Advance(.08);
@@ -440,20 +568,33 @@ internal sealed class ResourceDockWindow : Window
             dock.Show();
             dock.SetExpanded(true);
             PumpFrames(380);
-            check(dock.Width == PanelWidth && dock.memory.Text == "85%" && dock.cpu.Text == "20%" &&
+            check(dock.panelClip.Rect.Size == new Size(PanelWidth, PanelHeight) && dock.memory.Text == "85%" && dock.cpu.Text == "20%" &&
                 dock.details.Visibility == Visibility.Visible && dock.rail.Opacity == 0, "实际窗口展开须替换细条并更新读数");
+            var accelerations = 0;
+            dock.AccelerateRequested += () => accelerations++;
+            dock.ActivateAcceleration();
+            check(accelerations == 1, "点击太极应请求执行一次内存整理");
+            dock.SetAccelerationStatus("整理完成");
+            check(dock.accelerationStatus.Text == "整理完成", "内存整理结果应显示在挂件内");
             if (SystemParameters.ClientAreaAnimation)
             {
                 check(dock.rendering && dock.diskRotation.Angle > 0, "展开后原生渲染应使太极旋转");
-                dock.StartPulse();
-                PumpFrames(160);
-                check(dock.ripple.Opacity > 0 && dock.rippleScale.ScaleX > 1, "点击动效应产生扩散");
+                PumpFrames(470);
+                check(dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity is > 0 and < .48 &&
+                    dock.rippleScale.ScaleX is > 1.9 and < 3, "点击应使用同一太极形状扩散并逐渐淡出");
             }
             dock.SetExpanded(false);
             var angle = dock.diskRotation.Angle;
             PumpFrames(380);
             check(dock.Width == RailWidth && dock.Height == RailHeight && !dock.rendering && dock.diskRotation.Angle == angle &&
                 dock.details.Visibility == Visibility.Collapsed && dock.ripple.Opacity == 0, "收起须停转、取消扩散和解绑渲染");
+            dock.anchorY = dock.workArea.Top - 30;
+            dock.SnapDock(dock.workArea.Left);
+            check(dock.Left == dock.workArea.Left && dock.Top == dock.workArea.Top, "拖放到左上角应贴左并留在工作区");
+            dock.anchorY = dock.workArea.Bottom + 30;
+            dock.SnapDock(dock.workArea.Right);
+            check(dock.Left == dock.workArea.Right - RailWidth && dock.Top == dock.workArea.Bottom - RailHeight,
+                "拖放到右下角应贴右并避开任务栏");
         }
         finally { dock.Close(); }
     }

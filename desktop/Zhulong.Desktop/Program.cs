@@ -18,6 +18,7 @@ internal static class Program
     static bool quitting;
     static bool restartRequested;
     static bool preparingUpdate;
+    static bool acceleratingMemory;
     static LocalPortal? portal;
     static SettingsWindow? settingsWindow;
     static AiAccountSettingsWindow? aiSettingsWindow;
@@ -81,6 +82,7 @@ internal static class Program
                     {
                         var dock = new ResourceDockWindow();
                         dock.Closed += (_, _) => { resourceDock = null; dockItem.Checked = false; };
+                        dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
                         dock.ApplySample(traySnapshot);
                         dock.ApplyLive(hub.LiveReadout);
                         dock.Show();
@@ -275,6 +277,33 @@ internal static class Program
             File.AppendAllText(Path.Combine(directory, "lifecycle.jsonl"), JsonSerializer.Serialize(new { timestamp = DateTimeOffset.UtcNow, kind, detail }, Json) + "\n", System.Text.Encoding.UTF8);
             }catch(IOException){}catch(UnauthorizedAccessException){}
         }
+    }
+
+    static async Task AccelerateMemoryAsync(ResourceDockWindow dock)
+    {
+        if (quitting || acceleratingMemory) return;
+        acceleratingMemory = true;
+        try
+        {
+            dock.SetAccelerationStatus("整理中…");
+            var results = await hub!.TrimWorkingSetsAsync();
+            if (quitting || resourceDock != dock) return;
+            var trimmed = results.Count(result => result.Status == "trimmed");
+            var degraded = results.Any(result => result.Status.StartsWith("degraded:", StringComparison.Ordinal)
+                && result.Status != "degraded:frequency_cap");
+            var status = trimmed > 0 ? $"已整理 {trimmed} 项" : "无可整理项";
+            if (results.Any(result => result.Status == "skipped:pressure_below_threshold")) status = "内存水位较低";
+            else if (results.Any(result => result.Status == "skipped:pressure_unavailable")) status = "内存读数未知";
+            else if (degraded) status = trimmed > 0 ? $"整理 {trimmed} 项，有异常" : "整理有异常";
+            dock.SetAccelerationStatus(status);
+        }
+        catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
+        {
+            if (!quitting && resourceDock == dock)
+                dock.SetAccelerationStatus(error is InvalidOperationException ? "已有操作，请稍候" : "整理未完成");
+            WriteLifecycle("dock_acceleration_failed", error.Message);
+        }
+        finally { acceleratingMemory = false; }
     }
 
     static void ShowActionResults(IReadOnlyList<ActionResult> values,string title)

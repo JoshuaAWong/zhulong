@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Zhulong.Core;
+using Zhulong.Runtime.Application;
 using Zhulong.Runtime.Rules;
+using Zhulong.Runtime.Storage;
 
 namespace Zhulong.Runtime.Actions;
 
@@ -118,6 +120,24 @@ public static partial class RuntimeSafetyTests
 
         var stateDirectory = Path.Combine(Path.GetTempPath(), "zhulong-safety-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stateDirectory);
+        var trimDirectory = Path.Combine(stateDirectory, "manual-trim");
+        var absent = "zhulong-fixture-" + Guid.NewGuid().ToString("N");
+        var manualTrimSettings = new RuntimeSettings
+        {
+            AutomaticActions = false, MemoryTrimEnabled = false, TrimPressurePercent = 1,
+            TrimProcesses = [new(absent + ".exe"), new(absent)], RestartServices = ["FixtureService"]
+        };
+        new SettingsStore(trimDirectory).Save(manualTrimSettings);
+        using (var runtime = new RuntimeHost(trimDirectory))
+        {
+            var trimResults = await runtime.TrimWorkingSetsAsync();
+            Check(trimResults is [{ Status: "skipped:process_gone", Action: "mem_trim" }],
+                "手动入口不依赖自动整理开关，同名目标仅检查一次且仅提交工作集整理");
+        }
+        manualTrimSettings.TrimProcesses = [];
+        new SettingsStore(trimDirectory).Save(manualTrimSettings);
+        using (var runtime = new RuntimeHost(trimDirectory))
+            Check((await runtime.TrimWorkingSetsAsync()).Count == 0, "没有工作集白名单时不得提交服务或其他处置");
         var invalid = Path.Combine(stateDirectory, "invalid.json");
         File.WriteAllText(invalid, "{", System.Text.Encoding.UTF8);
         var corruptTarget = Fake();

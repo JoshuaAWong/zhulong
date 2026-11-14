@@ -181,6 +181,29 @@ public sealed class RuntimeHost : IDisposable
         if(decision?.SuggestedAction is null)return new("rejected","unknown","","动作已失效，请重新查看告警。");
         return await actions.ExecuteAsync(decision.SuggestedAction,decision,stopped.Token).ConfigureAwait(false);
     }
+    public Task<IReadOnlyList<ActionResult>> TrimWorkingSetsAsync()=>RunManual(TrimWorkingSetsCoreAsync);
+    async Task<IReadOnlyList<ActionResult>> TrimWorkingSetsCoreAsync()
+    {
+        const string action = "mem_trim";
+        var decisions = manualActions.Values
+            .Where(decision => decision.SuggestedAction == action)
+            .DistinctBy(decision => SafetyPolicy.Normalize(decision.Target!)).ToArray();
+        if (decisions.Length == 0) return [];
+        var physical = NativeCounters.PhysicalMemory().Percent;
+        if (!physical.HasValue)
+            return [new("skipped:pressure_unavailable", action, "", "暂时无法读取物理内存占用。")];
+        if (physical.Value < Settings.TrimPressurePercent)
+            return [new("skipped:pressure_below_threshold", action, "",
+                $"物理内存占用 {physical.Value:F0}%，整理门槛 {Settings.TrimPressurePercent:0.##}%。")];
+
+        var results = new List<ActionResult>(decisions.Length);
+        foreach (var decision in decisions)
+        {
+            stopped.Token.ThrowIfCancellationRequested();
+            results.Add(await actions.ExecuteAsync(action, decision, stopped.Token).ConfigureAwait(false));
+        }
+        return results;
+    }
     public Task<IReadOnlyList<ActionResult>> ToggleThrottleAsync()=>RunManual(ToggleThrottleCoreAsync);
     async Task<IReadOnlyList<ActionResult>> ToggleThrottleCoreAsync()
     {
