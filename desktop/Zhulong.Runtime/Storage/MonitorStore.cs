@@ -38,8 +38,8 @@ public sealed class MonitorStore : IDisposable
     public void Save(SystemSnapshot value, IReadOnlyList<RuntimeEvent>? events = null)
     {
         using var tx = connection.BeginTransaction();
-        // 仅落榜单并集，不保存每轮整机全部进程，限制历史体积。
-        var durable = value with { ProcessMetrics = value.ProcessMetrics?.Take(15).ToList() };
+        // 仅落既有榜单并集，实时增长线索不入库。
+        var durable = value with { ProcessMetrics = value.ProcessMetrics?.Take(15).ToList(), CommitGrowth = null };
         using (var command = Command("INSERT INTO system_samples VALUES($t,$c,$p,$u,$e,$s)",tx,
             ("$t",Iso(value.Timestamp)),("$c",value.CommitPercent),("$p",value.MemoryPercent),("$u",value.CpuPercent),("$e",value.Error),("$s",JsonSerializer.Serialize(durable)))) command.ExecuteNonQuery();
         foreach (var metric in value.Metrics?.Values ?? Enumerable.Empty<MetricValue>())

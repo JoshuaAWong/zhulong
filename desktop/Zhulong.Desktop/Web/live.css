@@ -134,6 +134,7 @@ html[data-live] .ranking>.ink-bloom { inset:0; }
   html[data-live] .ranking .compact { margin:9px 0 7px; }
   html[data-live] .ranking .search { padding-block:2px 5px; }
   html[data-live] .process-list { max-height:clamp(170px,31vh,290px); overflow:auto; padding:2px; }
+  html[data-live] .process-list:has(.live-growth-process) { max-height:min(42vh,290px); }
   html[data-live] .process { padding:9px 2px 8px; }
   html[data-live] .process-meter { margin-top:6px; }
   html[data-live] .rank-foot { margin-top:7px; }
@@ -227,6 +228,13 @@ html[data-window-state="maximized"] .window-glyph-maximize::after {
 .window-glyph-close::after { transform:rotate(-45deg); }
 html[data-live] .hero-facts small { display:block; white-space:nowrap; }
 .live-process-meta,.live-device-sensors,html[data-live] .notes .timeline { display:none; }
+html[data-live] .ranking .compact button { min-width:0; padding-inline:3px; white-space:nowrap; }
+html[data-live] .process.live-growth-process { padding-block:5px; }
+.live-growth-process .process-name { display:block; }
+.live-growth-process .process-value { color:var(--accent); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.live-growth-meta { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:9px; margin-top:2px; color:var(--muted); font-size:10px; line-height:1.4; }
+#detailDialog[data-growth] { background:var(--surface); overflow-wrap:anywhere; }
+#detailDialog[data-growth]::before { content:none; }
 .live-refresh+.live-refresh { margin-left:18px; }
 .live-account-days { margin:10px 0; }
 html[data-live] .token-breakdown h3 { margin-top:18px; font-size:14px; }

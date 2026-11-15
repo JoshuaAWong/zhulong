@@ -11,6 +11,7 @@ public sealed class SystemMonitor : IDisposable
 {
     readonly RuntimeSettings settings;
     readonly SlowMetrics slow;
+    readonly CommitGrowthTracker commitGrowth;
     NativeCounters.CoreTimes[] previousCores = [];
     Dictionary<int, ProcessCounter> previousProcesses = [];
     Dictionary<string, NetworkCounter> previousNetwork = [];
@@ -19,6 +20,7 @@ public sealed class SystemMonitor : IDisposable
     {
         this.settings = settings ?? new RuntimeSettings();
         slow = new SlowMetrics(this.settings);
+        commitGrowth = new CommitGrowthTracker(this.settings.SampleSeconds);
     }
     public Task CollectSlowAsync(CancellationToken cancellationToken) => slow.CollectAsync(cancellationToken);
 
@@ -49,6 +51,7 @@ public sealed class SystemMonitor : IDisposable
         try { processes = Processes(); }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         { previousProcesses.Clear(); processes = []; errors.Add("进程排行采集失败"); }
+        var growth = commitGrowth.Observe(processes, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         Network(metrics, now);
         var watch = settings.WatchProcesses.Select(value => value.Name)
             .Concat(settings.TrimProcesses.Select(value => value.Name))
@@ -65,7 +68,7 @@ public sealed class SystemMonitor : IDisposable
         Put(metrics, now, "io_top_mb_s", ioTop?.ReadMbS + ioTop?.WriteMbS, "MB/s", ioTop?.Name, ioTop is null ? processes.Count == 0 ? "unavailable" : "warming" : "ok");
         return new SystemSnapshot(now, commit, commitUsed, commitLimit, physical, physicalUsed, physicalTotal, cpu,
             processes.OrderByDescending(value => value.MemoryGb).Take(5).ToList(),
-            errors.Count == 0 ? null : string.Join("；", errors), metrics, selected);
+            errors.Count == 0 ? null : string.Join("；", errors), metrics, selected, growth);
     }
 
     (double? Total, double? Maximum, string State) Cpu()

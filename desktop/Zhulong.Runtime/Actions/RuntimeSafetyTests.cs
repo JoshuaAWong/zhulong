@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Zhulong.Core;
 using Zhulong.Runtime.Application;
+using Zhulong.Runtime.Collectors;
 using Zhulong.Runtime.Rules;
 using Zhulong.Runtime.Storage;
 
@@ -235,7 +236,46 @@ public static partial class RuntimeSafetyTests
         Check(growth.Evaluate(Snapshot(40, core: 10, processCommit: 10), 30).Any(value => value.Rule == "anomaly_leak"), "按创建身份识别增长，不能只按大小");
         var configured=new RuleEngine(new RuntimeSettings{WatchProcesses=[],Alerts=new(70,60,30,60,90,80,30)});
         Check(configured.Evaluate(Snapshot(75),0).Count==0&&configured.Evaluate(Snapshot(75),30).Any(x=>x.Rule=="commit_high"),"配置水位和持续时长必须真实生效");
+        CheckCommitGrowth(Check, now.UtcTicks);
         return assertions;
+    }
+
+    static void CheckCommitGrowth(Action<bool, string> check, long created)
+    {
+        ProcessRow Row(double commit, long? identity = null) => new(12, "fixture.exe", 1, null, commit, CreatedTicks: identity ?? created);
+        var steady = new CommitGrowthTracker(30);
+        var slow = new CommitGrowthTracker(30);
+        var spike = new CommitGrowthTracker(30);
+        CommitGrowthReport? longReading = null;
+        for (var seconds = 0; seconds <= 3600; seconds += 30)
+        {
+            var observed = steady.Observe([Row(2 + 7.6 * seconds / 60 / 1024)], seconds);
+            var slowReading = slow.Observe([Row(2 + 5d * seconds / 60 / 1024)], seconds);
+            var spiked = spike.Observe([Row(seconds < 480 ? 2 : 3 + (seconds - 480) / 1024d / 60)], seconds);
+            if (seconds == 0)
+                check(observed.State == "warming" && observed.Rows.Count == 0, "缺少足够观察时长时先显示预热");
+            if (seconds == 600)
+                check(observed.Rows is [{ Minutes: >= 10, GrowthGb: > .07 }] && slowReading.Rows.Count == 0,
+                    "约每分钟增加7.6MiB的趋势应进入短窗口，较慢变化继续积累");
+            if (seconds == 3600)
+            {
+                longReading = observed;
+                check(slowReading.Rows is [{ Minutes: >= 60, GrowthGb: > .28, IncreasingIntervals: >= 3 }],
+                    "较慢趋势可凭60分钟分段证据出现");
+                check(spiked.State == "ready" && spiked.Rows.Count == 0, "单次大幅跳变和少量漂移不作持续增长");
+            }
+        }
+        check(longReading?.Rows is [{ Minutes: >= 60, GrowthGb: > .43 }], "同一进程只返回一条更充分的增长证据");
+        var reused = steady.Observe([Row(8, created + 1)], 3630);
+        check(reused.State == "warming" && reused.Rows.Count == 0, "PID复用不得继承前一实例的提交内存基线");
+        check(steady.Observe([new(12, "fixture.exe", 1, null, 8)], 3660).State == "unavailable" &&
+            steady.Observe([Row(9, created + 1)], 3690).Rows.Count == 0, "不可读实例身份打断连续窗口");
+        check(slow.Observe([Row(9)], 3900).State == "warming", "长采样间断后不得拼接旧基线");
+        var sparse = new CommitGrowthTracker(300);
+        for (var i = 0; i < 3; i++) sparse.Observe([Row(2 + i * .04)], i * 300);
+        var sparseResult = sparse.Observe([Row(2.12)], 900);
+        check(sparseResult.WindowMinutes == 15 && sparseResult.Rows is [{ Minutes: 15, IncreasingIntervals: 3 }],
+            "300秒采样仍需至少三个可比较的上升间隔");
     }
 
     sealed class FakeProcesses(ProcessIdentity identity) : IProcessBoundary

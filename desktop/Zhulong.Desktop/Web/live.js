@@ -102,12 +102,14 @@
   };
   const metric = name => latest?.metrics?.[name];
   const sampledAt = item => item?.sampledAt || latest?.timestamp;
+  function isOldSample(stamp) {
+    const interval = Number.isFinite(health?.sampleSeconds) && health.sampleSeconds > 0 ? health.sampleSeconds : 30;
+    return Number.isFinite(stamp) && Date.now() - stamp > Math.max(90, interval * 3) * 1000;
+  }
   function sampleState(item) {
-    const stamp = Date.parse(sampledAt(item));
     if (item?.state && item.state !== "ok") return item.state === "stale" ? "旧采样" : "暂无有效值";
     if (!Number.isFinite(item?.value)) return "未知";
-    const interval = Number.isFinite(health?.sampleSeconds) && health.sampleSeconds > 0 ? health.sampleSeconds : 30;
-    return Number.isFinite(stamp) && Date.now() - stamp > Math.max(90, interval * 3) * 1000 ? "旧采样" : "有效";
+    return isOldSample(Date.parse(sampledAt(item))) ? "旧采样" : "有效";
   }
   function metricText(name, digits = 1) {
     const item = metric(name), info = metricsByName[name];
@@ -152,14 +154,80 @@
   });
   const rankGroup = $(".ranking [data-rank]").parentElement;
   rankGroup.querySelector("[data-rank='memory']").textContent = "提交";
+  const growthRank = node("button", "增长");
+  growthRank.dataset.rank = "growth"; growthRank.type = "button"; growthRank.setAttribute("aria-pressed", "false");
+  rankGroup.insertBefore(growthRank, rankGroup.querySelector("[data-rank='cpu']"));
   const ioRank = node("button", "I/O"); ioRank.dataset.rank = "io"; ioRank.setAttribute("aria-pressed", "false"); rankGroup.append(ioRank);
+  const growthKey = item => String(item.pid) + ":" + String(item.createdTicks);
+  const growthName = item => item.name || "未知进程";
+  const growthStale = () => isOldSample(Date.parse(latest?.timestamp));
+  const growthRows = () => latest?.commitGrowth?.state === "ready" && !growthStale() ? latest.commitGrowth.rows : [];
+  const detailDialog = $("#detailDialog");
+  let selectedGrowth = null;
+  detailDialog.addEventListener("close", () => { selectedGrowth = null; delete detailDialog.dataset.growth; });
+  function growthAdvice(name) {
+    if (/^mumu/i.test(name)) return "保留正在使用的模拟器实例。先在闲置实例内保存进度，再从多开管理器关闭这些实例。";
+    if (/^zenlesszonezero/i.test(name)) return "正在玩的《绝区零》可以继续保留。等游戏结束、确认进度保存后，可从游戏菜单正常退出。";
+    if (/^hyphelper(?:\.exe)?$/i.test(name)) return "先完成当前游戏或下载。任务结束后可从启动器菜单正常退出，再按需启动。";
+    return "先在应用内结束闲置任务，或使用应用提供的内存释放选项。若仍持续上升，保存工作后从应用菜单正常退出。";
+  }
+  function describeGrowth(item) {
+    const name = growthName(item);
+    return {
+      title: name,
+      text: "PID " + item.pid + "。在 " + number(item.minutes) + " 分钟内私有提交增加 " + number(item.growthGb, 2) + " GB，当前 " +
+        number(item.commitGb, 2) + " GB。采样中有 " + item.increasingIntervals + " 段上升。最后采样于 " + date(latest?.timestamp) + "。",
+      note: "持续增长是排查线索，结合当时的应用任务判断原因。" + growthAdvice(name) +
+        "随后按 PID 复核提交占用。整理内存针对物理工作集，提交需要由应用释放。"
+    };
+  }
+  function refreshGrowthDetail() {
+    if (!selectedGrowth || !detailDialog.open) return;
+    const item = growthRows().find(row => growthKey(row) === selectedGrowth);
+    const detail = item ? describeGrowth(item) : {
+      text: "当前采样已无法确认这条增长记录。",
+      note: "返回增长榜查看新样本。"
+    };
+    const [evidence, advice] = $("#detailContent").children;
+    evidence.textContent = detail.text;
+    advice.textContent = detail.note;
+  }
+  function renderCommitGrowth(list, search) {
+    const growth = latest?.commitGrowth;
+    text(".ranking .section-subtitle", "私有提交持续增长");
+    text("#rankUnit", "按净增长量排序 · 点击查看证据和建议");
+    const candidates = growthRows();
+    const rows = candidates.filter(item => growthName(item).toLowerCase().includes(search)).slice(0, 5);
+    if (!rows.length) {
+      let reason = "正在积累同一进程的连续采样。";
+      if (growthStale()) reason = "采样已过期，等待新样本。";
+      else if (growth?.state === "ready") reason = candidates.length ? "当前没有匹配进程。" : "本窗口未发现符合条件的持续增长进程。";
+      else if (growth?.state === "unavailable" || (latest && !growth)) reason = "进程增长数据暂不可用。";
+      else if (Number.isFinite(growth?.windowMinutes)) reason = "正在积累采样，至少连续观察 " + number(growth.windowMinutes) + " 分钟。";
+      list.append(node("p", reason, "fine-print live-empty"));
+      return;
+    }
+    for (const item of rows) {
+      const name = growthName(item);
+      const button = node("button", undefined, "process live-growth-process");
+      button.type = "button"; button.dataset.commitGrowth = growthKey(item);
+      button.title = name + " · PID " + item.pid + " · 观察 " + number(item.minutes) + " 分钟";
+      const line = node("span", undefined, "live-growth-meta");
+      const amount = node("span", "+" + number(item.growthGb, 2), "process-value");
+      amount.append(node("small", "GB"));
+      line.append(amount, node("span", "当前 " + number(item.commitGb, 2) + " GB"));
+      button.append(node("span", name, "process-name"), line);
+      list.append(button);
+    }
+  }
   const originalProcesses = renderProcesses;
   $("#processSearch").removeEventListener("input", originalProcesses);
   renderProcesses = function () {
     const search = $("#processSearch").value.trim().toLowerCase();
+    const list = $("#processList"); list.replaceChildren();
+    if (currentRank === "growth") { renderCommitGrowth(list, search); return; }
     const rows = processes.filter(item => item.name.toLowerCase().includes(search))
       .sort((a, b) => (Number.isFinite(b[currentRank]) ? b[currentRank] : -1) - (Number.isFinite(a[currentRank]) ? a[currentRank] : -1)).slice(0, 5);
-    const list = $("#processList"); list.replaceChildren();
     const max = Math.max(...rows.map(row => Number.isFinite(row[currentRank]) ? row[currentRank] : 0), 1);
     rows.forEach(item => {
       const button = node("button", undefined, "process");
@@ -182,6 +250,16 @@
   };
   $("#processSearch").addEventListener("input", renderProcesses);
   document.addEventListener("click", event => {
+    const growth = event.target.closest("[data-commit-growth]");
+    if (growth) {
+      event.stopImmediatePropagation();
+      const item = growthRows().find(row => growthKey(row) === growth.dataset.commitGrowth);
+      if (!item) { renderProcesses(); return; }
+      selectedGrowth = growth.dataset.commitGrowth;
+      detailDialog.dataset.growth = "";
+      showDetail(describeGrowth(item));
+      return;
+    }
     const button = event.target.closest("[data-process]");
     if (!button) return;
     event.stopImmediatePropagation();
@@ -354,7 +432,7 @@
       button.title = metricsByName[key][1] + "，采样于 " + date(sampledAt(metric(key)));
     }
     renderDeviceTemperatures();
-    renderProcesses(); renderChart(); syncUnifiedMotion();
+    renderProcesses(); refreshGrowthDetail(); renderChart(); syncUnifiedMotion();
     status(value?.timestamp ? (stale ? "旧采样 " : "采样于 ") + date(value.timestamp) : "等待首次采样");
   }
   const metricStrip = node("section", undefined, "live-metric-strip");
@@ -707,6 +785,7 @@
       if (values[1].status === "fulfilled" && hours === eventHours) applyEvents(values[1].value);
       if (values[2].status === "fulfilled") applyActions(values[2].value);
       if (values[0].status === "fulfilled") applySnapshot(values[0].value);
+      else if (currentRank === "growth" && growthStale()) { renderProcesses(); refreshGrowthDetail(); }
       const failed = values.filter(value => value.status === "rejected");
       if (failed.length) status("部分读取未完成：" + failed.map(value => value.reason.message).join("；"));
       await readHistory();

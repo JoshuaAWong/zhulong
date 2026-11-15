@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Zhulong.Core;
 
 public sealed record ProcessRow(int Pid, string Name, double MemoryGb, double? CpuPercent,
@@ -9,10 +11,15 @@ public sealed record LiveSystemReadout(DateTimeOffset Timestamp, double? CpuPerc
     double? MemoryPercent, double? MemoryUsedGb, double? MemoryTotalGb);
 public sealed record LiveNetworkReadout(DateTimeOffset Timestamp,
     double? DownloadBytesPerSecond, double? UploadBytesPerSecond);
+public sealed record CommitGrowthRow(int Pid, string Name,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long CreatedTicks, double CommitGb,
+    double GrowthGb, double Minutes, int IncreasingIntervals);
+public sealed record CommitGrowthReport(string State, double WindowMinutes, IReadOnlyList<CommitGrowthRow> Rows);
 public sealed record SystemSnapshot(DateTimeOffset Timestamp, double? CommitPercent,
     double? CommitUsedGb, double? CommitLimitGb, double? MemoryPercent, double? MemoryUsedGb,
     double? MemoryTotalGb, double? CpuPercent, List<ProcessRow> Processes, string? Error = null,
-    Dictionary<string, MetricValue>? Metrics = null, List<ProcessRow>? ProcessMetrics = null);
+    Dictionary<string, MetricValue>? Metrics = null, List<ProcessRow>? ProcessMetrics = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CommitGrowthReport? CommitGrowth = null);
 public sealed record RuntimeEvent(DateTimeOffset Timestamp, string Title, string Text, string Level,
     string Kind = "observation", string? Target = null);
 public sealed record AlertDecision(string Rule, string Title, string Text, string Level,

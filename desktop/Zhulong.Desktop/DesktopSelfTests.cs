@@ -46,7 +46,14 @@ internal static class DesktopSelfTests
             {
                 SystemSnapshot Sample(int minutes, double commit, double? cpu, string? error = null) =>
                     new(now.AddMinutes(minutes), commit, commit * .4, 40, 50, 16, 32, cpu, [], error);
-                store.Save(Sample(-3, 80, null));
+                var growthSample = Sample(-3, 80, null) with
+                {
+                    CommitGrowth = new("ready", 10, [new(7, "fixture.exe", now.UtcTicks, 2, .1, 10, 4)])
+                };
+                using (var live = JsonDocument.Parse(JsonSerializer.Serialize(growthSample, Program.Json)))
+                    Check(live.RootElement.GetProperty("commitGrowth").GetProperty("rows")[0]
+                        .GetProperty("createdTicks").GetString() == now.UtcTicks.ToString(), "桌面桥接须保留创建时间的全部精度");
+                store.Save(growthSample);
                 store.Save(Sample(-2, 90, 10, "合成采集错误"),[new(now.AddMinutes(-2),"合成告警","独立规则输出","warning"),new(now.AddMinutes(-2),"合成采集错误","故障注入","error")]);
                 store.Save(Sample(-1, 91, 20, "合成采集错误"));
                 using (var history = JsonDocument.Parse(JsonSerializer.Serialize(store.History("cpu", 1))))
@@ -65,6 +72,9 @@ internal static class DesktopSelfTests
                 {
                     connection.Open();
                     using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT snapshot FROM system_samples ORDER BY timestamp LIMIT 1";
+                    using (var saved = JsonDocument.Parse((string)command.ExecuteScalar()!))
+                        Check(!saved.RootElement.TryGetProperty("CommitGrowth", out _), "增长线索只保留在实时快照");
                     command.CommandText = "CREATE TRIGGER fixture_abort BEFORE INSERT ON monitor_events BEGIN SELECT RAISE(ABORT,'fixture event failure'); END";
                     command.ExecuteNonQuery();
                     var rejected = false;
