@@ -40,6 +40,7 @@
   const pending = new Map(), histories = new Map();
   let token = null, sequence = 0, refreshTimer = null, quotaTimer = null;
   let latest = null, liveReadout = null, usage = null, lastUsageRead = 0, refreshing = false, usageBusy = false;
+  let usagePushVersion = 0;
   let health = null, eventHours = 24, actionBusy = false;
   let quotaRows = [], chartCleanup = null;
   function clearChartHover() { chartCleanup?.(); chartCleanup = null; }
@@ -718,10 +719,22 @@
       });
       breakdown.append(dl);
     }
+    const isKimi = selectedTool === "kimi";
+    const hasKimiBindings = isKimi && accounts.some(account => account.source === "kimi_web_oauth");
+    const cliWasOpen = quotaSection.querySelector(".provider-cli-sources")?.open;
     quotaSection.replaceChildren(node("h2", walletOnly ? "钱包余额" : label + " 账户额度"));
+    if (isKimi && !hasKimiBindings && nativeBridge) {
+      const firstBinding = node("p", "绑定 Kimi 账号后，可分别查看每个账号的额度。", "fine-print");
+      const bind = node("button", "绑定 Kimi 账号", "text-button live-refresh");
+      bind.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
+      quotaSection.append(firstBinding, bind);
+    }
     const cards = node("div", undefined, "provider-account-grid");
+    const cliCards = hasKimiBindings ? node("div", undefined, "provider-account-grid") : null;
     for (const account of accounts) {
       const card = node("article", undefined, "provider-account");
+      const isKimiBinding = isKimi && account.source === "kimi_web_oauth";
+      const cardGroup = cliCards && !isKimiBinding ? cliCards : cards;
       const head = node("div", undefined, "provider-account-head");
       head.append(node("h3", account.label || "账户"));
       if (nativeBridge && account.id) {
@@ -736,13 +749,16 @@
       const windows = Array.isArray(account.windows) ? account.windows : [];
       const balances = Array.isArray(account.balances) ? account.balances : [];
       const state = providerState(account.state, windows.length > 0 || balances.length > 0 || Number.isFinite(account.account_tokens));
-      card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
-      if (nativeBridge && selectedTool === "kimi" && account.state === "duplicate_account") {
-        card.append(node("p", "在「账户来源设置」点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开 CLI 给出的设备登录链接，登录第二账号并授权，然后点「更新额度」。", "fine-print"));
+      card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", kimi_web_oauth: "Kimi 账号授权", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
+      if (nativeBridge && isKimiBinding && ["auth_expired", "login_required", "auth_required"].includes(account.state)) {
+        card.append(node("p", "在「账户来源设置」选择此账号的「重新授权」。", "fine-print"));
+      }
+      if (nativeBridge && isKimi && !isKimiBinding && account.state === "duplicate_account") {
+        card.append(node("p", "在「账户来源设置」展开「本机 CLI 来源」，点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开授权链接，授权后更新额度。", "fine-print"));
       }
       if (walletOnly) {
         renderWallet(card, balances, account.is_available);
-        cards.append(card);
+        cardGroup.append(card);
         continue;
       }
       card.append(node("p", "账户累计 " + (Number.isFinite(account.account_tokens) ? number(account.account_tokens, 0) + " Token" : "未知"), "fine-print"));
@@ -753,10 +769,16 @@
         detail.append(node("summary", "此来源本机累计 " + number(account.local_report.totals?.total_tokens, 0) + " Token"), sessionTable(account.local_report.sessions || [], false));
         card.append(detail);
       } else if (account.local_state) card.append(node("p", "本机来源 · " + providerState(account.local_state, false), "fine-print"));
-      cards.append(card);
+      cardGroup.append(card);
     }
-    if (accounts.length) quotaSection.append(cards);
-    else quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
+    if (cards.childElementCount) quotaSection.append(cards);
+    else if (!isKimi || !nativeBridge) quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
+    if (cliCards?.childElementCount) {
+      const details = node("details", undefined, "provider-local-sessions provider-cli-sources");
+      details.open = Boolean(cliWasOpen);
+      details.append(node("summary", "本机 CLI 来源"), cliCards);
+      quotaSection.append(details);
+    }
     usageStatus.textContent = walletOnly ? "" : providerState(provider?.state, Boolean(report));
     if (report?.generated_at) usageStatus.textContent += " · 本机汇总于 " + date(report.generated_at);
     countdown();
@@ -768,11 +790,20 @@
   }
   async function readUsage(api = "usage", parameters = {}) {
     if (usageBusy) return;
+    const pushVersion = usagePushVersion;
     setUsageBusy(true);
     if (api === "refresh-codex-account" || api === "refresh-provider-account") usageStatus.textContent = parameters.metric === "deepseek"
       ? "正在查询 DeepSeek API 余额…" : "正在读取账户用量与额度…";
-    try { const value = await request(api, parameters); applyUsage(value); lastUsageRead = Date.now(); }
-    catch (error) { usageStatus.textContent = "统计读取未完成：" + error.message; }
+    try {
+      const value = await request(api, parameters);
+      // 本机绑定变更已推送时，先前发起的读取可能仍带着旧的账号列表。
+      if (pushVersion === usagePushVersion) {
+        applyUsage(value);
+        lastUsageRead = Date.now();
+      }
+    } catch (error) {
+      if (pushVersion === usagePushVersion) usageStatus.textContent = "统计读取未完成：" + error.message;
+    }
     finally { setUsageBusy(false); }
   }
   refreshButton.addEventListener("click", () => readUsage("refresh-usage"));
@@ -828,6 +859,12 @@
     }
     if (nativeBridge && message?.kind === "window-state") { setWindowMode(message.state); return; }
     if (nativeBridge && message?.kind === "live-readout") { applyLiveReadout(message.value); return; }
+    if (nativeBridge && message?.kind === "usage-updated") {
+      usagePushVersion++;
+      applyUsage(message.value);
+      lastUsageRead = Date.now();
+      return;
+    }
     const item = pending.get(message?.id);
     if (!item) return;
     clearTimeout(item.timer); pending.delete(message.id);

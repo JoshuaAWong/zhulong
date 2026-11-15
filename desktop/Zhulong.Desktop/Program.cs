@@ -377,6 +377,8 @@ internal static class Program
         if (aiSettingsWindow is null)
         {
             aiSettingsWindow = new AiAccountSettingsWindow(directory);
+            aiSettingsWindow.KimiAccountsChanged += async id =>
+                await NativeAsync(() => window?.RefreshKimiAccountsAsync(id) ?? Task.CompletedTask);
             aiSettingsWindow.Closed += (_, _) => aiSettingsWindow = null;
             aiSettingsWindow.Show();
         }

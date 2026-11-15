@@ -157,8 +157,125 @@ public static class AiUsageSelfTests
         assertions += await ZCodeSelfTests.RunAsync(directory);
         assertions += KimiUsageSelfTests.Run(Path.Combine(directory, "kimi-usage"));
         assertions += await TestAccountIsolationAsync(Path.Combine(directory, "profile-isolation"));
+        await CheckKimiWebAccountsAsync(test, Check);
         await CheckDeepSeekWalletAsync(test, Check);
         return assertions;
+    }
+
+    static async Task CheckKimiWebAccountsAsync(string directory, Action<bool, string> check)
+    {
+        var data = Path.Combine(directory, "kimi-web");
+        Directory.CreateDirectory(data);
+        var handler = new KimiWebHttp();
+        using var http = new HttpClient(handler);
+        var client = new KimiWebClient(http);
+        var token = CancellationToken.None;
+        var reset = DateTimeOffset.UtcNow.AddHours(4);
+        async Task<KimiWebAccount> Bind(bool domestic, string label, string login, string user, string? replace = null)
+        {
+            var host = domestic ? "kimi.com" : "kimi.ai";
+            var auth = $"https://auth.{host}/api/oauth";
+            handler.Reply(HttpMethod.Post, auth + "/device_authorization", new
+            {
+                device_code = "device-" + login, user_code = "TEST-CODE",
+                verification_uri_complete = $"https://auth.{host}/activate", expires_in = 1800, interval = 1
+            }, form: "client_id=17e5f671-d194-4dfb-9706-5516cb48c098");
+            if (login == "first")
+                handler.Reply(HttpMethod.Post, auth + "/token", new { error = "authorization_pending" },
+                    form: "device_code=device-first", status: HttpStatusCode.BadRequest);
+            handler.Reply(HttpMethod.Post, auth + "/token", new
+            {
+                access_token = "access-" + login, refresh_token = "refresh-" + login, expires_in = 900
+            }, form: "device_code=device-" + login);
+            handler.Reply(HttpMethod.Get, $"https://api.{host}/coding/v1/me", new
+            {
+                user_id = user, region = domestic ? "REGION_CN" : "REGION_GLOBAL", user_level_name = "Allegro"
+            }, bearer: "access-" + login);
+            var flow = await client.StartAsync(domestic, token);
+            return await KimiWebAccounts.BindAsync(client, data, flow, label, replace, token);
+        }
+        try
+        {
+            var first = await Bind(true, "国内额度", "first", "fixture-kimi-user-first");
+            var second = await Bind(false, "国际额度", "second", "fixture-kimi-user-second");
+            check(first.Id != second.Id && KimiWebAccounts.Load(data).SequenceEqual([first, second]),
+                "两个 Kimi 网页授权须带独立本地账号和备注");
+            var blocked = false;
+            try { await Bind(true, "重复", "duplicate", "fixture-kimi-user-first"); }
+            catch (KimiWebAuthException error) when (error.State == "duplicate_account") { blocked = true; }
+            check(blocked && KimiWebAccounts.Load(data).SequenceEqual([first, second]),
+                "同一 Kimi 用户即使换发凭据也不得重复绑定");
+            var mismatch = false;
+            try { await Bind(true, "错误切换", "mismatch", "fixture-kimi-other-user", first.Id); }
+            catch (KimiWebAuthException error) when (error.State == "account_mismatch") { mismatch = true; }
+            check(mismatch && AiAccountProfiles.ReadKey(data, first.Id, out _) == "refresh-first",
+                "重新授权到其他账号时须保留原凭据");
+
+            const string domesticQuota = "https://api.kimi.com/coding/v1/usages";
+            handler.Reply(HttpMethod.Get, domesticQuota, new { }, bearer: "access-first", status: HttpStatusCode.Unauthorized);
+            handler.Reply(HttpMethod.Post, "https://auth.kimi.com/api/oauth/token", new
+            {
+                access_token = "access-next", refresh_token = "refresh-rotated", expires_in = 900
+            }, form: "refresh_token=refresh-first");
+            handler.Reply(HttpMethod.Get, domesticQuota, new
+            {
+                usages = new { limit_5h = new { used_ratio = "0.125", reset_time = reset.ToString("O") } }
+            }, bearer: "access-next");
+            handler.Reply(HttpMethod.Get, "https://api.kimi.ai/coding/v1/usages", new
+            {
+                usages = new { limit_7d = new { used_ratio = .47 } }
+            }, bearer: "access-second");
+            var a = await KimiWebAccounts.ReadAsync(client, data, first.Id, token);
+            var b = await KimiWebAccounts.ReadAsync(client, data, second.Id, token);
+            check(a.Reading.State == "ok" && a.Reading.Windows.Single() is { Name: "limit5h", UsedPercent: 12.5 } window &&
+                window.ResetsAt == reset && b.Reading.State == "ok" &&
+                b.Reading.Windows.Single() is { Name: "limit7d", UsedPercent: 47 } && handler.Remaining == 0,
+                "Kimi 两账号必须分别查询额度，缓存令牌失效后须用该账号的新令牌重试");
+            check(AiAccountProfiles.ReadKey(data, first.Id, out _) == "refresh-rotated" &&
+                AiAccountProfiles.ReadKey(data, second.Id, out _) == "refresh-second",
+                "续期必须更新相应凭据且不改另一账户");
+            var metadata = File.ReadAllText(Path.Combine(data, "kimi-web-accounts.json"), Encoding.UTF8);
+            check(!metadata.Contains("refresh-", StringComparison.Ordinal) && !metadata.Contains("access-", StringComparison.Ordinal) &&
+                !metadata.Contains("fixture-kimi-user", StringComparison.Ordinal), "账号元数据不得保存明文身份或令牌");
+
+            await using var source = new AdditionalAiUsage(data, Path.Combine(data, "missing-kimi"), Path.Combine(data, "missing-zcode"));
+            var panel = JsonSerializer.SerializeToElement(source.Report())[0].GetProperty("accounts");
+            check(panel.EnumerateArray().Any(row => row.GetProperty("id").GetString() == first.Id &&
+                row.GetProperty("label").GetString() == first.Label && row.GetProperty("source").GetString() == "kimi_web_oauth") &&
+                !panel.GetRawText().Contains(a.Reading.Identity!, StringComparison.Ordinal) &&
+                !panel.GetRawText().Contains("refresh-", StringComparison.Ordinal) &&
+                !panel.GetRawText().Contains("access-", StringComparison.Ordinal), "面板须显示授权账号但不下发其身份或令牌");
+            await KimiWebAccounts.RemoveAsync(data, first.Id, token);
+            check(KimiWebAccounts.Load(data).SequenceEqual([second]) && AiAccountProfiles.ReadKey(data, first.Id, out _) is null,
+                "移除账号须同步删除其凭据");
+        }
+        finally
+        {
+            foreach (var account in KimiWebAccounts.Load(data))
+                await KimiWebAccounts.RemoveAsync(data, account.Id, token);
+        }
+    }
+
+    // 按协议校验域名、凭据位置和请求顺序，测试不连接外网。
+    sealed class KimiWebHttp : HttpMessageHandler
+    {
+        readonly Queue<(HttpMethod Method, string Url, HttpStatusCode Status, string Body, string? Form, string? Bearer)> replies = new();
+
+        public int Remaining => replies.Count;
+        public void Reply(HttpMethod method, string url, object response, string? form = null, string? bearer = null,
+            HttpStatusCode status = HttpStatusCode.OK) =>
+            replies.Enqueue((method, url, status, JsonSerializer.Serialize(response), form, bearer));
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            var reply = replies.Dequeue();
+            var form = request.Content is { } content ? await content.ReadAsStringAsync(token) : null;
+            if (request.Method != reply.Method || request.RequestUri?.AbsoluteUri != reply.Url ||
+                request.Headers.Authorization?.Parameter != reply.Bearer ||
+                reply.Form is { } expected && (form is null || !form.Split('&').Contains(expected)))
+                throw new InvalidOperationException("Kimi 请求域名、令牌或表单字段不符合预期。");
+            return new(reply.Status) { Content = new StringContent(reply.Body, Encoding.UTF8, "application/json") };
+        }
     }
 
     static async Task CheckDeepSeekWalletAsync(string directory, Action<bool, string> check)

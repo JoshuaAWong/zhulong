@@ -79,7 +79,7 @@ public static class AiAccountProfiles
         finally { CredFree(pointer); }
     }
 
-    static string? ReadKey(string dataDirectory, string provider, out string? version)
+    internal static string? ReadKey(string dataDirectory, string provider, out string? version)
     {
         version = null;
         if (!ReadCredential(dataDirectory, provider, out var pointer)) return null;
@@ -105,7 +105,7 @@ public static class AiAccountProfiles
     static string Target(string directory, string provider) => $"ZhulongNext/{provider}/" + Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())));
 
-    static void SetKey(string directory, string provider, string? key, string? version = null)
+    internal static void SetKey(string directory, string provider, string? key, string? version = null)
     {
         var target = Target(directory, provider);
         if (key is null)

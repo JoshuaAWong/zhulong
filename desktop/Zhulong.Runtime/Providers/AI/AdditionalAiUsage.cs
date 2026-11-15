@@ -61,7 +61,8 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
 
     internal async Task RefreshAccountAsync(string id, CancellationToken cancellationToken)
     {
-        if (id is not (Primary or Secondary or Glm or DeepSeek)) throw new ArgumentException("未知的 AI 账户。");
+        var webKimi = KimiWebAccounts.IsAccountId(id);
+        if (id is not (Primary or Secondary or Glm or DeepSeek) && !webKimi) throw new ArgumentException("未知的 AI 账户。");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token, cancellationToken);
         var token = linked.Token;
         if (!await accountGate.WaitAsync(0, token).ConfigureAwait(false)) return;
@@ -71,6 +72,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
             ProviderAccountReading result;
             AiAccountPreferences? preferences = null;
             string? walletKeyVersion = null;
+            Guid? kimiRevision = null;
             try
             {
                 if (id == DeepSeek)
@@ -85,6 +87,8 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                     result = key is null ? new("not_configured", null, null, [])
                         : await ZCodeAccountClient.ReadAsync(key, preferences.GlmDomestic, token).ConfigureAwait(false);
                 }
+                else if (webKimi)
+                    (result, kimiRevision) = await KimiWebAccounts.ReadAsync(directory, id, token).ConfigureAwait(false);
                 else if (id == Secondary && sharedKimiHome) result = new("duplicate_profile", null, null, []);
                 else
                 {
@@ -99,7 +103,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
             lock (gate)
             {
                 var now = DateTimeOffset.UtcNow;
-                var snapshot = new AccountSnapshot(result, now, preferences?.GlmKeyRevision, preferences?.GlmDomestic, walletKeyVersion);
+                var snapshot = new AccountSnapshot(result, now, preferences?.GlmKeyRevision ?? kimiRevision, preferences?.GlmDomestic, walletKeyVersion);
                 if (result.State is ("unavailable" or "timeout") && accounts.TryGetValue(id, out var old) &&
                     (id == Glm && old.Revision == snapshot.Revision && old.Domestic == snapshot.Domestic && old.Reading.Windows.Count > 0 ||
                     id == DeepSeek && walletKeyVersion is not null && old.WalletKeyVersion == walletKeyVersion && old.Reading.Wallet is not null))
@@ -119,6 +123,9 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         AiAccountPreferences preferences;
         try { preferences = AiAccountProfiles.Load(directory); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { preferences = new(); }
+        KimiWebAccounts.Entry[] webKimi;
+        try { webKimi = KimiWebAccounts.LoadEntries(directory); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { webKimi = []; }
         string? walletKeyVersion = null, walletOverride = null;
         try { walletKeyVersion = AiAccountProfiles.DeepSeekKeyVersion(directory); }
         catch (Win32Exception) { walletOverride = "unavailable"; }
@@ -144,7 +151,12 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                     Account(Secondary, preferences.KimiSecondary, "kimi_local_api", secondary, now,
                         duplicate ? "duplicate_account" : sharedKimiHome ? "duplicate_profile" : null,
                         duplicate || sharedKimiHome ? null : secondReport, secondState)
-                } },
+                }.Concat(webKimi.Select(entry =>
+                {
+                    var reading = accounts.GetValueOrDefault(entry.Id);
+                    if (reading?.Revision != entry.Revision) reading = null;
+                    return Account(entry.Id, entry.Label, "kimi_web_oauth", reading, now, null, null);
+                })).ToArray() },
                 new { tool = "zcode", state = glmState, report = glmReport, accounts = new[]
                 {
                     Account(Glm, preferences.Glm, "glm_official_plan", plan, now, null, null)

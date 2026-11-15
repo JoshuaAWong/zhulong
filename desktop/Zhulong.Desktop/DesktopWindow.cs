@@ -26,6 +26,7 @@ internal sealed class DesktopWindow : Window
     HwndSource? source;
     Brush captionInk = SystemColors.WindowTextBrush;
     bool closed, pageReady, readoutSubscribed, nativeDrag;
+    int kimiUsageGeneration;
     public uint? BrowserPid { get; private set; }
     public event Action<string, object?>? Lifecycle;
     public event Action? ExitRequested;
@@ -276,6 +277,14 @@ internal sealed class DesktopWindow : Window
         catch (OperationCanceledException) { if (!closed && id.HasValue) Reply(new { id, error = "读取已取消" }); }
         catch (Exception error) when (error is InvalidDataException or FormatException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException or Microsoft.Data.Sqlite.SqliteException or IOException)
         { if (id.HasValue) Reply(new { id, error = error.Message }); }
+    }
+
+    internal async Task RefreshKimiAccountsAsync(string? accountId)
+    {
+        if (closed || !pageReady) return;
+        var generation = ++kimiUsageGeneration;
+        var value = await hub.QueryAsync(accountId is null ? "usage" : "refresh-provider-account", accountId);
+        if (generation == kimiUsageGeneration) Reply(new { kind = "usage-updated", value });
     }
 
     void Reply(object message)
