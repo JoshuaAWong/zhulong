@@ -737,6 +737,9 @@
       const balances = Array.isArray(account.balances) ? account.balances : [];
       const state = providerState(account.state, windows.length > 0 || balances.length > 0 || Number.isFinite(account.account_tokens));
       card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
+      if (nativeBridge && selectedTool === "kimi" && account.state === "duplicate_account") {
+        card.append(node("p", "在「账户来源设置」点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开 CLI 给出的设备登录链接，登录第二账号并授权，然后点「更新额度」。", "fine-print"));
+      }
       if (walletOnly) {
         renderWallet(card, balances, account.is_available);
         cards.append(card);
@@ -830,9 +833,12 @@
     clearTimeout(item.timer); pending.delete(message.id);
     if (message.error) item.reject(new Error(message.error)); else item.resolve(message.result);
   });
-  if(window.chrome?.webview){
-    const settingsButton=node("button","设置","text-button");settingsButton.title="打开原生设置（Ctrl+,）；主窗口Ctrl+Q退出新版";
-    settingsButton.addEventListener("click",()=>request("show-settings").catch(error=>status(error.message)));$(".app-footer").append(settingsButton);
+  if (nativeBridge && windowControls) {
+    const settingsButton = node("button", "设置", "icon-button");
+    settingsButton.type = "button";
+    settingsButton.title = "打开原生设置（Ctrl+,）";
+    settingsButton.addEventListener("click", () => request("show-settings").catch(error => status(error.message)));
+    windowControls.before(settingsButton);
   }
   root.dataset.live = "true";
   if (nativeBridge) { root.dataset.nativeChrome = "true"; initWindowControls(); }

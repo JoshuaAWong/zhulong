@@ -31,13 +31,16 @@ internal sealed class AiAccountSettingsWindow : Window
         var open = Button("打开第二账号的 Kimi CLI");
         var kimiActions = new WrapPanel(); kimiActions.Children.Add(login); kimiActions.Children.Add(open);
         panel.Children.Add(kimiActions);
-        panel.Children.Add(Note("第二账号使用独立目录。请在 Kimi 官方登录页选中第二账号，完成后回到 AI 账本刷新。"));
+        panel.Children.Add(Note("第二账号使用独立目录。若已登录到错误账号，先点「打开第二账号的 Kimi CLI」，在该窗口输入 /logout，再点「登录第二账号」。"));
+        panel.Children.Add(Note("把终端给出的设备授权链接复制到浏览器无痕窗口，登录目标账号并完成授权。终端提示成功后，回到第二账号卡片点「更新额度」。"));
+        var kimiStatus = Note("");
+        panel.Children.Add(kimiStatus);
         login.Click += (_, _) => Try(() =>
         {
             AiAccountProfiles.StartSecondaryKimi(directory, true);
-            status.Text = "请按 Kimi CLI 给出的设备登录指引操作。";
-        });
-        open.Click += (_, _) => Try(() => AiAccountProfiles.StartSecondaryKimi(directory, false));
+            kimiStatus.Text = "请查看终端。如果直接提示已登录且没有授权链接，请先在第二账号的 Kimi CLI 输入 /logout。";
+        }, kimiStatus);
+        open.Click += (_, _) => Try(() => AiAccountProfiles.StartSecondaryKimi(directory, false), kimiStatus);
 
         panel.Children.Add(Heading("GLM Coding Plan"));
         var glm = Name(preferences.Glm, "套餐账户别名");
