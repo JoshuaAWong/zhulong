@@ -39,6 +39,9 @@ public sealed class SettingsStore(string directory)
             throw new ArgumentException("进程策略名称、水位、年龄或频次无效。");
         if(value.TrimProcesses.Any(p=>string.IsNullOrWhiteSpace(p.Name)||!double.IsFinite(p.MinWorkingSetGb)||p.MinWorkingSetGb<2||p.MinAgeSeconds<300||p.MaxTrimsPerTenMinutes is <1 or >10))
             throw new ArgumentException("整理策略工作集至少2GB、存活至少300秒，10分钟频次应为1–10。");
+        if (value.TrimProcesses.Any(p => p.ManualMinWorkingSetMiB is { } manual &&
+                (manual is < 32 or > 2048 || string.IsNullOrWhiteSpace(p.PathContains))))
+            throw new ArgumentException("手动整理门槛应为32–2048 MiB，且需指定执行文件路径片段。");
         if(value.RestartServices.Concat(value.RestartServiceRules.Select(p=>p.Name)).Distinct(StringComparer.OrdinalIgnoreCase).Count()>50)
             throw new ArgumentException("服务重启白名单合计最多50个服务。");
         if(value.RestartServiceRules.SelectMany(p=>p.TriggerProcesses).Any(Zhulong.Runtime.Actions.SafetyPolicy.NameBlocked))

@@ -56,7 +56,7 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
             result = await Task.Run(async () => action switch
             {
                 "kill_process" => Kill(target, decision),
-                "mem_trim" => Trim(target, decision),
+                "mem_trim" => Trim(target, decision, automatic),
                 "restart_service" => await RestartServiceAsync(target, linked.Token).ConfigureAwait(false),
                 _ => new ActionResult("skipped:unknown_action", action, target)
             }, linked.Token).ConfigureAwait(false);
@@ -107,17 +107,19 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         return Account(action, target, "killed", "PID " + fresh.Pid);
     }
 
-    ActionResult Trim(string target, AlertDecision decision)
+    ActionResult Trim(string target, AlertDecision decision, bool automatic)
     {
         const string action = "mem_trim";
         if (SafetyPolicy.NameBlocked(target)) return new("blocked:protected_process", action, target);
         var policy = settings.TrimProcesses.FirstOrDefault(rule => Equal(rule.Name, target));
         if (policy is null) return new("skipped:not_whitelisted", action, target);
+        var minimum = !automatic && decision.Rule == "manual_trim" && policy.ManualMinWorkingSetMiB is { } manualMiB
+            ? manualMiB / 1024d : Math.Max(2, policy.MinWorkingSetGb);
         if (!state.Readable) return new("degraded:accounting_unavailable", action, target);
         if (OverLimit(action, target, policy.MaxTrimsPerTenMinutes, 600)) return new("degraded:frequency_cap", action, target);
         var process = processes.Find(target).OrderByDescending(value => value.WorkingSetGb).FirstOrDefault();
         if (process is null) return new("skipped:process_gone", action, target);
-        if (process.WorkingSetGb < Math.Max(2,policy.MinWorkingSetGb)) return new("skipped:ws_below_threshold", action, target);
+        if (process.WorkingSetGb < minimum) return new("skipped:ws_below_threshold", action, target);
         if (SafetyPolicy.ProcessBlocked(process, processes.CurrentPid) is { } reason) return new("blocked:" + reason, action, target);
         if (!OldEnough(process, Math.Max(300, policy.MinAgeSeconds))) return new("skipped:too_young", action, target);
         if (!PathMatches(process, policy.PathContains)) return new("skipped:path_mismatch", action, target);
@@ -127,7 +129,7 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         if (fresh.CreatedTicks != process.CreatedTicks) return new("skipped:pid_reused", action, target);
         if (SafetyPolicy.ProcessBlocked(fresh, processes.CurrentPid) is { } freshReason)
             return new("blocked:" + freshReason, action, target);
-        if (fresh.WorkingSetGb < Math.Max(2, policy.MinWorkingSetGb)) return new("skipped:ws_below_threshold", action, target);
+        if (fresh.WorkingSetGb < minimum) return new("skipped:ws_below_threshold", action, target);
         var reduction = processes.Trim(fresh);
         var detail = reduction is { } bytes ? $"专用工作集下降 {bytes / 1048576d:F1} MiB" : "专用工作集变化不可测";
         return Account(action, target, "trimmed", $"{detail}；PID {fresh.Pid}") with { PrivateWorkingSetReductionBytes = reduction };

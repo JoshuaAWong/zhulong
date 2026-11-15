@@ -32,7 +32,8 @@ public sealed record ActionResult(string Status, string Action, string Target, s
 public sealed record ProcessPolicy(string Name, double MaxCommitGb = 15, int MinAgeSeconds = 60,
     int MaxActionsPerTenMinutes = 2, string? PathContains = null);
 public sealed record TrimPolicy(string Name, double MinWorkingSetGb = 2, int MinAgeSeconds = 300,
-    int MaxTrimsPerTenMinutes = 1, string? PathContains = null);
+    int MaxTrimsPerTenMinutes = 1, string? PathContains = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ManualMinWorkingSetMiB = null);
 public sealed record AlertPolicy(double CommitEnter = 85, double CommitExit = 80, int CommitSeconds = 90,
     int CooldownSeconds = 600, double SingleCoreEnter = 95, double SingleCoreAverageBelow = 70, int SingleCoreSeconds = 90);
 public sealed record ServicePolicy(string Name, IReadOnlyList<string> TriggerProcesses, int MaxRestartsPerHour = 1);

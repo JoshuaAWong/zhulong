@@ -50,7 +50,10 @@ public sealed class RuntimeHost : IDisposable
         usage=new(Path.Combine(directory,"ai.db"));
         additionalUsage=new(directory);
         foreach(var policy in Settings.TrimProcesses)
-            manualActions[Guid.NewGuid().ToString("N")]=new("manual_trim","手动整理白名单工作集 · "+policy.Name,$"将复核工作集{policy.MinWorkingSetGb:F1}GB、存活{policy.MinAgeSeconds}秒、路径及频次；不结束进程，不降低提交内存。","info",ProcessName:policy.Name,SuggestedAction:"mem_trim",Target:policy.Name);
+        {
+            var minimum = policy.ManualMinWorkingSetMiB is { } manualMiB ? $"{manualMiB} MiB" : $"{policy.MinWorkingSetGb:F1} GiB";
+            manualActions[Guid.NewGuid().ToString("N")]=new("manual_trim","手动整理白名单工作集 · "+policy.Name,$"将复核工作集至少{minimum}、存活{policy.MinAgeSeconds}秒、路径及频次；不结束进程，不降低提交内存。","info",ProcessName:policy.Name,SuggestedAction:"mem_trim",Target:policy.Name);
+        }
         foreach(var service in Settings.RestartServices.Concat(Settings.RestartServiceRules.Select(p=>p.Name)).Distinct(StringComparer.OrdinalIgnoreCase))
             manualActions[Guid.NewGuid().ToString("N")]=new("manual_service","重启白名单服务 · "+service,"连接此服务的设备或应用可能暂时断开；将先确认运行状态、权限与频次。","warning",SuggestedAction:"restart_service",Target:service);
     }

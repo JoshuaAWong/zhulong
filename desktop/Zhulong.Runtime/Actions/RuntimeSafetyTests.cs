@@ -66,6 +66,37 @@ public static partial class RuntimeSafetyTests
             Check((await coordinator.ExecuteAsync("mem_trim", Decision(trimmed), CancellationToken.None)).Status == "degraded:frequency_cap" &&
                 trimmed.Trims == 1, "重复点击不能绕过工作集整理限频");
         }
+        var manualOnly = Settings();
+        manualOnly.AutomaticActions = true;
+        manualOnly.TrimProcesses = [new("fixture.exe", PathContains: "fixture-folder", ManualMinWorkingSetMiB: 32)];
+        var smallTarget = Fake();
+        smallTarget.Value = smallTarget.Value with { WorkingSetGb = .10 };
+        var manualTrim = Decision(smallTarget) with { Rule = "manual_trim" };
+        await using (var coordinator = new ActionCoordinator(manualOnly, smallTarget, new FakeServices(), utcNow: () => now))
+        {
+            Check((await coordinator.ExecuteAsync("mem_trim", Decision(smallTarget), CancellationToken.None)).Status == "skipped:ws_below_threshold" &&
+                (await coordinator.ExecuteAsync("mem_trim", manualTrim, CancellationToken.None, automatic: true)).Status == "skipped:ws_below_threshold",
+                "确认规则建议和自动执行不得使用较低的手动工作集门槛");
+            smallTarget.ReuseOnRead = true;
+            Check((await coordinator.ExecuteAsync("mem_trim", manualTrim, CancellationToken.None)).Status == "skipped:pid_reused" && smallTarget.Trims == 0,
+                "较低手动门槛不得跳过创建时间复核");
+            smallTarget.ReuseOnRead = false;
+            Check((await coordinator.ExecuteAsync("mem_trim", manualTrim, CancellationToken.None)).Status == "trimmed" && smallTarget.Trims == 1,
+                "手动白名单可使用已配置的32MiB门槛");
+            Check((await coordinator.ExecuteAsync("mem_trim", manualTrim, CancellationToken.None)).Status == "degraded:frequency_cap" && smallTarget.Trims == 1,
+                "较低手动门槛继续使用同一频控");
+        }
+        SettingsStore.Validate(manualOnly);
+        foreach (var invalidTrim in new[] { new TrimPolicy("fixture.exe", PathContains: " ", ManualMinWorkingSetMiB: 32),
+                     new TrimPolicy("fixture.exe", PathContains: "fixture-folder", ManualMinWorkingSetMiB: 31),
+                     new TrimPolicy("fixture.exe", PathContains: "fixture-folder", ManualMinWorkingSetMiB: 2049) })
+        {
+            manualOnly.TrimProcesses = [invalidTrim];
+            var rejected = false;
+            try { SettingsStore.Validate(manualOnly); }
+            catch (ArgumentException) { rejected = true; }
+            Check(rejected, "较低的手动门槛必须受路径与32–2048MiB取值范围约束");
+        }
 
         var throttled = Fake(); var throttleSettings = Settings(); throttleSettings.ThrottleEnabled = true;
         var original = throttled.Limits;
