@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.ComponentModel;
 using Zhulong.Core;
 using Zhulong.Runtime.Application;
@@ -268,7 +269,45 @@ public static partial class RuntimeSafetyTests
         var configured=new RuleEngine(new RuntimeSettings{WatchProcesses=[],Alerts=new(70,60,30,60,90,80,30)});
         Check(configured.Evaluate(Snapshot(75),0).Count==0&&configured.Evaluate(Snapshot(75),30).Any(x=>x.Rule=="commit_high"),"配置水位和持续时长必须真实生效");
         CheckCommitGrowth(Check, now.UtcTicks);
+        CheckCpuTemperature(Check, now);
         return assertions;
+    }
+
+    static void CheckCpuTemperature(Action<bool, string> check, DateTimeOffset now)
+    {
+        // 按 Core Temp 公布的字节偏移构造数据，独立验证解析器的结构布局。
+        var buffer = new byte[2686];
+        check(CoreTempSensor.Decode(buffer) is null && CoreTempSensor.Decode(buffer.AsSpan(0, 2685)) is null,
+            "尚未初始化或长度不足的 CPU 温度数据应视为未知");
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1536), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1540), 2);
+        void Temperature(int index, float value) =>
+            BinaryPrimitives.WriteSingleLittleEndian(buffer.AsSpan(1544 + index * sizeof(float)), value);
+
+        Temperature(0, 45.5f);
+        Temperature(1, float.NaN);
+        Temperature(2, -1);
+        Temperature(3, 67.25f);
+        Temperature(4, 99);
+        check(CoreTempSensor.Decode(buffer) == 67.25, "CPU 温度取已声明核心中的最高有效摄氏温度");
+
+        buffer[2684] = 1;
+        Temperature(0, 95);
+        Temperature(3, 140);
+        check(CoreTempSensor.Decode(buffer) == 60, "CPU 华氏绝对温度应转为摄氏温度");
+
+        buffer[2685] = 1;
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1024), 203);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(1028), 194);
+        Temperature(0, 18);
+        Temperature(1, 36);
+        Temperature(2, 0);
+        Temperature(3, 18);
+        check(CoreTempSensor.Decode(buffer) == 90, "华氏 TjMax 要转为绝对摄氏温度，零温差有效，每颗 CPU 使用自己的 TjMax");
+
+        using var slowMetrics = new SlowMetrics(new());
+        check(slowMetrics.Snapshot(now)[CoreTempSensor.MetricName] is { Value: null, Unit: "°C", State: "not_sampled" },
+            "慢采集没有提供 CPU 温度前应返回未知");
     }
 
     static void CheckCommitGrowth(Action<bool, string> check, long created)

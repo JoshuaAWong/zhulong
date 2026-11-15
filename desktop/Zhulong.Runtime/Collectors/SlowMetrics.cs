@@ -32,6 +32,7 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
             var snapshot = new Dictionary<string, MetricValue>(values);
             foreach (var key in GpuKeys.Concat(DiskKeys).Concat(PingKeys))
                 snapshot.TryAdd(key, new MetricValue(key, null, Unit(key), State: "not_sampled"));
+            snapshot.TryAdd(CoreTempSensor.MetricName, new(CoreTempSensor.MetricName, null, "°C", CoreTempSensor.Source, "not_sampled"));
             foreach (var (key, value) in snapshot.ToArray())
                 if (value.Value.HasValue && value.SampledAt is { } time && refreshedAt.TryGetValue(key, out var refreshed) && Stopwatch.GetElapsedTime(refreshed).TotalSeconds > 180)
                     snapshot[key] = value with { Value = null, State = "stale" };
@@ -46,6 +47,9 @@ internal sealed class SlowMetrics(RuntimeSettings settings) : IDisposable
         try
         {
             // 60秒节拍只由宿主持有；此处仅防重叠，不能按启动时刻再次限频。
+            var cpuTemperature = CoreTempSensor.Read();
+            Publish(new() { [CoreTempSensor.MetricName] = new(CoreTempSensor.MetricName, cpuTemperature,
+                "°C", CoreTempSensor.Source, cpuTemperature.HasValue ? "ok" : "unavailable", DateTimeOffset.UtcNow) });
             await Task.WhenAll(GpuAsync(token), PingAsync(token), DisksAsync(token));
         }
         finally { running.Release(); }

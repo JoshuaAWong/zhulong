@@ -15,7 +15,7 @@ internal sealed class ResourceDockWindow : Window
 {
     const double RailWidth = 14, RailHeight = 88, PanelWidth = 72, PanelHeight = 244;
     const double BurstMargin = 36, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, ResultSeconds = 1,
-        CircleRadius = 22, CircleCenter = 24;
+        AccelerationSeconds = SpinSeconds + RippleSeconds, CircleRadius = 22, CircleCenter = 24;
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
     static readonly Brush PanelBrush = FrozenBrush(49, 49, 49), BorderBrushDark = FrozenBrush(77, 77, 76),
@@ -29,9 +29,10 @@ internal sealed class ResourceDockWindow : Window
     readonly Grid rail;
     readonly StackPanel details;
     readonly Rectangle dragon, progress, progressTrack;
-    readonly TextBlock memory, cpu, commit, download, upload, accelerationStatus;
+    readonly TextBlock memory, cpu, cpuTemperature, commit, download, upload, accelerationStatus;
     readonly Ellipse diskRim;
     readonly Image disk, ripple;
+    readonly DockBagua bagua = new(FrozenBrush(Jade));
     readonly Grid diskSurface;
     readonly Button meterButton;
     readonly ZhulongContextMenu dockMenu;
@@ -125,6 +126,8 @@ internal sealed class ResourceDockWindow : Window
         scene.Children.Add(ripple);
         // 扩散图盖在面板上方，透明区域保持可穿透。
         System.Windows.Controls.Panel.SetZIndex(ripple, 1);
+        scene.Children.Add(bagua);
+        System.Windows.Controls.Panel.SetZIndex(bagua, 1);
         var meterLayer = new Grid { Height = 66 };
         var meter = new Grid { Width = PanelWidth - 6, Height = 48 };
         meter.Children.Add(diskSurface);
@@ -147,6 +150,8 @@ internal sealed class ResourceDockWindow : Window
         meterButton.Template = buttonTemplate;
         System.Windows.Automation.AutomationProperties.SetName(meterButton, "内存加速");
         meterButton.Click += (_, _) => ActivateAcceleration();
+        meterButton.MouseEnter += (_, _) => UpdateRendering();
+        meterButton.MouseLeave += (_, _) => UpdateRendering();
         meterLayer.Children.Add(meterButton);
         details.Children.Add(meterLayer);
 
@@ -158,6 +163,8 @@ internal sealed class ResourceDockWindow : Window
         details.Children.Add(memoryLabel);
         details.Children.Add(new Border { Height = 1, Background = BorderBrushDark, Margin = new Thickness(7, 9, 7, 6) });
         cpu = AddMetric("CPU");
+        cpuTemperature = AddMetric("温度");
+        cpuTemperature.ToolTip = "处理器温度";
         commit = AddMetric("提交");
         download = AddMetric("↓");
         upload = AddMetric("↑");
@@ -207,6 +214,7 @@ internal sealed class ResourceDockWindow : Window
         {
             dockMenu.IsOpen = false;
             resultTimer.Stop();
+            bagua.SetActive(false);
             StopRendering();
         };
         anchorY = workArea.Top + workArea.Height / 2;
@@ -384,9 +392,12 @@ internal sealed class ResourceDockWindow : Window
 
     void UpdateRendering()
     {
-        var animate = IsVisible && SystemParameters.ClientAreaAnimation &&
+        var motion = IsVisible && SystemParameters.ClientAreaAnimation;
+        bagua.SetActive(motion && opened && meterButton.IsMouseOver &&
+            accelerationPhase == AccelerationPhase.Idle && !dockMenu.IsOpen);
+        var animate = motion &&
             (move.Pending || accelerationPhase == AccelerationPhase.Animating ||
-                (opened && memoryPercent.HasValue && accelerationPhase == AccelerationPhase.Idle));
+                bagua.Active || (opened && memoryPercent.HasValue && accelerationPhase == AccelerationPhase.Idle));
         if (animate == rendering) return;
         if (!animate)
         {
@@ -415,6 +426,7 @@ internal sealed class ResourceDockWindow : Window
         }
         if (!IsVisible || !SystemParameters.ClientAreaAnimation)
         {
+            bagua.SetActive(false);
             move.Finish(opened);
             SetWindowBounds(opened);
             UpdateVisual(move.Progress);
@@ -453,6 +465,7 @@ internal sealed class ResourceDockWindow : Window
         }
         if (accelerating) UpdateAccelerationAnimation(Stopwatch.GetElapsedTime(accelerationStarted, now).TotalSeconds);
         UpdateRendering();
+        bagua.Advance(dt);
     }
 
     void UpdateAccelerationAnimation(double elapsed)
@@ -466,7 +479,7 @@ internal sealed class ResourceDockWindow : Window
     }
 
     static double FastSpinDuration(double from, double until) =>
-        Math.Clamp(until, 0, SpinSeconds) - Math.Clamp(from, 0, SpinSeconds);
+        Math.Clamp(until, 0, AccelerationSeconds) - Math.Clamp(from, 0, AccelerationSeconds);
 
     void SetWindowBounds(bool expand) => SetWindowBounds(expand, null);
 
@@ -488,6 +501,7 @@ internal sealed class ResourceDockWindow : Window
         Canvas.SetTop(details, panelTop);
         Canvas.SetLeft(ripple, panelLeft + (PanelWidth - 48) / 2);
         Canvas.SetTop(ripple, panelTop + 14);
+        bagua.Place(new Point(panelLeft + PanelWidth / 2, panelTop + 14 + CircleCenter), new Size(Width, Height));
         UpdateVisual(move.Progress);
     }
 
@@ -531,6 +545,10 @@ internal sealed class ResourceDockWindow : Window
     {
         memory.Text = Percent(memoryPercent);
         cpu.Text = Percent(cpuPercent);
+        var temperature = sample?.Metrics?.GetValueOrDefault("cpu_temp_c");
+        cpuTemperature.Text = temperature is { State: "ok", Value: { } degrees } && double.IsFinite(degrees)
+            ? $"{degrees:0.#}°C" : "—";
+        cpuTemperature.ToolTip = temperature?.Label ?? "处理器温度";
         commit.Text = Percent(sample?.CommitPercent);
     }
 
@@ -634,8 +652,9 @@ internal sealed class ResourceDockWindow : Window
         check(LoadColor(null) == Gray && LoadColor(69) == Jade && LoadColor(70) == Amber &&
             LoadColor(84) == Amber && LoadColor(85) == Red, "龙纹颜色须覆盖未知及两道占用边界");
         check(RotationPeriod(0) == 60 && RotationPeriod(100) == 6 && RotationPeriod(75) < RotationPeriod(50), "太极转速须随占用变化");
-        check(FastSpinDuration(-1, 2) == 1 && Math.Abs(FastSpinDuration(.8, 1.2) - .2) < .001 &&
-            FastSpinDuration(1, 2) == 0, "点击前后跨过渲染帧边界时，仍仅计入一秒十倍速");
+        check(FastSpinDuration(-1, 3) == 2 && Math.Abs(FastSpinDuration(.8, 1.2) - .4) < .001 &&
+            FastSpinDuration(1, 2) == 1 && FastSpinDuration(2, 3) == 0,
+            "旋转与扩散阶段都应按十倍速计时，两秒后恢复基础转速");
         var transition = new RectAnimation();
         transition.Start(true);
         transition.Advance(.08);
@@ -655,6 +674,13 @@ internal sealed class ResourceDockWindow : Window
             dock.ApplyNetwork(new(DateTimeOffset.UtcNow, 2 * 1048576, 1024));
             dock.ApplySample(null);
             check(dock.download.Text == "2 MB/s" && dock.upload.Text == "1 KB/s", "挂件网速来自独立快速采样且不被常规采样覆盖");
+            var thermal = new SystemSnapshot(DateTimeOffset.UtcNow, null, null, null, null, null, null, null, [],
+                Metrics: new() { ["cpu_temp_c"] = new("cpu_temp_c", 58, "°C", "CPU 测温") });
+            dock.ApplySample(thermal);
+            check(dock.cpuTemperature.Text == "58°C" && Equals(dock.cpuTemperature.ToolTip, "CPU 测温"), "挂件应显示采样到的 CPU 温度及来源");
+            thermal.Metrics!["cpu_temp_c"] = new("cpu_temp_c", 58, "°C", State: "stale");
+            dock.ApplySample(thermal);
+            check(dock.cpuTemperature.Text == "—", "挂件应显示过期的温度为未知");
             dock.ApplyNetwork(null);
             check(dock.download.Text == "—" && dock.upload.Text == "—", "网速等待下一轮或不可用时显示未知");
             var accelerations = 0;
@@ -685,11 +711,15 @@ internal sealed class ResourceDockWindow : Window
             PumpFrames(650);
             check(dock.accelerationStatus.Visibility == Visibility.Collapsed && dock.diskSurface.Visibility == Visibility.Visible &&
                 dock.accelerationPhase == AccelerationPhase.Idle, "结果结束后恢复太极并重新允许点击");
+            dock.bagua.SetActive(true);
+            dock.bagua.Advance(.2);
+            check(dock.bagua.GlyphCount == 1 && !dock.bagua.IsHitTestVisible, "八卦首帧应发射一枚且不拦截太极点击");
             dock.SetExpanded(false);
             var angle = dock.diskRotation.Angle;
             PumpFrames(380);
             check(dock.Width == RailWidth && dock.Height == RailHeight && !dock.rendering && dock.diskRotation.Angle == angle &&
-                dock.details.Visibility == Visibility.Collapsed && dock.ripple.Opacity == 0, "收起须停转、取消扩散和解绑渲染");
+                dock.details.Visibility == Visibility.Collapsed && dock.ripple.Opacity == 0 && dock.bagua.GlyphCount == 0,
+                "收起须停转、取消扩散和八卦并解绑渲染");
             dock.anchorY = dock.workArea.Top - 30;
             dock.SnapDock(dock.workArea.Left);
             check(dock.Left == dock.workArea.Left && dock.Top == dock.workArea.Top, "拖放到左上角应贴左并留在工作区");
