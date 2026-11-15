@@ -49,6 +49,7 @@ public sealed class RuntimeSettings
     public string PingHost { get; set; } = "223.5.5.5";
     public bool AutomaticActions { get; set; }
     public bool Notifications { get; set; } = true;
+    public bool ShowResourceDockOnStartup { get; set; } = true;
     public bool ThrottleEnabled { get; set; }
     public bool MemoryTrimEnabled { get; set; }
     public List<ProcessPolicy> WatchProcesses { get; set; } = [new("HYPHelper.exe", PathContains: "miHoYo Launcher")];

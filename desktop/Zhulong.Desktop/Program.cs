@@ -109,6 +109,7 @@ internal static class Program
                 hub.Notified += value => application.Dispatcher.BeginInvoke(()=> { if(!quitting&&tray is not null){tray.BalloonTipTitle=value.Title;tray.BalloonTipText=value.Text;tray.BalloonTipIcon=value.Level=="error"?Forms.ToolTipIcon.Error:Forms.ToolTipIcon.Warning;tray.ShowBalloonTip(8000);} });
                 hub.Start();
                 WriteLifecycle("app_started", new { pid = Environment.ProcessId });
+                RestoreDock();
                 if(!background)OpenWindow();
             }
             catch (Exception error)
@@ -141,7 +142,7 @@ internal static class Program
         var menu = new ZhulongContextMenu();
         trayMenu = menu;
         menu.Add("打开烛龙", OpenWindow);
-        menu.Add("显示桌面贴边挂件", async () => await NativeAsync(Synchronous(ToggleDock)), resourceDock is not null);
+        menu.Add("显示桌面贴边挂件", async () => await NativeAsync(Synchronous(() => SetDockVisibility(resourceDock is null))), resourceDock is not null);
         menu.Add("整理内存", async () => await AccelerateMemoryAsync(null)).IsEnabled = !acceleratingMemory;
         menu.Items.Add(new Separator());
         menu.Add("设置", async () => await NativeAsync(Synchronous(OpenSettings)));
@@ -156,13 +157,24 @@ internal static class Program
         menu.OpenAtPointer();
     }
 
-    static void ToggleDock()
+    static void SetDockVisibility(bool visible)
     {
-        if (resourceDock is { } existing)
-        {
-            existing.Close();
-            return;
-        }
+        new SettingsStore(directory).Update(settings => settings.ShowResourceDockOnStartup = visible);
+        if (visible) ShowDock();
+        else resourceDock?.Close();
+    }
+
+    static void RestoreDock()
+    {
+        if (!hub!.Settings.ShowResourceDockOnStartup) return;
+        try { ShowDock(); }
+        catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
+        { WriteLifecycle("dock_startup_failed", error.Message); }
+    }
+
+    static void ShowDock()
+    {
+        if (resourceDock is not null) return;
         var dock = new ResourceDockWindow();
         var runtime = hub!;
         dock.ExpandedChanged += expanded =>
@@ -176,7 +188,7 @@ internal static class Program
             resourceDock = null;
         };
         dock.OpenRequested += OpenWindow;
-        dock.HideRequested += dock.Close;
+        dock.HideRequested += async () => await NativeAsync(Synchronous(() => SetDockVisibility(false)));
         dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
         dock.ApplySample(traySnapshot);
         dock.ApplyLive(hub!.LiveReadout);

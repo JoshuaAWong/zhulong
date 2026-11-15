@@ -4,6 +4,7 @@ namespace Zhulong.Runtime.Storage;
 
 public sealed class SettingsStore(string directory)
 {
+    static readonly object writeGate = new();
     public string PathName => Path.Combine(directory, "settings.json");
     public RuntimeSettings Load()
     {
@@ -13,7 +14,24 @@ public sealed class SettingsStore(string directory)
         Validate(value);
         return value;
     }
-    public void Save(RuntimeSettings value)
+    public void Save(RuntimeSettings value, Action? checkUnchanged = null)
+    {
+        lock (writeGate)
+        {
+            checkUnchanged?.Invoke();
+            Write(value);
+        }
+    }
+    public void Update(Action<RuntimeSettings> change)
+    {
+        lock (writeGate)
+        {
+            var value = Load();
+            change(value);
+            Write(value);
+        }
+    }
+    void Write(RuntimeSettings value)
     {
         Validate(value);
         Directory.CreateDirectory(directory);

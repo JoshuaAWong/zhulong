@@ -271,7 +271,7 @@ public sealed class RuntimeHost : IDisposable
         try
         {
             var target=!Settings.ThrottleEnabled;
-            var saved=new SettingsStore(directory).Load();saved.ThrottleEnabled=target;new SettingsStore(directory).Save(saved);
+            new SettingsStore(directory).Update(saved => saved.ThrottleEnabled = target);
             Settings.ThrottleEnabled=target;Volatile.Write(ref nextThrottle,target?Clock+120:0);
             return target?await actions.ApplyThrottleAsync(stopped.Token).ConfigureAwait(false):await actions.RestoreThrottleAsync(stopped.Token).ConfigureAwait(false);
         }
@@ -284,7 +284,7 @@ public sealed class RuntimeHost : IDisposable
         try
         {
             var defaults=new RuntimeSettings().ThrottleRules;
-            var saved=new SettingsStore(directory).Load();saved.ThrottleRules=defaults;new SettingsStore(directory).Save(saved);
+            new SettingsStore(directory).Update(saved => saved.ThrottleRules = defaults);
             var result=(await actions.RestoreThrottleAsync(stopped.Token).ConfigureAwait(false)).ToList();Settings.ThrottleRules=defaults;
             Volatile.Write(ref nextThrottle,Clock+120);
             if(Settings.ThrottleEnabled&&!result.Any(x=>x.Status.StartsWith("degraded:")||x.Status.StartsWith("blocked:")))

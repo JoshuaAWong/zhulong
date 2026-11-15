@@ -20,6 +20,7 @@ internal sealed class SettingsWindow : Window
     readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
     readonly Dictionary<string, TextBox> numbers = new();
     readonly CheckBox notifications = new(), pingEnabled = new(), automatic = new(), throttle = new(), memoryTrim = new();
+    readonly CheckBox showDockAtStartup = new();
     readonly TextBox pingHost = new();
     RuntimeSettings draft = new();
     int activeTab;
@@ -99,6 +100,7 @@ internal sealed class SettingsWindow : Window
         Numeric(panel, "sample", "采样间隔（秒）", "5–300秒；数值越小，采集越频繁。");
         Numeric(panel, "retention", "记录保留（天）", "1–365天；清理新版过期采样与事件，主动导入的原始历史保留。");
         Toggle(panel, notifications, "显示系统提醒", hasTools ? "通知与采样独立；可在工具与维护中临时静音。" : "通知与采样独立。");
+        Toggle(panel, showDockAtStartup, "启动时显示桌面贴边挂件", "托盘和挂件菜单中切换显示也会保存到此项。");
         Section(panel, "网络探测");
         Toggle(panel, pingEnabled, "探测网关与公网延迟", "低频发送ICMP探测；关闭后仍可统计本地网络速率。");
         Row(panel, "公网目标 IP", pingHost, "填写有效IP地址，例如223.5.5.5。");
@@ -184,6 +186,7 @@ internal sealed class SettingsWindow : Window
         notifications.IsChecked = value.Notifications; pingEnabled.IsChecked = value.PingEnabled; pingHost.Text = value.PingHost;
         pingHost.IsEnabled = value.PingEnabled; automatic.IsChecked = value.AutomaticActions;
         throttle.IsChecked = value.ThrottleEnabled; memoryTrim.IsChecked = value.MemoryTrimEnabled;
+        showDockAtStartup.IsChecked = value.ShowResourceDockOnStartup;
     }
     RuntimeSettings ReadBasic()
     {
@@ -195,6 +198,7 @@ internal sealed class SettingsWindow : Window
         value.SampleSeconds = Integer("sample", "采样间隔"); value.RetentionDays = Integer("retention", "记录保留天数");
         value.Notifications = notifications.IsChecked == true; value.PingEnabled = pingEnabled.IsChecked == true; value.PingHost = pingHost.Text.Trim();
         value.AutomaticActions = automatic.IsChecked == true; value.ThrottleEnabled = throttle.IsChecked == true; value.MemoryTrimEnabled = memoryTrim.IsChecked == true;
+        value.ShowResourceDockOnStartup = showDockAtStartup.IsChecked == true;
         value.Alerts = new AlertPolicy(Number("commitEnter", "进入水位"), Number("commitExit", "解除水位"), Integer("commitSeconds", "水位持续时长"),
             Integer("cooldown", "规则冷却"), Number("coreEnter", "单核水位"), Number("coreAverage", "整机水位"), Integer("coreSeconds", "单核持续时长"));
         value.TrimPressurePercent = Number("trimPressure", "整理压力门槛");
@@ -226,8 +230,7 @@ internal sealed class SettingsWindow : Window
             if (value.AutomaticActions && MessageBox.Show(this,
                 "启用自动处置后，新版可对显式白名单执行进程结束或服务重启。请核对高级页的路径、阈值与频次。是否保存？",
                 "确认自动处置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            CheckUnchanged();
-            store.Save(value);
+            store.Save(value, CheckUnchanged);
             MessageBox.Show(this, "设置已保存；从托盘重启新版后生效。", "烛龙新版"); Close();
         }
         catch (Exception error) when (IsInputError(error) || error is IOException or UnauthorizedAccessException)
@@ -255,7 +258,7 @@ internal sealed class SettingsWindow : Window
         void Check(bool condition, string reason) { assertions++; if (!condition) throw new InvalidOperationException(reason); }
         var original = new RuntimeSettings
         {
-            SampleSeconds = 45, RetentionDays = 60, Notifications = false, PingEnabled = false, PingHost = "1.1.1.1",
+            SampleSeconds = 45, RetentionDays = 60, Notifications = false, PingEnabled = false, PingHost = "1.1.1.1", ShowResourceDockOnStartup = false,
             AutomaticActions = true, ThrottleEnabled = true, MemoryTrimEnabled = true, TrimPressurePercent = 72,
             Alerts = new AlertPolicy(88, 75, 120, 900, 96, 65, 180),
             WatchProcesses = [new("example.exe", 22, 120, 3, @"D:\工具\launcher")],
@@ -266,6 +269,7 @@ internal sealed class SettingsWindow : Window
         Check(roundTrip.SampleSeconds == 45 && roundTrip.RetentionDays == 60, "基础数值未保留");
         Check(!roundTrip.Notifications && !roundTrip.PingEnabled && roundTrip.PingHost == "1.1.1.1", "通知网络设置未保留");
         Check(roundTrip.AutomaticActions && roundTrip.ThrottleEnabled && roundTrip.MemoryTrimEnabled, "开关未保留");
+        Check(Parse("{}").ShowResourceDockOnStartup && !roundTrip.ShowResourceDockOnStartup, "旧配置默认显示挂件，已保存的隐藏状态应保留");
         Check(roundTrip.Alerts == original.Alerts && roundTrip.TrimPressurePercent == 72, "告警或压力门槛丢失");
         Check(roundTrip.WatchProcesses[0].MaxCommitGb == 22 && roundTrip.WatchProcesses[0].PathContains == @"D:\工具\launcher", "高级路径策略丢失");
         Check(roundTrip.TrimProcesses[0].MinWorkingSetGb == 3 && roundTrip.TrimProcesses[0].MinAgeSeconds == 600, "整理独立策略丢失");
