@@ -6,10 +6,10 @@
   #define OutputDir "..\dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.2.9"
+  #define AppVersion "0.3.0"
 #endif
 #ifndef VersionInfoNumber
-  #define VersionInfoNumber "0.2.9.0"
+  #define VersionInfoNumber "0.3.0.0"
 #endif
 
 [Setup]

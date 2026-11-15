@@ -30,11 +30,16 @@ public sealed class RuntimeHost : IDisposable
     int started;double pausedUntil,mutedUntil,nextThrottle;SystemSnapshot? latest;
     NativeCounters.CoreTimes[] readoutBaseline = [];
     LiveSystemReadout? liveReadout;
+    LiveNetworkReadout? liveNetwork;
+    CancellationTokenSource? liveNetworkCancellation;
+    Task liveNetworkTask = Task.CompletedTask;
     public RuntimeSettings Settings {get;}
     public LiveSystemReadout? LiveReadout => Volatile.Read(ref liveReadout);
+    public LiveNetworkReadout? LiveNetwork => Volatile.Read(ref liveNetwork);
     public event Action<SystemSnapshot>? Sampled;
     public event Action<RuntimeEvent>? Notified;
     public event Action<LiveSystemReadout>? ReadoutChanged;
+    public event Action<LiveNetworkReadout>? LiveNetworkChanged;
     public RuntimeHost(string directory)
     {
         this.directory=directory;Directory.CreateDirectory(directory);
@@ -92,6 +97,65 @@ public sealed class RuntimeHost : IDisposable
         Volatile.Write(ref liveReadout, value);
         ReadoutChanged?.Invoke(value);
         return Task.CompletedTask;
+    }
+
+    public void SetLiveNetworkEnabled(bool enabled)
+    {
+        lock (lifecycleGate)
+        {
+            if (!enabled)
+            {
+                liveNetworkCancellation?.Cancel();
+                liveNetworkCancellation = null;
+                Volatile.Write(ref liveNetwork, null);
+            }
+            else if (stopTask is null && !stopped.IsCancellationRequested && liveNetworkCancellation is null)
+            {
+                var previous = liveNetworkTask;
+                var source = new CancellationTokenSource();
+                liveNetworkCancellation = source;
+                liveNetworkTask = Task.Run(() => RunLiveNetworkAsync(previous, source));
+            }
+        }
+    }
+
+    async Task RunLiveNetworkAsync(Task previous, CancellationTokenSource source)
+    {
+        try
+        {
+            // 收起和立即重展时等待前一轮释放原生表，再从空基线开始。
+            await previous.ConfigureAwait(false);
+            var monitor = new LiveNetworkMonitor();
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            do
+            {
+                if (source.IsCancellationRequested) break;
+                var current = monitor.Read();
+                lock (lifecycleGate)
+                {
+                    if (liveNetworkCancellation != source) break;
+                    Volatile.Write(ref liveNetwork, current);
+                }
+                LiveNetworkChanged?.Invoke(current);
+            } while (await timer.WaitForNextTickAsync(source.Token).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+        catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
+        {
+            WriteDiagnostic("挂件网速", error.Message);
+        }
+        finally
+        {
+            lock (lifecycleGate)
+            {
+                if (liveNetworkCancellation == source)
+                {
+                    liveNetworkCancellation = null;
+                    Volatile.Write(ref liveNetwork, null);
+                }
+                source.Dispose();
+            }
+        }
     }
 
     Task SampleAsync()
@@ -259,6 +323,8 @@ public sealed class RuntimeHost : IDisposable
     async Task StopCoreAsync()
     {
         stopped.Cancel();
+        SetLiveNetworkEnabled(false);
+        await liveNetworkTask.ConfigureAwait(false);
         foreach(var loop in loops)try{await loop.ConfigureAwait(false);}catch(OperationCanceledException){}
         if(activeManual is not null)try{await activeManual.ConfigureAwait(false);}catch(OperationCanceledException){}catch(Exception error)when(error is not(OutOfMemoryException or StackOverflowException)){WriteDiagnostic("手动操作",error.Message);}
         if(activeImport is not null)try{await activeImport.ConfigureAwait(false);}catch(OperationCanceledException){}catch(Exception error)when(error is not(OutOfMemoryException or StackOverflowException)){WriteDiagnostic("历史导入",error.Message);}

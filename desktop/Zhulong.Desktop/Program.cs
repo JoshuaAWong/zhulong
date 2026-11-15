@@ -100,6 +100,10 @@ internal static class Program
                         tray.Text = FormatTrayTooltip(snapshot, value);
                     if (!quitting) resourceDock?.ApplyLive(value);
                 });
+                hub.LiveNetworkChanged += value => application.Dispatcher.BeginInvoke(() =>
+                {
+                    if (!quitting && ReferenceEquals(hub.LiveNetwork, value)) resourceDock?.ApplyNetwork(value);
+                });
                 registration = ThreadPool.RegisterWaitForSingleObject(wake,
                     (_, _) => application.Dispatcher.BeginInvoke(OpenWindow), null, Timeout.Infinite, false);
                 hub.Notified += value => application.Dispatcher.BeginInvoke(()=> { if(!quitting&&tray is not null){tray.BalloonTipTitle=value.Title;tray.BalloonTipText=value.Text;tray.BalloonTipIcon=value.Level=="error"?Forms.ToolTipIcon.Error:Forms.ToolTipIcon.Warning;tray.ShowBalloonTip(8000);} });
@@ -160,7 +164,17 @@ internal static class Program
             return;
         }
         var dock = new ResourceDockWindow();
-        dock.Closed += (_, _) => resourceDock = null;
+        var runtime = hub!;
+        dock.ExpandedChanged += expanded =>
+        {
+            runtime.SetLiveNetworkEnabled(expanded);
+            if (!expanded) dock.ApplyNetwork(null);
+        };
+        dock.Closed += (_, _) =>
+        {
+            runtime.SetLiveNetworkEnabled(false);
+            resourceDock = null;
+        };
         dock.OpenRequested += OpenWindow;
         dock.HideRequested += dock.Close;
         dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
@@ -291,12 +305,17 @@ internal static class Program
 
     static async Task AccelerateMemoryAsync(ResourceDockWindow? dock)
     {
-        if (quitting || acceleratingMemory) return;
+        if (quitting) return;
+        if (acceleratingMemory)
+        {
+            dock?.CompleteAcceleration("已有操作\n请稍候");
+            return;
+        }
         acceleratingMemory = true;
         void ShowResult(string status)
         {
             if (quitting) return;
-            if (dock is not null && resourceDock == dock) dock.SetAccelerationStatus(status);
+            if (dock is not null && resourceDock == dock) dock.CompleteAcceleration(status);
             else if (dock is null && tray is { } icon)
             {
                 icon.BalloonTipTitle = "烛龙 · 整理内存";
@@ -307,9 +326,8 @@ internal static class Program
         }
         try
         {
-            dock?.SetAccelerationStatus("整理中…");
             var results = await hub!.TrimWorkingSetsAsync();
-            ShowResult(FormatMemoryAcceleration(results));
+            ShowResult(FormatMemoryAcceleration(results, asMiB: dock is not null));
         }
         catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
         {
@@ -319,14 +337,14 @@ internal static class Program
         finally { acceleratingMemory = false; }
     }
 
-    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results)
+    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results, bool asMiB = false)
     {
         var measured = results.Where(item => item.PrivateWorkingSetReductionBytes.HasValue).ToArray();
         var degraded = results.Any(item => item.Status.StartsWith("degraded:", StringComparison.Ordinal) && item.Status != "degraded:frequency_cap");
         if (measured.Length > 0)
         {
             var bytes = measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value);
-            var amount = bytes >= 1073741824 ? $"{bytes / 1073741824d:F2} GiB" : $"{bytes / 1048576d:F1} MiB";
+            var amount = !asMiB && bytes >= 1073741824 ? $"{bytes / 1073741824d:F2} GiB" : $"{bytes / 1048576d:F1} MiB";
             var incomplete = degraded || results.Any(item => item.Status == "trimmed" && !item.PrivateWorkingSetReductionBytes.HasValue);
             return $"{(incomplete ? "已测部分" : bytes == 0 ? "下降" : "已释放")}\n{amount}";
         }
