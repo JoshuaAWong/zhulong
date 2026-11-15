@@ -14,8 +14,10 @@ namespace Zhulong.Desktop;
 internal sealed class ResourceDockWindow : Window
 {
     const double RailWidth = 14, RailHeight = 88, PanelWidth = 72, PanelHeight = 244;
-    const double BurstMargin = 36, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, ResultSeconds = 1,
-        AccelerationSeconds = SpinSeconds + RippleSeconds, CircleRadius = 22, CircleCenter = 24;
+    const double BurstMargin = 36, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, OuterRippleSeconds = 1,
+        ResultSeconds = 1, AccelerationSeconds = SpinSeconds + RippleSeconds + OuterRippleSeconds,
+        CircleRadius = 22, CircleCenter = 24, RippleMaxScale = 6,
+        OuterRippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
     static readonly Brush PanelBrush = FrozenBrush(49, 49, 49), BorderBrushDark = FrozenBrush(77, 77, 76),
@@ -24,7 +26,7 @@ internal sealed class ResourceDockWindow : Window
         Ink = FrozenBrush(21, 32, 30), ProgressBrush = FrozenBrush(Red);
     static readonly Brush JadeMask = CreateJadeMask();
 
-    readonly Canvas scene;
+    readonly Canvas scene, contents;
     readonly RectangleGeometry panelClip = new();
     readonly Grid rail;
     readonly StackPanel details;
@@ -54,7 +56,7 @@ internal sealed class ResourceDockWindow : Window
     Point? dragStart;
     Point lastDragPoint;
     double dragAnchorY, dragLeft;
-    bool opened, rendering, expandedBounds, dockRight = true, dragging;
+    bool opened, rendering, expandedBounds, outerRippleBounds, dockRight = true, dragging;
 
     internal event Action? AccelerateRequested;
     internal event Action? OpenRequested;
@@ -79,7 +81,7 @@ internal sealed class ResourceDockWindow : Window
         scene = new Canvas { ClipToBounds = true };
         var shell = new ShapePath { Data = panelClip, Fill = PanelBrush, Stroke = BorderBrushDark, StrokeThickness = 1 };
         scene.Children.Add(shell);
-        var contents = new Canvas { Width = PanelWidth + BurstMargin, Height = PanelHeight + BurstMargin, Clip = panelClip };
+        contents = new Canvas { Clip = panelClip };
         scene.Children.Add(contents);
 
         rail = new Grid { Width = RailWidth, Height = RailHeight, RenderTransform = railOffset };
@@ -266,6 +268,7 @@ internal sealed class ResourceDockWindow : Window
         accelerationStatus.Visibility = Visibility.Visible;
         diskSurface.Visibility = Visibility.Hidden;
         accelerationPhase = accelerationResult is null ? AccelerationPhase.Waiting : AccelerationPhase.Result;
+        if (dragStart is null) SetOuterRippleBounds(false);
         if (accelerationPhase == AccelerationPhase.Result) resultTimer.Start();
         UpdateRendering();
     }
@@ -280,13 +283,14 @@ internal sealed class ResourceDockWindow : Window
         accelerationStatus.Visibility = Visibility.Collapsed;
         ripple.Opacity = 0;
         diskSurface.Visibility = Visibility.Visible;
+        if (dragStart is null) SetOuterRippleBounds(false);
         if (IsVisible && dragStart is null && !dockMenu.IsOpen && !PointerOnDock()) SetExpanded(false);
         UpdateRendering();
     }
 
     void BeginDrag(object sender, MouseButtonEventArgs e)
     {
-        if (meterButton.IsMouseOver) return;
+        if (meterButton.IsMouseOver || !panelClip.FillContains(e.GetPosition(scene))) return;
         workArea = SystemParameters.WorkArea;
         dragStart = lastDragPoint = DesktopPoint(e);
         dragAnchorY = anchorY;
@@ -324,6 +328,7 @@ internal sealed class ResourceDockWindow : Window
         dragStart = null;
         dragging = false;
         if (IsMouseCaptured) ReleaseMouseCapture();
+        if (accelerationPhase != AccelerationPhase.Animating) SetOuterRippleBounds(false);
         SetExpanded(pointerOnPanel);
     }
 
@@ -471,15 +476,39 @@ internal sealed class ResourceDockWindow : Window
     void UpdateAccelerationAnimation(double elapsed)
     {
         if (elapsed < SpinSeconds) return;
-        var progress = Math.Min(1, (elapsed - SpinSeconds) / RippleSeconds);
-        var spread = .75 * progress + .25 * progress * progress * (3 - 2 * progress);
-        rippleScale.ScaleX = rippleScale.ScaleY = 1 + spread * 2;
-        ripple.Opacity = (1 - progress) * .48;
-        if (progress >= 1) ShowAccelerationFeedback();
+        double scale, opacity;
+        if (elapsed < SpinSeconds + RippleSeconds)
+        {
+            var progress = (elapsed - SpinSeconds) / RippleSeconds;
+            var spread = .75 * progress + .25 * progress * progress * (3 - 2 * progress);
+            scale = 1 + spread * 2;
+            opacity = .48 - .24 * progress;
+        }
+        else
+        {
+            if (dragStart is null) SetOuterRippleBounds(true);
+            var progress = Math.Min(1, (elapsed - SpinSeconds - RippleSeconds) / OuterRippleSeconds);
+            // 上一段末端每秒增加 1.5 倍，第三秒以两倍末速从 3 连续扩到 6。
+            scale = 3 + (RippleMaxScale - 3) * progress;
+            opacity = .24 * (1 - progress);
+        }
+        rippleScale.ScaleX = rippleScale.ScaleY = scale;
+        ripple.Opacity = opacity;
+        if (elapsed >= AccelerationSeconds) ShowAccelerationFeedback();
     }
 
     static double FastSpinDuration(double from, double until) =>
         Math.Clamp(until, 0, AccelerationSeconds) - Math.Clamp(from, 0, AccelerationSeconds);
+
+    void SetOuterRippleBounds(bool expanded)
+    {
+        if (outerRippleBounds == expanded) return;
+        outerRippleBounds = expanded;
+        if (!expandedBounds) return;
+        SetWindowBounds(true);
+        // 原生窗口先移动，当前渲染帧也需应用内部坐标，避免扩散中心偏移一帧。
+        UpdateLayout();
+    }
 
     void SetWindowBounds(bool expand) => SetWindowBounds(expand, null);
 
@@ -489,14 +518,17 @@ internal sealed class ResourceDockWindow : Window
         var height = expand ? PanelHeight : RailHeight;
         var visualTop = Math.Clamp(anchorY - height / 2, workArea.Top,
             Math.Max(workArea.Top, workArea.Bottom - height));
-        var width = expand ? PanelWidth + BurstMargin : RailWidth;
+        var margin = expand ? (outerRippleBounds ? OuterRippleMargin : BurstMargin) : 0;
+        var width = expand ? PanelWidth + margin : RailWidth;
         Width = width;
-        Height = height + (expand ? BurstMargin : 0);
+        Height = height + margin;
+        contents.Width = Width;
+        contents.Height = Height;
         var rightmost = Math.Max(workArea.Left, workArea.Right - width);
         Left = dragX is { } x ? Math.Clamp(x, workArea.Left, rightmost) : dockRight ? rightmost : workArea.Left;
-        Top = visualTop - (expand ? BurstMargin : 0);
-        panelLeft = expand && dockRight ? BurstMargin : 0;
-        panelTop = expand ? BurstMargin : 0;
+        Top = visualTop - margin;
+        panelLeft = dockRight ? margin : 0;
+        panelTop = margin;
         Canvas.SetLeft(details, panelLeft);
         Canvas.SetTop(details, panelTop);
         Canvas.SetLeft(ripple, panelLeft + (PanelWidth - 48) / 2);
@@ -585,7 +617,7 @@ internal sealed class ResourceDockWindow : Window
         handled = true;
         // 只有拖动区域的左键按下需要前台状态，以便鼠标跨出挂件仍能捕获。
         var trigger = (lParam.ToInt64() >> 16) & 0xffff;
-        return new IntPtr(trigger == leftButtonDown && !meterButton.IsMouseOver ? activate : noActivate);
+        return new IntPtr(trigger == leftButtonDown && !meterButton.IsMouseOver && PointerOnDock() ? activate : noActivate);
     }
 
     static Brush CreateJadeMask()
@@ -652,9 +684,9 @@ internal sealed class ResourceDockWindow : Window
         check(LoadColor(null) == Gray && LoadColor(69) == Jade && LoadColor(70) == Amber &&
             LoadColor(84) == Amber && LoadColor(85) == Red, "龙纹颜色须覆盖未知及两道占用边界");
         check(RotationPeriod(0) == 60 && RotationPeriod(100) == 6 && RotationPeriod(75) < RotationPeriod(50), "太极转速须随占用变化");
-        check(FastSpinDuration(-1, 3) == 2 && Math.Abs(FastSpinDuration(.8, 1.2) - .4) < .001 &&
-            FastSpinDuration(1, 2) == 1 && FastSpinDuration(2, 3) == 0,
-            "旋转与扩散阶段都应按十倍速计时，两秒后恢复基础转速");
+        check(FastSpinDuration(-1, 4) == 3 && Math.Abs(FastSpinDuration(.8, 1.2) - .4) < .001 &&
+            FastSpinDuration(1, 2) == 1 && FastSpinDuration(2, 3) == 1 && FastSpinDuration(3, 4) == 0,
+            "首秒旋转及两段扩散都应按十倍速计时，三秒后恢复基础转速");
         var transition = new RectAnimation();
         transition.Start(true);
         transition.Advance(.08);
@@ -695,11 +727,23 @@ internal sealed class ResourceDockWindow : Window
                 check(dock.ripple.Opacity == 0 && dock.accelerationStatus.Visibility == Visibility.Collapsed,
                     "首秒十倍速期间仍只显示太极");
                 dock.UpdateAccelerationAnimation(1.5);
-                check(dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity == .24 &&
+                check(dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity == .36 &&
                     dock.rippleScale.ScaleX == 2, "扩散半程应到两倍大小并逐渐淡出");
+                var meterOrigin = new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop);
                 dock.UpdateAccelerationAnimation(2);
-                check(dock.rippleScale.ScaleX == 3 && dock.ripple.Opacity == 0,
-                    "第二秒扩散到三倍大小后结束");
+                check(dock.rippleScale.ScaleX == 3 && dock.ripple.Opacity == .24 && dock.outerRippleBounds &&
+                    meterOrigin == new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop),
+                    "第三秒开始尺寸和透明度须连续，扩展透明区域时保持面板位置");
+                dock.UpdateAccelerationAnimation(2.5);
+                check(dock.rippleScale.ScaleX == 4.5 && dock.ripple.Opacity == .12 &&
+                    dock.panelLeft + PanelWidth / 2 >= CircleRadius * RippleMaxScale &&
+                    dock.panelTop + 14 + CircleCenter >= CircleRadius * RippleMaxScale,
+                    "第二段须加速扩散，屏幕内侧和上方留足可显示空间");
+                dock.UpdateAccelerationAnimation(3);
+                check(dock.rippleScale.ScaleX == RippleMaxScale && dock.ripple.Opacity == 0 && !dock.outerRippleBounds &&
+                    dock.Width == PanelWidth + BurstMargin &&
+                    meterOrigin == new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop),
+                    "第三秒扩散到六倍后淡出，恢复面板边界和位置");
             }
             check(dock.accelerationStatus.Text == "整理中…" && dock.diskSurface.Visibility == Visibility.Hidden,
                 "先播完动画，等待迟到的整理结果时才替换太极");
