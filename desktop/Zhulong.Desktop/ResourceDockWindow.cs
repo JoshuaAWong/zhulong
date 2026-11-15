@@ -13,11 +13,13 @@ namespace Zhulong.Desktop;
 
 internal sealed class ResourceDockWindow : Window
 {
-    const double RailWidth = 14, RailHeight = 88, PanelWidth = 72, PanelHeight = 244;
-    const double BurstMargin = 36, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, OuterRippleSeconds = 1,
-        ResultSeconds = 1, AccelerationSeconds = SpinSeconds + RippleSeconds + OuterRippleSeconds,
+    const double RailWidth = 12, RailHeight = 76, RailTrackHeight = 47, PanelWidth = 62, PanelHeight = 224, MeterTop = 7;
+    const double BurstMargin = 38, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, OuterRippleSeconds = 1,
+        ResultSeconds = 1, BlendSeconds = .32, OuterSpinStart = SpinSeconds + RippleSeconds,
+        AccelerationSeconds = OuterSpinStart + OuterRippleSeconds,
         CircleRadius = 22, CircleCenter = 24, RippleMaxScale = 6,
         OuterRippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
+    const string AccelerationHint = "点击太极整理白名单进程内存";
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
     static readonly Brush PanelBrush = FrozenBrush(49, 49, 49), BorderBrushDark = FrozenBrush(77, 77, 76),
@@ -31,15 +33,16 @@ internal sealed class ResourceDockWindow : Window
     readonly Grid rail;
     readonly StackPanel details;
     readonly Rectangle dragon, progress, progressTrack;
-    readonly TextBlock memory, cpu, cpuTemperature, commit, download, upload, accelerationStatus;
+    readonly TextBlock memory, cpu, cpuTemperature, commit, download, downloadUnit, upload, uploadUnit, accelerationStatus, waitingStatus;
     readonly Ellipse diskRim;
     readonly Image disk, ripple;
     readonly DockBagua bagua = new(FrozenBrush(Jade));
-    readonly Grid diskSurface;
+    readonly Grid diskSurface, feedbackLayer;
     readonly Button meterButton;
     readonly ZhulongContextMenu dockMenu;
     readonly RotateTransform diskRotation = new();
     readonly ScaleTransform rippleScale = new(1, 1);
+    readonly ScaleTransform diskBlendScale = new(1, 1), textBlendScale = new(1, 1);
     readonly TranslateTransform railOffset = new();
     readonly RectAnimation move = new();
     readonly DispatcherTimer resultTimer = new() { Interval = TimeSpan.FromSeconds(ResultSeconds) };
@@ -49,7 +52,7 @@ internal sealed class ResourceDockWindow : Window
     Rect workArea = SystemParameters.WorkArea;
     double anchorY, panelTop, panelLeft;
     double angle;
-    long previousFrame, accelerationStarted;
+    long previousFrame, accelerationStarted, resultBlendStarted, restoreStarted;
     TimeSpan previousRenderingTime;
     AccelerationPhase accelerationPhase;
     string? accelerationResult;
@@ -63,7 +66,7 @@ internal sealed class ResourceDockWindow : Window
     internal event Action? HideRequested;
     internal event Action<bool>? ExpandedChanged;
 
-    enum AccelerationPhase { Idle, Animating, Waiting, Result }
+    enum AccelerationPhase { Idle, Animating, Waiting, Result, Restoring }
 
     internal ResourceDockWindow()
     {
@@ -87,19 +90,19 @@ internal sealed class ResourceDockWindow : Window
         rail = new Grid { Width = RailWidth, Height = RailHeight, RenderTransform = railOffset };
         dragon = new Rectangle
         {
-            Width = 12, Height = 15, HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 5, 0, 0), Fill = FrozenBrush(Gray),
+            Width = 10, Height = 13, HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 6, 0, 0), Fill = FrozenBrush(Gray),
             OpacityMask = JadeMask
         };
         rail.Children.Add(dragon);
         var track = new Grid
         {
-            Width = 6, Height = 59, HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 23, 0, 0),
-            Clip = new RectangleGeometry(new Rect(0, 0, 6, 59), 3, 3)
+            Width = 5, Height = RailTrackHeight, HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 22, 0, 0),
+            Clip = new RectangleGeometry(new Rect(0, 0, 5, RailTrackHeight), 2.5, 2.5)
         };
-        progressTrack = new Rectangle { Fill = TrackBrush, RadiusX = 3, RadiusY = 3 };
-        progress = new Rectangle { Fill = ProgressBrush, RadiusX = 3, RadiusY = 3, Height = 0, VerticalAlignment = VerticalAlignment.Bottom };
+        progressTrack = new Rectangle { Fill = TrackBrush, RadiusX = 2.5, RadiusY = 2.5 };
+        progress = new Rectangle { Fill = ProgressBrush, RadiusX = 2.5, RadiusY = 2.5, Height = 0, VerticalAlignment = VerticalAlignment.Bottom };
         track.Children.Add(progressTrack);
         track.Children.Add(progress);
         rail.Children.Add(track);
@@ -110,7 +113,7 @@ internal sealed class ResourceDockWindow : Window
             Width = PanelWidth, Height = PanelHeight, Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center, Opacity = 0, Visibility = Visibility.Collapsed
         };
-        diskSurface = new Grid { Width = 48, Height = 48 };
+        diskSurface = new Grid { Width = 48, Height = 48, RenderTransform = diskBlendScale, RenderTransformOrigin = new(.5, .5) };
         diskRim = new Ellipse { Margin = new Thickness(0), Stroke = dragon.Fill, StrokeThickness = 1 };
         diskSurface.Children.Add(diskRim);
 
@@ -130,22 +133,25 @@ internal sealed class ResourceDockWindow : Window
         System.Windows.Controls.Panel.SetZIndex(ripple, 1);
         scene.Children.Add(bagua);
         System.Windows.Controls.Panel.SetZIndex(bagua, 1);
-        var meterLayer = new Grid { Height = 66 };
-        var meter = new Grid { Width = PanelWidth - 6, Height = 48 };
+        var meterLayer = new Grid { Height = MeterTop + 48 + 4 };
+        var meter = new Grid { Width = PanelWidth - 4, Height = 48 };
         meter.Children.Add(diskSurface);
-        accelerationStatus = Text("", 11, TextBrush, true);
-        accelerationStatus.TextAlignment = TextAlignment.Center;
-        accelerationStatus.TextWrapping = TextWrapping.Wrap;
-        accelerationStatus.TextTrimming = TextTrimming.CharacterEllipsis;
-        accelerationStatus.MaxHeight = 40;
-        accelerationStatus.Visibility = Visibility.Collapsed;
-        meter.Children.Add(accelerationStatus);
+        feedbackLayer = new Grid
+        {
+            Visibility = Visibility.Collapsed, Opacity = 0, RenderTransform = textBlendScale,
+            RenderTransformOrigin = new Point(.5, .5), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
+        };
+        waitingStatus = FeedbackText("整理中…");
+        accelerationStatus = FeedbackText("");
+        feedbackLayer.Children.Add(waitingStatus);
+        feedbackLayer.Children.Add(accelerationStatus);
+        meter.Children.Add(feedbackLayer);
         meterButton = new Button
         {
             Width = meter.Width, Height = 48, VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(0),
+            Margin = new Thickness(0, MeterTop, 0, 0), Padding = new Thickness(0),
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), Content = meter,
-            ToolTip = "点击太极整理白名单进程内存"
+            ToolTip = AccelerationHint
         };
         var buttonTemplate = new ControlTemplate(typeof(Button));
         buttonTemplate.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -168,11 +174,11 @@ internal sealed class ResourceDockWindow : Window
         cpuTemperature = AddMetric("温度");
         cpuTemperature.ToolTip = "处理器温度";
         commit = AddMetric("提交");
-        download = AddMetric("↓");
-        upload = AddMetric("↑");
+        (download, downloadUnit) = AddNetworkMetric("↓");
+        (upload, uploadUnit) = AddNetworkMetric("↑");
         contents.Children.Add(details);
         Content = scene;
-        resultTimer.Tick += (_, _) => ClearAcceleration();
+        resultTimer.Tick += (_, _) => BeginRestore();
         dockMenu = new ZhulongContextMenu();
         dockMenu.Add("打开烛龙", () => OpenRequested?.Invoke());
         dockMenu.Add("整理内存", AccelerateFromMenu);
@@ -234,7 +240,7 @@ internal sealed class ResourceDockWindow : Window
             memoryPercent = next;
             var brush = FrozenBrush(LoadColor(next));
             dragon.Fill = diskRim.Stroke = brush;
-            progress.Height = next * .59 ?? 0;
+            progress.Height = next * RailTrackHeight / 100 ?? 0;
             if (opened) UpdateDisk();
             UpdateRendering();
         }
@@ -249,28 +255,72 @@ internal sealed class ResourceDockWindow : Window
 
     internal void ApplyNetwork(LiveNetworkReadout? value)
     {
-        download.Text = Network(value?.DownloadBytesPerSecond);
-        upload.Text = Network(value?.UploadBytesPerSecond);
+        (download.Text, downloadUnit.Text) = Network(value?.DownloadBytesPerSecond);
+        (upload.Text, uploadUnit.Text) = Network(value?.UploadBytesPerSecond);
     }
 
     internal void CompleteAcceleration(string text)
     {
         if (accelerationPhase is not (AccelerationPhase.Animating or AccelerationPhase.Waiting)) return;
+        if (accelerationResult is not null) return;
+        if (feedbackLayer.Opacity * waitingStatus.Opacity > 0) resultBlendStarted = Stopwatch.GetTimestamp();
         accelerationResult = text;
-        if (accelerationPhase == AccelerationPhase.Waiting) ShowAccelerationFeedback();
+        accelerationStatus.Text = text;
+        UpdateRendering();
     }
 
-    void ShowAccelerationFeedback()
+    static TextBlock FeedbackText(string value)
     {
-        var text = accelerationResult ?? "整理中…";
-        accelerationStatus.Text = text;
-        accelerationStatus.ToolTip = text;
-        accelerationStatus.Visibility = Visibility.Visible;
-        diskSurface.Visibility = Visibility.Hidden;
-        accelerationPhase = accelerationResult is null ? AccelerationPhase.Waiting : AccelerationPhase.Result;
+        var label = Text(value, 10, TextBrush, true);
+        label.TextAlignment = TextAlignment.Center;
+        label.TextWrapping = TextWrapping.Wrap;
+        label.TextTrimming = TextTrimming.CharacterEllipsis;
+        label.MaxHeight = 40;
+        label.Opacity = 0;
+        return label;
+    }
+
+    void FinishBurst(long now, bool motion)
+    {
+        accelerationPhase = AccelerationPhase.Waiting;
+        ripple.Opacity = 0;
         if (dragStart is null) SetOuterRippleBounds(false);
-        if (accelerationPhase == AccelerationPhase.Result) resultTimer.Start();
+        DrawFeedback(1, now, motion);
+    }
+
+    void DrawFeedback(double reveal, long now, bool motion = true)
+    {
+        var mix = accelerationResult is null ? 0 : !motion || resultBlendStarted == 0 ? 1 :
+            EaseBlend(Stopwatch.GetElapsedTime(resultBlendStarted, now).TotalSeconds);
+        feedbackLayer.Visibility = Visibility.Visible;
+        feedbackLayer.Opacity = reveal;
+        waitingStatus.Opacity = 1 - mix;
+        accelerationStatus.Opacity = mix;
+        diskSurface.Opacity = 1 - reveal;
+        diskBlendScale.ScaleX = diskBlendScale.ScaleY = 1 - .08 * reveal;
+        textBlendScale.ScaleX = textBlendScale.ScaleY = .94 + .06 * reveal;
+        if (accelerationPhase == AccelerationPhase.Waiting && mix == 1)
+        {
+            accelerationPhase = AccelerationPhase.Result;
+            meterButton.ToolTip = accelerationResult;
+            resultTimer.Start();
+        }
+    }
+
+    void BeginRestore()
+    {
+        resultTimer.Stop();
+        meterButton.ToolTip = null;
+        if (!IsVisible || !SystemParameters.ClientAreaAnimation) { ClearAcceleration(); return; }
+        accelerationPhase = AccelerationPhase.Restoring;
+        restoreStarted = Stopwatch.GetTimestamp();
         UpdateRendering();
+    }
+
+    static double EaseBlend(double elapsed)
+    {
+        var progress = Math.Clamp(elapsed / BlendSeconds, 0, 1);
+        return progress * progress * (3 - 2 * progress);
     }
 
     void ClearAcceleration()
@@ -278,11 +328,14 @@ internal sealed class ResourceDockWindow : Window
         resultTimer.Stop();
         accelerationPhase = AccelerationPhase.Idle;
         accelerationResult = null;
+        resultBlendStarted = 0;
         accelerationStatus.Text = "";
-        accelerationStatus.ToolTip = null;
-        accelerationStatus.Visibility = Visibility.Collapsed;
+        meterButton.ToolTip = AccelerationHint;
+        feedbackLayer.Visibility = Visibility.Collapsed;
+        feedbackLayer.Opacity = 0;
         ripple.Opacity = 0;
-        diskSurface.Visibility = Visibility.Visible;
+        diskSurface.Opacity = 1;
+        diskBlendScale.ScaleX = diskBlendScale.ScaleY = 1;
         if (dragStart is null) SetOuterRippleBounds(false);
         if (IsVisible && dragStart is null && !dockMenu.IsOpen && !PointerOnDock()) SetExpanded(false);
         UpdateRendering();
@@ -375,9 +428,9 @@ internal sealed class ResourceDockWindow : Window
     {
         if (!IsVisible || accelerationPhase != AccelerationPhase.Idle || AccelerateRequested is null) return;
         SetExpanded(true);
+        meterButton.ToolTip = null;
         accelerationPhase = AccelerationPhase.Animating;
         accelerationStarted = Stopwatch.GetTimestamp();
-        if (!SystemParameters.ClientAreaAnimation) ShowAccelerationFeedback();
         UpdateRendering();
         AccelerateRequested?.Invoke();
     }
@@ -398,10 +451,17 @@ internal sealed class ResourceDockWindow : Window
     void UpdateRendering()
     {
         var motion = IsVisible && SystemParameters.ClientAreaAnimation;
+        if (IsVisible && !motion)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (accelerationPhase == AccelerationPhase.Animating) FinishBurst(now, false);
+            else if (accelerationPhase == AccelerationPhase.Waiting && accelerationResult is not null) DrawFeedback(1, now, false);
+            else if (accelerationPhase == AccelerationPhase.Restoring) ClearAcceleration();
+        }
         bagua.SetActive(motion && opened && meterButton.IsMouseOver &&
             accelerationPhase == AccelerationPhase.Idle && !dockMenu.IsOpen);
         var animate = motion &&
-            (move.Pending || accelerationPhase == AccelerationPhase.Animating ||
+            (move.Pending || FeedbackMoving ||
                 bagua.Active || (opened && memoryPercent.HasValue && accelerationPhase == AccelerationPhase.Idle));
         if (animate == rendering) return;
         if (!animate)
@@ -414,6 +474,9 @@ internal sealed class ResourceDockWindow : Window
         previousRenderingTime = TimeSpan.MinValue;
         CompositionTarget.Rendering += OnFrame;
     }
+
+    bool FeedbackMoving => accelerationPhase is AccelerationPhase.Animating or AccelerationPhase.Restoring ||
+        (accelerationPhase == AccelerationPhase.Waiting && accelerationResult is not null);
 
     void StopRendering()
     {
@@ -436,16 +499,15 @@ internal sealed class ResourceDockWindow : Window
             SetWindowBounds(opened);
             UpdateVisual(move.Progress);
             ripple.Opacity = 0;
-            if (accelerationPhase == AccelerationPhase.Animating) ShowAccelerationFeedback();
             if (!opened) details.Visibility = Visibility.Collapsed;
-            StopRendering();
+            UpdateRendering();
             return;
         }
 
         long now = Stopwatch.GetTimestamp();
         double dt = Stopwatch.GetElapsedTime(previousFrame, now).TotalSeconds;
         var accelerating = accelerationPhase == AccelerationPhase.Animating;
-        if (!move.Pending && !accelerating && dt < 1d / 34) return;
+        if (!move.Pending && !FeedbackMoving && dt < 1d / 34) return;
         var priorFrame = previousFrame;
         previousFrame = now;
 
@@ -459,16 +521,23 @@ internal sealed class ResourceDockWindow : Window
                 SetWindowBounds(false);
             }
         }
-        if (opened && (accelerating || (accelerationPhase == AccelerationPhase.Idle && memoryPercent.HasValue)))
+        if (opened && (accelerating || ((accelerationPhase is AccelerationPhase.Idle or AccelerationPhase.Restoring) && memoryPercent.HasValue)))
         {
-            var spinTime = accelerating ? FastSpinDuration(
+            var idleSpeed = meterButton.IsMouseOver ? 3 : 1;
+            var rotationTime = accelerating ? BoostedRotationTime(
                 Stopwatch.GetElapsedTime(accelerationStarted, priorFrame).TotalSeconds,
-                Stopwatch.GetElapsedTime(accelerationStarted, now).TotalSeconds) : 0;
-            var rotationTime = spinTime * 10 + (dt - spinTime) * (meterButton.IsMouseOver ? 3 : 1);
+                Stopwatch.GetElapsedTime(accelerationStarted, now).TotalSeconds, idleSpeed) : dt * idleSpeed;
             angle = (angle + rotationTime * 360 / RotationPeriod(memoryPercent ?? 0)) % 360;
             diskRotation.Angle = angle;
         }
         if (accelerating) UpdateAccelerationAnimation(Stopwatch.GetElapsedTime(accelerationStarted, now).TotalSeconds);
+        else if (accelerationPhase == AccelerationPhase.Waiting && accelerationResult is not null) DrawFeedback(1, now);
+        else if (accelerationPhase == AccelerationPhase.Restoring)
+        {
+            var reveal = 1 - EaseBlend(Stopwatch.GetElapsedTime(restoreStarted, now).TotalSeconds);
+            if (reveal > 0) DrawFeedback(reveal, now);
+            else ClearAcceleration();
+        }
         UpdateRendering();
         bagua.Advance(dt);
     }
@@ -477,7 +546,7 @@ internal sealed class ResourceDockWindow : Window
     {
         if (elapsed < SpinSeconds) return;
         double scale, opacity;
-        if (elapsed < SpinSeconds + RippleSeconds)
+        if (elapsed < OuterSpinStart)
         {
             var progress = (elapsed - SpinSeconds) / RippleSeconds;
             var spread = .75 * progress + .25 * progress * progress * (3 - 2 * progress);
@@ -487,18 +556,28 @@ internal sealed class ResourceDockWindow : Window
         else
         {
             if (dragStart is null) SetOuterRippleBounds(true);
-            var progress = Math.Min(1, (elapsed - SpinSeconds - RippleSeconds) / OuterRippleSeconds);
+            var progress = Math.Min(1, (elapsed - OuterSpinStart) / OuterRippleSeconds);
             // 上一段末端每秒增加 1.5 倍，第三秒以两倍末速从 3 连续扩到 6。
             scale = 3 + (RippleMaxScale - 3) * progress;
             opacity = .24 * (1 - progress);
         }
         rippleScale.ScaleX = rippleScale.ScaleY = scale;
         ripple.Opacity = opacity;
-        if (elapsed >= AccelerationSeconds) ShowAccelerationFeedback();
+        if (elapsed < AccelerationSeconds - BlendSeconds) return;
+        var now = Stopwatch.GetTimestamp();
+        if (elapsed >= AccelerationSeconds) FinishBurst(now, true);
+        else DrawFeedback(EaseBlend(elapsed - (AccelerationSeconds - BlendSeconds)), now);
     }
 
-    static double FastSpinDuration(double from, double until) =>
-        Math.Clamp(until, 0, AccelerationSeconds) - Math.Clamp(from, 0, AccelerationSeconds);
+    static double BoostedRotationTime(double from, double until, double idleSpeed)
+    {
+        var boostFrom = Math.Clamp(from, 0, AccelerationSeconds);
+        var boostUntil = Math.Clamp(until, 0, AccelerationSeconds);
+        var boostSeconds = boostUntil - boostFrom;
+        // 从点击到扩散结束，按帧内首尾速度的平均值累计十倍到三十倍的线性转角。
+        var averageBoostSpeed = 10 + 20 * ((boostFrom + boostUntil) * .5 / AccelerationSeconds);
+        return (until - from - boostSeconds) * idleSpeed + boostSeconds * averageBoostSpeed;
+    }
 
     void SetOuterRippleBounds(bool expanded)
     {
@@ -532,8 +611,8 @@ internal sealed class ResourceDockWindow : Window
         Canvas.SetLeft(details, panelLeft);
         Canvas.SetTop(details, panelTop);
         Canvas.SetLeft(ripple, panelLeft + (PanelWidth - 48) / 2);
-        Canvas.SetTop(ripple, panelTop + 14);
-        bagua.Place(new Point(panelLeft + PanelWidth / 2, panelTop + 14 + CircleCenter), new Size(Width, Height));
+        Canvas.SetTop(ripple, panelTop + MeterTop);
+        bagua.Place(new Point(panelLeft + PanelWidth / 2, panelTop + MeterTop + CircleCenter), new Size(Width, Height));
         UpdateVisual(move.Progress);
     }
 
@@ -544,7 +623,7 @@ internal sealed class ResourceDockWindow : Window
         var left = expandedBounds && dockRight ? panelLeft + PanelWidth - width : panelLeft;
         var top = expandedBounds ? Math.Clamp(anchorY - height / 2 - Top, panelTop, panelTop + PanelHeight - height) : 0;
         panelClip.Rect = new Rect(left, top, width, height);
-        panelClip.RadiusX = panelClip.RadiusY = 7 + value * 7;
+        panelClip.RadiusX = panelClip.RadiusY = width / 2;
         railOffset.X = dockRight ? left + width - RailWidth : left;
         railOffset.Y = top + (height - RailHeight) / 2;
         rail.Opacity = 1 - Math.Min(1, value * 2.4);
@@ -584,22 +663,44 @@ internal sealed class ResourceDockWindow : Window
         commit.Text = Percent(sample?.CommitPercent);
     }
 
-    static string Network(double? bytesPerSecond)
+    static (string Amount, string Unit) Network(double? bytesPerSecond)
     {
-        if (bytesPerSecond is not { } value || !double.IsFinite(value) || value < 0) return "—";
-        if (value >= 1073741824) return $"{value / 1073741824:0.#} GB/s";
-        return value >= 1048576 ? $"{value / 1048576:0.#} MB/s" : $"{value / 1024:0} KB/s";
+        if (bytesPerSecond is not { } value || !double.IsFinite(value) || value < 0) return ("—", "");
+        if (value >= 1073741824) return ($"{value / 1073741824:0.#}", "GB/s");
+        return value >= 1048576 ? ($"{value / 1048576:0.#}", "MB/s") : ($"{value / 1024:0}", "KB/s");
+    }
+
+    (TextBlock Amount, TextBlock Unit) AddNetworkMetric(string direction)
+    {
+        var row = new Grid { Width = 48, HorizontalAlignment = HorizontalAlignment.Center };
+        row.RowDefinitions.Add(new() { Height = new GridLength(12) });
+        row.RowDefinitions.Add(new() { Height = new GridLength(10) });
+        var arrow = Text(direction, 10, MutedBrush);
+        arrow.HorizontalAlignment = HorizontalAlignment.Left;
+        var amount = Text("—", 10, TextBrush, true);
+        amount.HorizontalAlignment = HorizontalAlignment.Center;
+        var unit = Text("", 9, MutedBrush);
+        unit.HorizontalAlignment = HorizontalAlignment.Center;
+        Grid.SetRow(unit, 1);
+        row.Children.Add(arrow);
+        row.Children.Add(amount);
+        row.Children.Add(unit);
+        details.Children.Add(row);
+        return (amount, unit);
     }
 
     TextBlock AddMetric(string label)
     {
-        var row = new DockPanel { Margin = new Thickness(7, 2, 7, 2), Height = 17 };
+        var row = new DockPanel { Margin = new Thickness(5, 2, 5, 2), Height = 16 };
         var left = Text(label, 10, MutedBrush);
         DockPanel.SetDock(left, Dock.Left);
         row.Children.Add(left);
         var right = Text("—", 10, TextBrush, true);
         right.TextAlignment = TextAlignment.Right;
-        row.Children.Add(right);
+        row.Children.Add(new Viewbox
+        {
+            Child = right, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Right
+        });
         details.Children.Add(row);
         return right;
     }
@@ -684,9 +785,14 @@ internal sealed class ResourceDockWindow : Window
         check(LoadColor(null) == Gray && LoadColor(69) == Jade && LoadColor(70) == Amber &&
             LoadColor(84) == Amber && LoadColor(85) == Red, "龙纹颜色须覆盖未知及两道占用边界");
         check(RotationPeriod(0) == 60 && RotationPeriod(100) == 6 && RotationPeriod(75) < RotationPeriod(50), "太极转速须随占用变化");
-        check(FastSpinDuration(-1, 4) == 3 && Math.Abs(FastSpinDuration(.8, 1.2) - .4) < .001 &&
-            FastSpinDuration(1, 2) == 1 && FastSpinDuration(2, 3) == 1 && FastSpinDuration(3, 4) == 0,
-            "首秒旋转及两段扩散都应按十倍速计时，三秒后恢复基础转速");
+        check(DockBagua.WhiteRingWeight(0) == 1 && DockBagua.WhiteRingWeight(.7) < .001 &&
+            DockBagua.WhiteRingWeight(1.4) > .999 && DockBagua.ContactOpacity(23.2) == 3 * DockBagua.RingOpacity &&
+            DockBagua.ContactOpacity(18) == 0 && DockBagua.ContactOpacity(28) == 0,
+            "悬停光环应交替明暗，字符触及光环的位置峰值为常规光环的三倍");
+        check(BoostedRotationTime(-1, 4, 3) == 66 && Math.Abs(BoostedRotationTime(0, .25, 3) - 65d / 24) < .001 &&
+            Math.Abs(BoostedRotationTime(1.8, 2.2, 3) - 28d / 3) < .001 &&
+            Math.Abs(BoostedRotationTime(2.75, 3, 3) - 175d / 24) < .001 && BoostedRotationTime(3, 4, 3) == 3,
+            "点击后三秒从十倍线性增至三十倍，跨帧边界时正确累计角度");
         var transition = new RectAnimation();
         transition.Start(true);
         transition.Advance(.08);
@@ -703,9 +809,13 @@ internal sealed class ResourceDockWindow : Window
             PumpFrames(380);
             check(dock.panelClip.Rect.Size == new Size(PanelWidth, PanelHeight) && dock.memory.Text == "85%" && dock.cpu.Text == "20%" &&
                 dock.details.Visibility == Visibility.Visible && dock.rail.Opacity == 0, "实际窗口展开须替换细条并更新读数");
+            check(dock.panelClip.RadiusX == PanelWidth / 2 && dock.panelClip.RadiusY == PanelWidth / 2 &&
+                MeterTop + CircleCenter == PanelWidth / 2, "展开面板的两端圆弧应对称，太极与顶端圆弧同心");
             dock.ApplyNetwork(new(DateTimeOffset.UtcNow, 2 * 1048576, 1024));
             dock.ApplySample(null);
-            check(dock.download.Text == "2 MB/s" && dock.upload.Text == "1 KB/s", "挂件网速来自独立快速采样且不被常规采样覆盖");
+            check(dock.download.Text == "2" && dock.downloadUnit.Text == "MB/s" && Grid.GetRow(dock.downloadUnit) == 1 &&
+                dock.upload.Text == "1" && dock.uploadUnit.Text == "KB/s" && Grid.GetRow(dock.uploadUnit) == 1,
+                "挂件上传和下载应分行显示读数和单位，常规快照不得覆盖快采样");
             var thermal = new SystemSnapshot(DateTimeOffset.UtcNow, null, null, null, null, null, null, null, [],
                 Metrics: new() { ["cpu_temp_c"] = new("cpu_temp_c", 58, "°C", "CPU 测温") });
             dock.ApplySample(thermal);
@@ -714,7 +824,8 @@ internal sealed class ResourceDockWindow : Window
             dock.ApplySample(thermal);
             check(dock.cpuTemperature.Text == "—", "挂件应显示过期的温度为未知");
             dock.ApplyNetwork(null);
-            check(dock.download.Text == "—" && dock.upload.Text == "—", "网速等待下一轮或不可用时显示未知");
+            check(dock.download.Text == "—" && dock.upload.Text == "—" && dock.downloadUnit.Text == "" &&
+                dock.uploadUnit.Text == "", "网速未知时应移除旧单位");
             var accelerations = 0;
             dock.AccelerateRequested += () => accelerations++;
             dock.ActivateAcceleration();
@@ -724,8 +835,8 @@ internal sealed class ResourceDockWindow : Window
             {
                 check(dock.rendering && dock.diskRotation.Angle > 0, "展开后原生渲染应使太极旋转");
                 dock.UpdateAccelerationAnimation(.99);
-                check(dock.ripple.Opacity == 0 && dock.accelerationStatus.Visibility == Visibility.Collapsed,
-                    "首秒十倍速期间仍只显示太极");
+                check(dock.ripple.Opacity == 0 && dock.feedbackLayer.Visibility == Visibility.Collapsed,
+                    "首秒旋转加速期间仍只显示太极");
                 dock.UpdateAccelerationAnimation(1.5);
                 check(dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity == .36 &&
                     dock.rippleScale.ScaleX == 2, "扩散半程应到两倍大小并逐渐淡出");
@@ -737,23 +848,41 @@ internal sealed class ResourceDockWindow : Window
                 dock.UpdateAccelerationAnimation(2.5);
                 check(dock.rippleScale.ScaleX == 4.5 && dock.ripple.Opacity == .12 &&
                     dock.panelLeft + PanelWidth / 2 >= CircleRadius * RippleMaxScale &&
-                    dock.panelTop + 14 + CircleCenter >= CircleRadius * RippleMaxScale,
+                    dock.panelTop + MeterTop + CircleCenter >= CircleRadius * RippleMaxScale,
                     "第二段须加速扩散，屏幕内侧和上方留足可显示空间");
+                dock.UpdateAccelerationAnimation(2.84);
+                check(Math.Abs(dock.diskSurface.Opacity - .5) < .001 && Math.Abs(dock.feedbackLayer.Opacity - .5) < .001 &&
+                    dock.ripple.Opacity > 0 && dock.waitingStatus.Opacity == 1 && !dock.resultTimer.IsEnabled,
+                    "最后一段扩散中太极与等待文字应交叠可见");
                 dock.UpdateAccelerationAnimation(3);
                 check(dock.rippleScale.ScaleX == RippleMaxScale && dock.ripple.Opacity == 0 && !dock.outerRippleBounds &&
                     dock.Width == PanelWidth + BurstMargin &&
                     meterOrigin == new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop),
                     "第三秒扩散到六倍后淡出，恢复面板边界和位置");
             }
-            check(dock.accelerationStatus.Text == "整理中…" && dock.diskSurface.Visibility == Visibility.Hidden,
-                "先播完动画，等待迟到的整理结果时才替换太极");
-            dock.CompleteAcceleration("已释放\n2304.8 MiB");
-            check(dock.accelerationStatus.Text == "已释放\n2304.8 MiB" && !dock.rendering && dock.resultTimer.IsEnabled,
-                "内存整理结果应在太极原位由独立计时器显示，等待期间不绘制");
+            check(dock.waitingStatus.Text == "整理中…" && dock.feedbackLayer.Opacity == 1 && dock.diskSurface.Opacity == 0 &&
+                !dock.resultTimer.IsEnabled, "没有结果时显示等待文字并延后计时");
+            dock.CompleteAcceleration("已整理\n2.42 G");
+            if (SystemParameters.ClientAreaAnimation)
+            {
+                check(dock.rendering && !dock.resultTimer.IsEnabled && dock.waitingStatus.Opacity == 1 && dock.accelerationStatus.Opacity == 0,
+                    "晚到结果应等文字交叠完再计时");
+                PumpFrames(420);
+            }
+            check(dock.accelerationStatus.Text == "已整理\n2.42 G" && dock.accelerationStatus.Opacity == 1 &&
+                dock.waitingStatus.Opacity == 0 && !dock.rendering && dock.resultTimer.IsEnabled,
+                "完全可读的整理结果应在太极原位独立计时且无逐帧绘制");
             PumpFrames(500);
-            check(dock.accelerationStatus.Visibility == Visibility.Visible, "结果应保留一秒");
-            PumpFrames(650);
-            check(dock.accelerationStatus.Visibility == Visibility.Collapsed && dock.diskSurface.Visibility == Visibility.Visible &&
+            check(dock.feedbackLayer.Opacity == 1 && dock.accelerationStatus.Opacity == 1, "停留期间结果文字应清晰可见");
+            dock.BeginRestore();
+            if (SystemParameters.ClientAreaAnimation)
+            {
+                PumpFrames(140);
+                check(dock.feedbackLayer.Opacity is > 0 and < 1 && dock.diskSurface.Opacity is > 0 and < 1 &&
+                    Math.Abs(dock.feedbackLayer.Opacity + dock.diskSurface.Opacity - 1) < .001, "退场文字与重新显现的太极应同时可见");
+                PumpFrames(300);
+            }
+            check(dock.feedbackLayer.Visibility == Visibility.Collapsed && dock.diskSurface.Opacity == 1 &&
                 dock.accelerationPhase == AccelerationPhase.Idle, "结果结束后恢复太极并重新允许点击");
             dock.bagua.SetActive(true);
             dock.bagua.Advance(.2);
@@ -762,7 +891,8 @@ internal sealed class ResourceDockWindow : Window
             var angle = dock.diskRotation.Angle;
             PumpFrames(380);
             check(dock.Width == RailWidth && dock.Height == RailHeight && !dock.rendering && dock.diskRotation.Angle == angle &&
-                dock.details.Visibility == Visibility.Collapsed && dock.ripple.Opacity == 0 && dock.bagua.GlyphCount == 0,
+                dock.details.Visibility == Visibility.Collapsed && dock.ripple.Opacity == 0 && dock.bagua.GlyphCount == 0 &&
+                dock.panelClip.RadiusX == RailWidth / 2 && dock.panelClip.RadiusY == RailWidth / 2,
                 "收起须停转、取消扩散和八卦并解绑渲染");
             dock.anchorY = dock.workArea.Top - 30;
             dock.SnapDock(dock.workArea.Left);

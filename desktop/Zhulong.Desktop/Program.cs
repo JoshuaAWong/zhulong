@@ -339,7 +339,7 @@ internal static class Program
         try
         {
             var results = await hub!.TrimWorkingSetsAsync();
-            ShowResult(FormatMemoryAcceleration(results, asMiB: dock is not null));
+            ShowResult(FormatMemoryAcceleration(results));
         }
         catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
         {
@@ -349,21 +349,21 @@ internal static class Program
         finally { acceleratingMemory = false; }
     }
 
-    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results, bool asMiB = false)
+    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results)
     {
         var measured = results.Where(item => item.PrivateWorkingSetReductionBytes.HasValue).ToArray();
         var degraded = results.Any(item => item.Status.StartsWith("degraded:", StringComparison.Ordinal) && item.Status != "degraded:frequency_cap");
         if (measured.Length > 0)
         {
             var bytes = measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value);
-            var amount = !asMiB && bytes >= 1073741824 ? $"{bytes / 1073741824d:F2} GiB" : $"{bytes / 1048576d:F1} MiB";
+            var amount = bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.##} G" : $"{bytes / 100_000 / 10d:0.#} M";
             var incomplete = degraded || results.Any(item => item.Status == "trimmed" && !item.PrivateWorkingSetReductionBytes.HasValue);
-            return $"{(incomplete ? "已测部分" : bytes == 0 ? "下降" : "已释放")}\n{amount}";
+            return $"{(incomplete ? "已测部分" : "已整理")}\n{amount}";
         }
         if (results.Any(item => item.Status == "trimmed")) return "已整理\n变化不可测";
         if (degraded) return "整理未完整完成";
         if (results.Any(item => item.Status == "degraded:frequency_cap")) return "刚整理过\n请稍后再试";
-        return results.Count == 0 ? "未配置整理目标" : "无可整理后台进程";
+        return "无整理项";
     }
 
     static void ShowActionResults(IReadOnlyList<ActionResult> values,string title)

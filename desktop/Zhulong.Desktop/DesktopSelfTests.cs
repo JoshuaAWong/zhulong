@@ -40,6 +40,15 @@ internal static class DesktopSelfTests
             Check(traySmall.Size == new System.Drawing.Size(16, 16) &&
                 expectedMark.ToArray().SequenceEqual(actualMark.ToArray()),
                 "系统托盘应加载与程序图标一致的 C 朱印");
+            var trim = new ActionResult("trimmed", "mem_trim", "fixture.exe");
+            Check(Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 999_999_999 }]) == $"已整理\n{999.9:0.#} M" &&
+                Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 1_000_000_000 }]) == "已整理\n1 G" &&
+                Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 0 }]) == "已整理\n0 M",
+                "整理结果应按十进制进位并保留实际测得的零下降");
+            Check(Program.FormatMemoryAcceleration([]) == "无整理项" &&
+                Program.FormatMemoryAcceleration([trim with { Status = "skipped:ws_below_threshold" }]) == "无整理项" &&
+                Program.FormatMemoryAcceleration([trim]) == "已整理\n变化不可测",
+                "区分没有整理项和已整理但无法计量");
             ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))

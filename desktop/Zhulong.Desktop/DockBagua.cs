@@ -7,7 +7,12 @@ namespace Zhulong.Desktop;
 internal sealed class DockBagua : FrameworkElement
 {
     const double EdgeMargin = 13;
+    const double RingRadius = 23.2, RingPeriod = 1.4, ContactReach = 4;
+    internal const double RingOpacity = .3;
     static readonly Geometry[] Glyphs = [.. new[] { 7, 3, 5, 1, 6, 2, 4, 0 }.Select(MakeGlyph)];
+    static readonly Pen WhiteRing = RingPen(Colors.White, 1.6), BlackRing = RingPen(Colors.Black, 1.6),
+        ContactRing = RingPen(Colors.White, 2);
+    static readonly Geometry ContactArc = MakeContactArc();
     readonly List<Flight> flights = new(10);
     readonly Brush ink;
     Point center;
@@ -61,6 +66,15 @@ internal sealed class DockBagua : FrameworkElement
 
     protected override void OnRender(DrawingContext context)
     {
+        if (!Active) return;
+        var white = WhiteRingWeight(elapsed);
+        var ringAlpha = RingOpacity * Math.Min(1, elapsed / .15);
+        context.PushOpacity(ringAlpha * (1 - white));
+        context.DrawEllipse(null, BlackRing, center, RingRadius, RingRadius);
+        context.Pop();
+        context.PushOpacity(ringAlpha * white);
+        context.DrawEllipse(null, WhiteRing, center, RingRadius, RingRadius);
+        context.Pop();
         foreach (var flight in flights)
         {
             var progress = (elapsed - flight.Born) / flight.Duration;
@@ -73,17 +87,54 @@ internal sealed class DockBagua : FrameworkElement
             var edgeY = vertical < 0 ? center.Y : Height - center.Y;
             var radius = Math.Min(flight.Radius, Math.Min((edgeX - EdgeMargin) / Math.Abs(horizontal),
                 (edgeY - EdgeMargin) / Math.Abs(vertical)));
+            var radialDistance = radius * distance;
             var scale = Mix(flight.Scale, .08, progress);
             var transform = Matrix.Identity;
             transform.Scale(scale, scale);
             transform.Rotate(degrees + 90);
-            transform.Translate(center.X + horizontal * radius * distance, center.Y + vertical * radius * distance);
+            transform.Translate(center.X + horizontal * radialDistance, center.Y + vertical * radialDistance);
             context.PushOpacity(opacity);
             context.PushTransform(new MatrixTransform(transform));
             context.DrawGeometry(ink, null, Glyphs[flight.Symbol]);
             context.Pop();
             context.Pop();
+            var contact = ContactOpacity(radialDistance);
+            if (contact <= 0) continue;
+            transform = Matrix.Identity;
+            transform.Rotate(degrees);
+            transform.Translate(center.X, center.Y);
+            context.PushOpacity(contact);
+            context.PushTransform(new MatrixTransform(transform));
+            context.DrawGeometry(null, ContactRing, ContactArc);
+            context.Pop();
+            context.Pop();
         }
+    }
+
+    internal static double WhiteRingWeight(double seconds) => .5 + .5 * Math.Cos(2 * Math.PI * seconds / RingPeriod);
+
+    internal static double ContactOpacity(double radius) =>
+        3 * RingOpacity * Math.Max(0, 1 - Math.Abs(radius - RingRadius) / ContactReach);
+
+    static Pen RingPen(Color color, double thickness)
+    {
+        var pen = new Pen(new SolidColorBrush(color), thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+        pen.Freeze();
+        return pen;
+    }
+
+    static Geometry MakeContactArc()
+    {
+        const double halfArc = 3;
+        var x = Math.Sqrt(RingRadius * RingRadius - halfArc * halfArc);
+        var arc = new StreamGeometry();
+        using (var path = arc.Open())
+        {
+            path.BeginFigure(new Point(x, -halfArc), false, false);
+            path.ArcTo(new Point(x, halfArc), new Size(RingRadius, RingRadius), 0, false, SweepDirection.Clockwise, true, false);
+        }
+        arc.Freeze();
+        return arc;
     }
 
     static (double Distance, double Opacity) Keyframe(double progress)
