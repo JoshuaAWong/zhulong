@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -14,11 +15,11 @@ namespace Zhulong.Desktop;
 internal sealed class ResourceDockWindow : Window
 {
     const double RailWidth = 12, RailHeight = 76, RailTrackHeight = 47, PanelWidth = 62, PanelHeight = 224, MeterTop = 7;
-    const double BurstMargin = 38, TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, OuterRippleSeconds = 1,
-        ResultSeconds = 1, BlendSeconds = .32, OuterSpinStart = SpinSeconds + RippleSeconds,
+    const double TransitionSeconds = .22, SpinSeconds = 1, RippleSeconds = 1, OuterRippleSeconds = 1,
+        ResultSeconds = 1, BlendSeconds = .32, PanelRestoreSeconds = .5, OuterSpinStart = SpinSeconds + RippleSeconds,
         AccelerationSeconds = OuterSpinStart + OuterRippleSeconds,
         CircleRadius = 22, CircleCenter = 24, RippleMaxScale = 6,
-        OuterRippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
+        RippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
     const string AccelerationHint = "点击太极整理白名单进程内存";
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
@@ -30,8 +31,9 @@ internal sealed class ResourceDockWindow : Window
 
     readonly Canvas scene, contents;
     readonly RectangleGeometry panelClip = new();
+    readonly ShapePath shell;
     readonly Grid rail;
-    readonly StackPanel details;
+    readonly StackPanel details, readings = new();
     readonly Rectangle dragon, progress, progressTrack;
     readonly TextBlock memory, cpu, cpuTemperature, commit, download, downloadUnit, upload, uploadUnit, accelerationStatus, waitingStatus;
     readonly Ellipse diskRim;
@@ -59,7 +61,7 @@ internal sealed class ResourceDockWindow : Window
     Point? dragStart;
     Point lastDragPoint;
     double dragAnchorY, dragLeft;
-    bool opened, rendering, expandedBounds, outerRippleBounds, dockRight = true, dragging;
+    bool opened, rendering, expandedBounds, dockRight = true, dragging;
 
     internal event Action? AccelerateRequested;
     internal event Action? OpenRequested;
@@ -82,7 +84,7 @@ internal sealed class ResourceDockWindow : Window
         UseLayoutRounding = true;
 
         scene = new Canvas { ClipToBounds = true };
-        var shell = new ShapePath { Data = panelClip, Fill = PanelBrush, Stroke = BorderBrushDark, StrokeThickness = 1 };
+        shell = new ShapePath { Data = panelClip, Fill = PanelBrush, Stroke = BorderBrushDark, StrokeThickness = 1 };
         scene.Children.Add(shell);
         contents = new Canvas { Clip = panelClip };
         scene.Children.Add(contents);
@@ -139,7 +141,8 @@ internal sealed class ResourceDockWindow : Window
         feedbackLayer = new Grid
         {
             Visibility = Visibility.Collapsed, Opacity = 0, RenderTransform = textBlendScale,
-            RenderTransformOrigin = new Point(.5, .5), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
+            RenderTransformOrigin = new Point(.5, .5), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false,
+            Effect = new DropShadowEffect { Color = Colors.Black, ShadowDepth = 0, BlurRadius = 3, Opacity = 1 }
         };
         waitingStatus = FeedbackText("整理中…");
         accelerationStatus = FeedbackText("");
@@ -165,17 +168,18 @@ internal sealed class ResourceDockWindow : Window
 
         memory = Text("—", 19, TextBrush, true);
         memory.HorizontalAlignment = HorizontalAlignment.Center;
-        details.Children.Add(memory);
+        readings.Children.Add(memory);
         var memoryLabel = Text("物理内存", 10, MutedBrush);
         memoryLabel.HorizontalAlignment = HorizontalAlignment.Center;
-        details.Children.Add(memoryLabel);
-        details.Children.Add(new Border { Height = 1, Background = BorderBrushDark, Margin = new Thickness(7, 9, 7, 6) });
+        readings.Children.Add(memoryLabel);
+        readings.Children.Add(new Border { Height = 1, Background = BorderBrushDark, Margin = new Thickness(7, 9, 7, 6) });
         cpu = AddMetric("CPU");
         cpuTemperature = AddMetric("温度");
         cpuTemperature.ToolTip = "处理器温度";
         commit = AddMetric("提交");
         (download, downloadUnit) = AddNetworkMetric("↓");
         (upload, uploadUnit) = AddNetworkMetric("↑");
+        details.Children.Add(readings);
         contents.Children.Add(details);
         Content = scene;
         resultTimer.Tick += (_, _) => BeginRestore();
@@ -284,7 +288,6 @@ internal sealed class ResourceDockWindow : Window
     {
         accelerationPhase = AccelerationPhase.Waiting;
         ripple.Opacity = 0;
-        if (dragStart is null) SetOuterRippleBounds(false);
         DrawFeedback(1, now, motion);
     }
 
@@ -302,7 +305,6 @@ internal sealed class ResourceDockWindow : Window
         if (accelerationPhase == AccelerationPhase.Waiting && mix == 1)
         {
             accelerationPhase = AccelerationPhase.Result;
-            meterButton.ToolTip = accelerationResult;
             resultTimer.Start();
         }
     }
@@ -317,11 +319,13 @@ internal sealed class ResourceDockWindow : Window
         UpdateRendering();
     }
 
-    static double EaseBlend(double elapsed)
+    static double EaseBlend(double elapsed, double duration = BlendSeconds)
     {
-        var progress = Math.Clamp(elapsed / BlendSeconds, 0, 1);
+        var progress = Math.Clamp(elapsed / duration, 0, 1);
         return progress * progress * (3 - 2 * progress);
     }
+
+    void SetPanelOpacity(double opacity) => shell.Opacity = readings.Opacity = bagua.Opacity = opacity;
 
     void ClearAcceleration()
     {
@@ -336,7 +340,7 @@ internal sealed class ResourceDockWindow : Window
         ripple.Opacity = 0;
         diskSurface.Opacity = 1;
         diskBlendScale.ScaleX = diskBlendScale.ScaleY = 1;
-        if (dragStart is null) SetOuterRippleBounds(false);
+        SetPanelOpacity(1);
         if (IsVisible && dragStart is null && !dockMenu.IsOpen && !PointerOnDock()) SetExpanded(false);
         UpdateRendering();
     }
@@ -381,7 +385,6 @@ internal sealed class ResourceDockWindow : Window
         dragStart = null;
         dragging = false;
         if (IsMouseCaptured) ReleaseMouseCapture();
-        if (accelerationPhase != AccelerationPhase.Animating) SetOuterRippleBounds(false);
         SetExpanded(pointerOnPanel);
     }
 
@@ -454,12 +457,15 @@ internal sealed class ResourceDockWindow : Window
         if (IsVisible && !motion)
         {
             var now = Stopwatch.GetTimestamp();
+            SetPanelOpacity(1);
             if (accelerationPhase == AccelerationPhase.Animating) FinishBurst(now, false);
             else if (accelerationPhase == AccelerationPhase.Waiting && accelerationResult is not null) DrawFeedback(1, now, false);
             else if (accelerationPhase == AccelerationPhase.Restoring) ClearAcceleration();
         }
-        bagua.SetActive(motion && opened && meterButton.IsMouseOver &&
-            accelerationPhase == AccelerationPhase.Idle && !dockMenu.IsOpen);
+        // 点击时留住当前的八卦和光环，跟随面板渐隐，期间停止发射新字符。
+        var fadingBagua = accelerationPhase == AccelerationPhase.Animating && bagua.Active && bagua.Opacity > 0;
+        var hovering = accelerationPhase == AccelerationPhase.Idle && meterButton.IsMouseOver && !dockMenu.IsOpen;
+        bagua.SetActive(motion && opened && (fadingBagua || hovering));
         var animate = motion &&
             (move.Pending || FeedbackMoving ||
                 bagua.Active || (opened && memoryPercent.HasValue && accelerationPhase == AccelerationPhase.Idle));
@@ -534,16 +540,21 @@ internal sealed class ResourceDockWindow : Window
         else if (accelerationPhase == AccelerationPhase.Waiting && accelerationResult is not null) DrawFeedback(1, now);
         else if (accelerationPhase == AccelerationPhase.Restoring)
         {
-            var reveal = 1 - EaseBlend(Stopwatch.GetElapsedTime(restoreStarted, now).TotalSeconds);
-            if (reveal > 0) DrawFeedback(reveal, now);
+            var elapsed = Stopwatch.GetElapsedTime(restoreStarted, now).TotalSeconds;
+            if (elapsed < PanelRestoreSeconds)
+            {
+                DrawFeedback(1 - EaseBlend(elapsed), now);
+                SetPanelOpacity(EaseBlend(elapsed, PanelRestoreSeconds));
+            }
             else ClearAcceleration();
         }
         UpdateRendering();
-        bagua.Advance(dt);
+        if (accelerationPhase == AccelerationPhase.Idle) bagua.Advance(dt);
     }
 
     void UpdateAccelerationAnimation(double elapsed)
     {
+        SetPanelOpacity(1 - EaseBlend(elapsed, SpinSeconds));
         if (elapsed < SpinSeconds) return;
         double scale, opacity;
         if (elapsed < OuterSpinStart)
@@ -555,7 +566,6 @@ internal sealed class ResourceDockWindow : Window
         }
         else
         {
-            if (dragStart is null) SetOuterRippleBounds(true);
             var progress = Math.Min(1, (elapsed - OuterSpinStart) / OuterRippleSeconds);
             // 上一段末端每秒增加 1.5 倍，第三秒以两倍末速从 3 连续扩到 6。
             scale = 3 + (RippleMaxScale - 3) * progress;
@@ -579,16 +589,6 @@ internal sealed class ResourceDockWindow : Window
         return (until - from - boostSeconds) * idleSpeed + boostSeconds * averageBoostSpeed;
     }
 
-    void SetOuterRippleBounds(bool expanded)
-    {
-        if (outerRippleBounds == expanded) return;
-        outerRippleBounds = expanded;
-        if (!expandedBounds) return;
-        SetWindowBounds(true);
-        // 原生窗口先移动，当前渲染帧也需应用内部坐标，避免扩散中心偏移一帧。
-        UpdateLayout();
-    }
-
     void SetWindowBounds(bool expand) => SetWindowBounds(expand, null);
 
     void SetWindowBounds(bool expand, double? dragX)
@@ -597,7 +597,8 @@ internal sealed class ResourceDockWindow : Window
         var height = expand ? PanelHeight : RailHeight;
         var visualTop = Math.Clamp(anchorY - height / 2, workArea.Top,
             Math.Max(workArea.Top, workArea.Bottom - height));
-        var margin = expand ? (outerRippleBounds ? OuterRippleMargin : BurstMargin) : 0;
+        // 展开时预留最大扩散范围，整理期间无需重建透明窗口的合成表面。
+        var margin = expand ? RippleMargin : 0;
         var width = expand ? PanelWidth + margin : RailWidth;
         Width = width;
         Height = height + margin;
@@ -685,7 +686,7 @@ internal sealed class ResourceDockWindow : Window
         row.Children.Add(arrow);
         row.Children.Add(amount);
         row.Children.Add(unit);
-        details.Children.Add(row);
+        readings.Children.Add(row);
         return (amount, unit);
     }
 
@@ -701,7 +702,7 @@ internal sealed class ResourceDockWindow : Window
         {
             Child = right, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Right
         });
-        details.Children.Add(row);
+        readings.Children.Add(row);
         return right;
     }
 
@@ -826,6 +827,8 @@ internal sealed class ResourceDockWindow : Window
             dock.ApplyNetwork(null);
             check(dock.download.Text == "—" && dock.upload.Text == "—" && dock.downloadUnit.Text == "" &&
                 dock.uploadUnit.Text == "", "网速未知时应移除旧单位");
+            var openedSize = new Size(dock.Width, dock.Height);
+            var openedPosition = new Point(dock.Left, dock.Top);
             var accelerations = 0;
             dock.AccelerateRequested += () => accelerations++;
             dock.ActivateAcceleration();
@@ -834,17 +837,19 @@ internal sealed class ResourceDockWindow : Window
             if (SystemParameters.ClientAreaAnimation)
             {
                 check(dock.rendering && dock.diskRotation.Angle > 0, "展开后原生渲染应使太极旋转");
-                dock.UpdateAccelerationAnimation(.99);
-                check(dock.ripple.Opacity == 0 && dock.feedbackLayer.Visibility == Visibility.Collapsed,
-                    "首秒旋转加速期间仍只显示太极");
+                dock.UpdateAccelerationAnimation(.5);
+                check(dock.shell.Opacity == .5 && dock.readings.Opacity == .5 && dock.bagua.Opacity == .5 && dock.diskSurface.Opacity == 1 &&
+                    dock.ripple.Opacity == 0 && dock.feedbackLayer.Visibility == Visibility.Collapsed,
+                    "首秒应淡出挂件底板、读数和悬停光效，保留完整的太极");
                 dock.UpdateAccelerationAnimation(1.5);
-                check(dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity == .36 &&
+                check(dock.shell.Opacity == 0 && dock.readings.Opacity == 0 && dock.ripple.Source == dock.disk.Source && dock.ripple.Opacity == .36 &&
                     dock.rippleScale.ScaleX == 2, "扩散半程应到两倍大小并逐渐淡出");
                 var meterOrigin = new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop);
                 dock.UpdateAccelerationAnimation(2);
-                check(dock.rippleScale.ScaleX == 3 && dock.ripple.Opacity == .24 && dock.outerRippleBounds &&
+                check(dock.rippleScale.ScaleX == 3 && dock.ripple.Opacity == .24 &&
+                    openedSize == new Size(dock.Width, dock.Height) && openedPosition == new Point(dock.Left, dock.Top) &&
                     meterOrigin == new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop),
-                    "第三秒开始尺寸和透明度须连续，扩展透明区域时保持面板位置");
+                    "第三秒开始扩散时，原生窗口和太极位置须保持稳定");
                 dock.UpdateAccelerationAnimation(2.5);
                 check(dock.rippleScale.ScaleX == 4.5 && dock.ripple.Opacity == .12 &&
                     dock.panelLeft + PanelWidth / 2 >= CircleRadius * RippleMaxScale &&
@@ -855,10 +860,10 @@ internal sealed class ResourceDockWindow : Window
                     dock.ripple.Opacity > 0 && dock.waitingStatus.Opacity == 1 && !dock.resultTimer.IsEnabled,
                     "最后一段扩散中太极与等待文字应交叠可见");
                 dock.UpdateAccelerationAnimation(3);
-                check(dock.rippleScale.ScaleX == RippleMaxScale && dock.ripple.Opacity == 0 && !dock.outerRippleBounds &&
-                    dock.Width == PanelWidth + BurstMargin &&
+                check(dock.rippleScale.ScaleX == RippleMaxScale && dock.ripple.Opacity == 0 &&
+                    openedSize == new Size(dock.Width, dock.Height) && openedPosition == new Point(dock.Left, dock.Top) &&
                     meterOrigin == new Point(dock.Left + dock.panelLeft, dock.Top + dock.panelTop),
-                    "第三秒扩散到六倍后淡出，恢复面板边界和位置");
+                    "扩散到六倍后淡出，原生窗口须保持稳定直到恢复结束");
             }
             check(dock.waitingStatus.Text == "整理中…" && dock.feedbackLayer.Opacity == 1 && dock.diskSurface.Opacity == 0 &&
                 !dock.resultTimer.IsEnabled, "没有结果时显示等待文字并延后计时");
@@ -870,7 +875,8 @@ internal sealed class ResourceDockWindow : Window
                 PumpFrames(420);
             }
             check(dock.accelerationStatus.Text == "已整理\n2.42 G" && dock.accelerationStatus.Opacity == 1 &&
-                dock.waitingStatus.Opacity == 0 && !dock.rendering && dock.resultTimer.IsEnabled,
+                dock.waitingStatus.Opacity == 0 && !dock.rendering && dock.resultTimer.IsEnabled && dock.meterButton.ToolTip is null &&
+                (!SystemParameters.ClientAreaAnimation || (dock.shell.Opacity == 0 && dock.readings.Opacity == 0)),
                 "完全可读的整理结果应在太极原位独立计时且无逐帧绘制");
             PumpFrames(500);
             check(dock.feedbackLayer.Opacity == 1 && dock.accelerationStatus.Opacity == 1, "停留期间结果文字应清晰可见");
@@ -879,11 +885,13 @@ internal sealed class ResourceDockWindow : Window
             {
                 PumpFrames(140);
                 check(dock.feedbackLayer.Opacity is > 0 and < 1 && dock.diskSurface.Opacity is > 0 and < 1 &&
+                    dock.shell.Opacity is > 0 and < 1 && dock.shell.Opacity == dock.readings.Opacity &&
                     Math.Abs(dock.feedbackLayer.Opacity + dock.diskSurface.Opacity - 1) < .001, "退场文字与重新显现的太极应同时可见");
-                PumpFrames(300);
+                PumpFrames(420);
             }
             check(dock.feedbackLayer.Visibility == Visibility.Collapsed && dock.diskSurface.Opacity == 1 &&
-                dock.accelerationPhase == AccelerationPhase.Idle, "结果结束后恢复太极并重新允许点击");
+                dock.accelerationPhase == AccelerationPhase.Idle && dock.shell.Opacity == 1 && dock.readings.Opacity == 1,
+                "结果结束后恢复太极和读数并重新允许点击");
             dock.bagua.SetActive(true);
             dock.bagua.Advance(.2);
             check(dock.bagua.GlyphCount == 1 && !dock.bagua.IsHitTestVisible, "八卦首帧应发射一枚且不拦截太极点击");
