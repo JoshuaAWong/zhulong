@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Zhulong.Core;
@@ -238,7 +239,32 @@ public sealed class RuntimeHost : IDisposable
             var provider=providers.FirstOrDefault(item=>(string?)item?["tool"]==(string?)status?["tool"]);
             if(provider is not null)status!["state"]=(string?)provider["state"];
         }
+        PreserveTokenPrecision(result);
         return JsonSerializer.SerializeToElement(result);
+    }
+
+    internal static void PreserveTokenPrecision(JsonNode? node)
+    {
+        if (node is JsonArray array)
+        {
+            foreach (var item in array) PreserveTokenPrecision(item);
+        }
+        else if (node is JsonObject obj)
+        {
+            List<(string Key, string Value)>? exact = null;
+            foreach (var (key, value) in obj)
+            {
+                var tokenField = key is "tokens" or "lifetime_tokens" or "account_tokens" or "total_tokens" or
+                    "input_tokens" or "cached_input_tokens" or "output_tokens" or "reasoning_tokens" or "cache_write_tokens";
+                if (key is "used_units" or "total_units")
+                    tokenField = obj["unit"]?.GetValue<string>()?.ToLowerInvariant() is "token" or "tokens";
+                if (tokenField && value is JsonValue number && number.TryGetValue<long>(out var amount) && amount > 9_007_199_254_740_991L)
+                    (exact ??= []).Add((key + "_exact", amount.ToString(CultureInfo.InvariantCulture)));
+                else PreserveTokenPrecision(value);
+            }
+            if (exact is not null)
+                foreach (var (key, value) in exact) obj[key] = value;
+        }
     }
     public AlertDecision? FindAction(string id){lock(decisionGate)return pending.GetValueOrDefault(id)??manualActions.GetValueOrDefault(id);}
     public Task<ActionResult> ExecuteConfirmedAsync(string id)=>RunManual(()=>ExecuteConfirmedCoreAsync(id));

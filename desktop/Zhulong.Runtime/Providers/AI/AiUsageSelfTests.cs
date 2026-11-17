@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using Zhulong.Runtime.Application;
 
 namespace Zhulong.Runtime.Providers.AI;
 
@@ -44,6 +46,16 @@ public static class AiUsageSelfTests
             assertions++;
             if (!condition) throw new InvalidOperationException(message);
         }
+        var exact = JsonNode.Parse("""
+            {"report":{"totals":{"total_tokens":9223372036854775807,"input_tokens":9007199254740991,"output_tokens":null}},
+             "windows":[{"unit":"Token","used_units":9007199254740993},{"unit":"credits","used_units":9007199254740993}]}
+            """)!;
+        RuntimeHost.PreserveTokenPrecision(exact);
+        var totals = exact["report"]!["totals"]!;
+        Check(totals["total_tokens"]!.GetValue<long>() == long.MaxValue && totals["total_tokens_exact"]!.GetValue<string>() == "9223372036854775807" &&
+            totals["input_tokens_exact"] is null && totals["output_tokens_exact"] is null &&
+            exact["windows"]![0]!["used_units_exact"]!.GetValue<string>() == "9007199254740993" &&
+            exact["windows"]![1]!["used_units_exact"] is null, "仅为超出浏览器安全整数范围的 Token 增加精确数字");
         var test = Path.GetFullPath(Path.Combine(directory, "ai-" + Guid.NewGuid().ToString("N")));
         var home = Path.Combine(test, "codex");
         var logs = Path.Combine(home, "sessions");

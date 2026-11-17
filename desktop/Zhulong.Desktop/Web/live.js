@@ -533,6 +533,42 @@
   quotaSection.append(node("h2", "套餐额度与重置")); usageLayout.before(quotaSection);
   const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）", deepseek: "DeepSeek" };
   let selectedTool = "codex";
+  const tokenUnitKey = "zhulong-token-units";
+  const tokenUnits = { chinese: [[8, "亿"], [7, "千万"], [6, "百万"]], international: [[9, "B"], [6, "M"]] };
+  const tokenUnitPicker = node("select");
+  tokenUnitPicker.id = "tokenUnitPicker";
+  for (const [value, label] of [["chinese", "亿 / 千万 / 百万"], ["international", "B / M"]]) {
+    const option = node("option", label);
+    option.value = value;
+    tokenUnitPicker.append(option);
+  }
+  try { if (localStorage.getItem(tokenUnitKey) === "international") tokenUnitPicker.value = "international"; } catch { /* 存储不可用时沿用默认单位。 */ }
+  const groupDigits = digits => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const tokenQuota = unit => /^tokens?$/i.test(unit);
+  function formatTokens(digits) {
+    const unit = tokenUnits[tokenUnitPicker.value].find(([places]) => digits.length > places);
+    if (!unit) return groupDigits(digits);
+    const [places, label] = unit;
+    return `${groupDigits(digits.slice(0, -places))} ${label} ${groupDigits(digits.slice(-places))}`;
+  }
+  function tokenAmount(row, key, missing = "—") {
+    const amount = row?.[key + "_exact"] ?? row?.[key];
+    const digits = typeof amount === "string" && /^\d+$/.test(amount) ? amount.replace(/^0+(?=\d)/, "")
+      : Number.isSafeInteger(amount) && amount >= 0 ? String(amount) : null;
+    const value = node("span", digits === null ? missing : formatTokens(digits), "live-token-amount");
+    if (digits !== null) {
+      value.dataset.tokenCount = digits;
+      value.title = groupDigits(digits);
+    }
+    return value;
+  }
+  tokenUnitPicker.addEventListener("change", () => {
+    try { localStorage.setItem(tokenUnitKey, tokenUnitPicker.value); } catch { /* 本页仍可切换。 */ }
+    all("[data-token-count]").forEach(value => { value.textContent = formatTokens(value.dataset.tokenCount); });
+  });
+  const usageToolbar = node("div", undefined, "usage-toolbar");
+  const tokenUnitLabel = node("label", "Token 单位", "live-token-unit");
+  tokenUnitLabel.append(tokenUnitPicker);
   const toolPicker = node("div", undefined, "usage-tool-picker");
   toolPicker.setAttribute("role", "group");
   toolPicker.setAttribute("aria-label", "AI 工具");
@@ -549,7 +585,8 @@
   const providerSettings = node("button", "账户来源设置", "text-button live-refresh");
   providerSettings.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
   const usageHeading = $("#usage .page-title>div");
-  usageHeading.append(toolPicker);
+  usageToolbar.append(toolPicker, tokenUnitLabel);
+  usageHeading.append(usageToolbar);
   if (nativeBridge) usageHeading.append(refreshButton, accountButton, providerSettings);
   usageHeading.append(usageStatus);
   function sessionTable(rows, metadata) {
@@ -558,7 +595,9 @@
     head.append(header); table.append(head, body);
     rows.forEach(item => {
       const row = node("tr");
-      [String(item.session_id || "未知").slice(0, 16), number(item.total_tokens, 0), metadata ? "状态库快照" : item.model || "未知", date(metadata ? item.observed_at : item.last_usage_at)].forEach(value => row.append(node("td", value)));
+      [String(item.session_id || "未知").slice(0, 16), tokenAmount(item, "total_tokens"), metadata ? "状态库快照" : item.model || "未知", date(metadata ? item.observed_at : item.last_usage_at)].forEach(value => {
+        const cell = node("td"); cell.append(value); row.append(cell);
+      });
       body.append(row);
     });
     if (!rows.length) { const row = node("tr"), cell = node("td", "尚无可用记录"); cell.colSpan = 4; row.append(cell); body.append(row); }
@@ -582,6 +621,7 @@
     usage = value; quotaRows = [];
     const walletOnly = selectedTool === "deepseek";
     refreshButton.hidden = usageSummary.hidden = usageLayout.hidden = walletOnly;
+    tokenUnitLabel.hidden = walletOnly;
     accountButton.hidden = selectedTool !== "codex";
     providerSettings.hidden = selectedTool === "codex";
     for (const button of toolPicker.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.usageTool === selectedTool));
@@ -589,16 +629,19 @@
     value = wrapper ? wrapper.report : value;
     const totals = value?.totals;
     const accountUsage = wrapper?.account_usage, accountQuota = wrapper?.account_quota;
-    text(".ai-summary h2", "Codex 已采集用量"); text(".ai-summary p", number(totals?.total_tokens, 0) + " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
+    text(".ai-summary h2", "Codex 已采集用量");
+    $(".ai-summary p").replaceChildren(tokenAmount(totals, "total_tokens"), " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
     text(".ai-price strong", "—"); text(".ai-price>span", "未估算费用");
     text("#usage .page-title h2", "Codex 会话账本"); text("#usage .page-title>div>p:nth-of-type(2)", "请求明细与会话累计快照分别展示，不相加。");
     const summary = all(".usage-summary>div");
     ["账户已消耗 Token", "本机请求累计 Token", "本机会话快照"].forEach((label, index) => summary[index].querySelector("span").textContent = label);
-    [number(accountUsage?.lifetime_tokens, 0), number(totals?.total_tokens, 0), number(value?.metadata_session_count, 0)].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
+    [tokenAmount(accountUsage, "lifetime_tokens"), tokenAmount(totals, "total_tokens"), number(value?.metadata_session_count, 0)].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
     ledger.replaceChildren(node("h2", "请求明细汇总"), sessionTable(value?.sessions || [], false), node("p", "每会话包含回放/继承历史，总览按唯一事件记账。最多展示100行。", "fine-print"), node("h2", "桌面会话累计快照"), sessionTable(value?.metadata_sessions || [], true), node("p", "累计快照没有输入输出拆分，不用于今日账单；不与请求明细相加。", "fine-print"));
     const breakdown = $(".token-breakdown"); breakdown.replaceChildren(node("h2", "已采集 Token 构成"));
     const dl = node("dl");
-    [["输入（包含缓存）", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出（包含推理）", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => { const pair = node("div"); pair.append(node("dt", name), node("dd", number(amount, 0))); dl.append(pair); });
+    [["输入（包含缓存）", "input_tokens"], ["其中缓存读取", "cached_input_tokens"], ["输出（包含推理）", "output_tokens"], ["其中推理", "reasoning_tokens"]].forEach(([name, key]) => {
+      const pair = node("div"), value = node("dd"); value.append(tokenAmount(totals, key)); pair.append(node("dt", name), value); dl.append(pair);
+    });
     breakdown.append(dl, node("p", "本机缓存与推理为子集。账户累计与本机请求累计分别统计。", "fine-print"));
     renderAccountUsage(breakdown, accountUsage);
     renderQuota(accountQuota, value?.quota);
@@ -619,8 +662,8 @@
     } else {
       const rows = node("dl", undefined, "live-account-days");
       [...days].sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).slice(0, 7).forEach(day => {
-        const row = node("div");
-        row.append(node("dt", day.start_date || "未知日期"), node("dd", number(day.tokens, 0)));
+        const row = node("div"), value = node("dd");
+        value.append(tokenAmount(day, "tokens")); row.append(node("dt", day.start_date || "未知日期"), value);
         rows.append(row);
       });
       container.append(rows);
@@ -639,7 +682,10 @@
     row.append(summary);
     if (Number.isFinite(window.used_units) || Number.isFinite(window.total_units)) {
       const unit = window.unit ? " " + window.unit : "";
-      row.append(node("p", "已用 " + number(window.used_units, 2) + " / 总额 " + number(window.total_units, 2) + unit));
+      const amount = node("p");
+      const showUnits = key => tokenQuota(window.unit) ? tokenAmount(window, key) : number(window[key], 2);
+      amount.append("已用 ", showUnits("used_units"), " / 总额 ", showUnits("total_units"), unit);
+      row.append(amount);
     }
     row.append(node("p", "重置时间 " + date(window.resets_at)), clock);
     quotaRows.push({ target: clock, reset: window.resets_at, label, summary });
@@ -708,14 +754,14 @@
       const summary = all(".usage-summary>div");
       const count = report?.session_count ?? report?.sessions?.length;
       ["待归属 Token", Number.isFinite(report?.session_count) ? "待归属会话" : "已列出会话记录", "账户来源"].forEach((item, index) => summary[index].querySelector("span").textContent = item);
-      [number(totals?.total_tokens, 0), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").textContent = amount);
+      [tokenAmount(totals, "total_tokens"), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
       ledger.replaceChildren(node("h2", "本机待归属会话"), sessionTable(report?.sessions || [], false),
         node("p", "会话没有可确认的账户归属。最多显示 100 行。", "fine-print"));
       const breakdown = $(".token-breakdown");
       breakdown.replaceChildren(node("h2", "待归属 Token 构成"));
       const dl = node("dl");
-      [["输入", totals?.input_tokens], ["其中缓存读取", totals?.cached_input_tokens], ["输出", totals?.output_tokens], ["其中推理", totals?.reasoning_tokens]].forEach(([name, amount]) => {
-        const row = node("div"); row.append(node("dt", name), node("dd", number(amount, 0))); dl.append(row);
+      [["输入", "input_tokens"], ["其中缓存读取", "cached_input_tokens"], ["输出", "output_tokens"], ["其中推理", "reasoning_tokens"]].forEach(([name, key]) => {
+        const row = node("div"), value = node("dd"); value.append(tokenAmount(totals, key)); row.append(node("dt", name), value); dl.append(row);
       });
       breakdown.append(dl);
     }
@@ -761,12 +807,17 @@
         cardGroup.append(card);
         continue;
       }
-      card.append(node("p", "账户累计 " + (Number.isFinite(account.account_tokens) ? number(account.account_tokens, 0) + " Token" : "未知"), "fine-print"));
+      const accountTotal = node("p", "账户累计 ", "fine-print"), count = tokenAmount(account, "account_tokens", "未知");
+      accountTotal.append(count);
+      if (count.dataset.tokenCount !== undefined) accountTotal.append(" Token");
+      card.append(accountTotal);
       windows.forEach(window => quotaWindow(card, window));
       if (!windows.length) card.append(node("p", "剩余额度和重置时间未知。", "fine-print"));
       if (account.local_report) {
         const detail = node("details", undefined, "provider-local-sessions");
-        detail.append(node("summary", "此来源本机累计 " + number(account.local_report.totals?.total_tokens, 0) + " Token"), sessionTable(account.local_report.sessions || [], false));
+        const summary = node("summary", "此来源本机累计 ");
+        summary.append(tokenAmount(account.local_report.totals, "total_tokens"), " Token");
+        detail.append(summary, sessionTable(account.local_report.sessions || [], false));
         card.append(detail);
       } else if (account.local_state) card.append(node("p", "本机来源 · " + providerState(account.local_state, false), "fine-print"));
       cardGroup.append(card);

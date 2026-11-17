@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -21,6 +22,7 @@ internal sealed class ResourceDockWindow : Window
         CircleRadius = 22, CircleCenter = 24, RippleMaxScale = 6,
         RippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
     const string AccelerationHint = "点击太极整理白名单进程内存";
+    const int ExtendedStyle = -20, ToolWindowStyle = 0x80, AppWindowStyle = 0x40000;
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
     static readonly Brush PanelBrush = FrozenBrush(49, 49, 49), BorderBrushDark = FrozenBrush(77, 77, 76),
@@ -192,7 +194,14 @@ internal sealed class ResourceDockWindow : Window
         {
             if (IsVisible && !dockMenu.IsOpen && accelerationPhase == AccelerationPhase.Idle) SetExpanded(PointerOnDock());
         }));
-        SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(NoMouseActivation);
+        SourceInitialized += (_, _) =>
+        {
+            var handle = new WindowInteropHelper(this).Handle;
+            // 让任务切换器按辅助工具窗处理，鼠标激活仍由拖动规则决定。
+            var style = GetWindowLong(handle, ExtendedStyle);
+            SetWindowLong(handle, ExtendedStyle, (style | ToolWindowStyle) & ~AppWindowStyle);
+            HwndSource.FromHwnd(handle)?.AddHook(NoMouseActivation);
+        };
         MouseEnter += (_, _) => { if (dragStart is null && !dockMenu.IsOpen) SetExpanded(true); };
         MouseLeave += (_, _) =>
         {
@@ -722,6 +731,12 @@ internal sealed class ResourceDockWindow : Window
         return new IntPtr(trigger == leftButtonDown && !meterButton.IsMouseOver && PointerOnDock() ? activate : noActivate);
     }
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", ExactSpelling = true)]
+    static extern int GetWindowLong(IntPtr window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", ExactSpelling = true)]
+    static extern int SetWindowLong(IntPtr window, int index, int value);
+
     static Brush CreateJadeMask()
     {
         using var stream = Application.GetResourceStream(new Uri("Assets/zhulong-jade-mask.png", UriKind.Relative)).Stream;
@@ -806,6 +821,8 @@ internal sealed class ResourceDockWindow : Window
         {
             dock.ApplyLive(new(DateTimeOffset.UtcNow, 20, 85, 8, 10));
             dock.Show();
+            var style = GetWindowLong(new WindowInteropHelper(dock).Handle, ExtendedStyle);
+            check((style & (ToolWindowStyle | AppWindowStyle)) == ToolWindowStyle, "挂件须以辅助工具窗从任务栏和窗口切换器排除");
             dock.SetExpanded(true);
             PumpFrames(380);
             check(dock.panelClip.Rect.Size == new Size(PanelWidth, PanelHeight) && dock.memory.Text == "85%" && dock.cpu.Text == "20%" &&

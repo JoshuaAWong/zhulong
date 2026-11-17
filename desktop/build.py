@@ -12,7 +12,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "desktop" / "Zhulong.Desktop"
 WEB_SOURCE = PROJECT / "Web"
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 
 
 def main():
