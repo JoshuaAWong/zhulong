@@ -16,13 +16,15 @@ internal static class ZCodeAccountClient
     internal static Task<ProviderAccountReading> ReadAsync(string key, bool domestic, CancellationToken token) =>
         ReadAsync(Client, key, domestic, token);
 
+    internal static bool IsValidKey(string key) => key.Length is > 0 and <= 2048 &&
+        !key.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
+
     internal static async Task<ProviderAccountReading> ReadAsync(HttpClient client, string key, bool domestic,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(key)) return Failed("not_configured");
-        if (key.Length > 2048 || key.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
-            return Failed("auth_rejected");
+        if (!IsValidKey(key)) return Failed("auth_rejected");
         using var request = new HttpRequestMessage(HttpMethod.Get,
             (domestic ? "https://open.bigmodel.cn" : "https://api.z.ai") + QuotaPath);
         // 官方插件传原始 Key。凭据只通过固定主机的请求头发送。

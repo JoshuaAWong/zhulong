@@ -8,10 +8,11 @@ using System.Text.Json;
 namespace Zhulong.Runtime.Providers.AI;
 
 public sealed record AiAccountPreferences(string KimiPrimary = "当前登录", string KimiSecondary = "第二账号",
-    string Glm = "GLM 套餐", bool GlmDomestic = true, Guid? GlmKeyRevision = null);
+    string Glm = "GLM 套餐", bool GlmDomestic = true, Guid? GlmKeyRevision = null, string DeepSeek = "DeepSeek API 钱包");
 
 public static class AiAccountProfiles
 {
+    static readonly object ProfileGate = new();
     public static string DefaultKimiHome => Path.GetFullPath(Environment.GetEnvironmentVariable("KIMI_CODE_HOME") ??
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".kimi-code"));
     public static string SecondaryKimiHome(string dataDirectory) => Path.Combine(dataDirectory, "kimi-secondary");
@@ -32,23 +33,48 @@ public static class AiAccountProfiles
 
     public static AiAccountPreferences Load(string dataDirectory)
     {
-        var path = Path.Combine(dataDirectory, "ai-profiles.json");
-        if (!File.Exists(path)) return new();
-        return JsonSerializer.Deserialize<AiAccountPreferences>(File.ReadAllText(path, Encoding.UTF8)) ?? new();
+        lock (ProfileGate)
+        {
+            var path = Path.Combine(dataDirectory, "ai-profiles.json");
+            if (!File.Exists(path)) return new();
+            return JsonSerializer.Deserialize<AiAccountPreferences>(File.ReadAllText(path, Encoding.UTF8)) ?? new();
+        }
     }
 
     public static void Save(string dataDirectory, AiAccountPreferences value, string? newGlmKey, bool removeGlmKey)
     {
+        if (newGlmKey is not null && !ZCodeAccountClient.IsValidKey(newGlmKey))
+            throw new ArgumentException("GLM Coding Plan API Key 格式不正确。", nameof(newGlmKey));
+        var changesKey = newGlmKey is not null || removeGlmKey;
+        if (changesKey) value = value with { GlmKeyRevision = Guid.NewGuid() };
+        lock (ProfileGate) SaveProfile(dataDirectory, value, "GLM", removeGlmKey ? null : newGlmKey, changesKey);
+    }
+
+    public static void SaveDeepSeekProfile(string dataDirectory, string label, string? newKey, bool removeKey)
+    {
+        if (newKey is not null && !DeepSeekAccountClient.IsValidKey(newKey))
+            throw new ArgumentException("DeepSeek API Key 格式不正确。", nameof(newKey));
+        lock (ProfileGate)
+        {
+            var value = Load(dataDirectory) with { DeepSeek = label };
+            SaveProfile(dataDirectory, value, "DeepSeek", removeKey ? null : newKey, removeKey || newKey is not null);
+        }
+    }
+
+    static void SaveProfile(string dataDirectory, AiAccountPreferences value, string provider, string? newKey, bool changesKey)
+    {
         var path = Path.Combine(dataDirectory, "ai-profiles.json");
         var temporary = path + ".tmp";
-        if (newGlmKey is not null || removeGlmKey) value = value with { GlmKeyRevision = Guid.NewGuid() };
         File.WriteAllText(temporary, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
-        if (newGlmKey is null && !removeGlmKey) { File.Move(temporary, path, true); return; }
-        var previous = ReadGlmKey(dataDirectory);
-        SetKey(dataDirectory, "GLM", newGlmKey);
+        if (!changesKey) { File.Move(temporary, path, true); return; }
+        var previous = ReadKey(dataDirectory, provider, out _);
+        SetKey(dataDirectory, provider, newKey, Guid.NewGuid().ToString("N"));
         try { File.Move(temporary, path, true); }
-        catch (IOException) { SetKey(dataDirectory, "GLM", previous); throw; }
-        catch (UnauthorizedAccessException) { SetKey(dataDirectory, "GLM", previous); throw; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            SetKey(dataDirectory, provider, previous);
+            throw;
+        }
     }
 
     public static bool HasGlmKey(string dataDirectory) => HasKey(dataDirectory, "GLM");
@@ -68,7 +94,10 @@ public static class AiAccountProfiles
         return true;
     }
 
-    internal static string? ReadGlmKey(string dataDirectory) => ReadKey(dataDirectory, "GLM", out _);
+    internal static (AiAccountPreferences Preferences, string? Key) ReadGlmProfile(string dataDirectory)
+    {
+        lock (ProfileGate) return (Load(dataDirectory), ReadKey(dataDirectory, "GLM", out _));
+    }
     internal static string? ReadDeepSeekKey(string dataDirectory, out string? version) =>
         ReadKey(dataDirectory, "DeepSeek", out version);
 

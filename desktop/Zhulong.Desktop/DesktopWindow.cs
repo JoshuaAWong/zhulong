@@ -26,12 +26,12 @@ internal sealed class DesktopWindow : Window
     HwndSource? source;
     Brush captionInk = SystemColors.WindowTextBrush;
     bool closed, pageReady, readoutSubscribed, nativeDrag;
-    int kimiUsageGeneration;
+    int aiUsageGeneration;
     public uint? BrowserPid { get; private set; }
     public event Action<string, object?>? Lifecycle;
     public event Action? ExitRequested;
     public event Action? SettingsRequested;
-    public event Action? AiSettingsRequested;
+    public event Action<string?>? AiSettingsRequested;
 
     public DesktopWindow(DataHub hub, string webDirectory, string profileDirectory)
     {
@@ -263,7 +263,12 @@ internal sealed class DesktopWindow : Window
             var hours = message.TryGetProperty("hours", out var hoursValue) ? hoursValue.GetInt32() : 24;
             object? result;
             if(api=="show-settings"){SettingsRequested?.Invoke();result=new{status="opened"};}
-            else if (api == "show-ai-settings") { AiSettingsRequested?.Invoke(); result = new { status = "opened" }; }
+            else if (api == "show-ai-settings")
+            {
+                if (metric is not (null or "kimi" or "zcode" or "deepseek")) throw new ArgumentException("未知的 AI 账户平台。");
+                AiSettingsRequested?.Invoke(metric);
+                result = new { status = "opened" };
+            }
             else if(api=="action")
             {
                 var decision=metric is null?null:hub.FindAction(metric);
@@ -279,12 +284,12 @@ internal sealed class DesktopWindow : Window
         { if (id.HasValue) Reply(new { id, error = error.Message }); }
     }
 
-    internal async Task RefreshKimiAccountsAsync(string? accountId)
+    internal async Task RefreshAiAccountsAsync(string? accountId)
     {
         if (closed || !pageReady) return;
-        var generation = ++kimiUsageGeneration;
+        var generation = ++aiUsageGeneration;
         var value = await hub.QueryAsync(accountId is null ? "usage" : "refresh-provider-account", accountId);
-        if (generation == kimiUsageGeneration) Reply(new { kind = "usage-updated", value });
+        if (generation == aiUsageGeneration) Reply(new { kind = "usage-updated", value });
     }
 
     void Reply(object message)

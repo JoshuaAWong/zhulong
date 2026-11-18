@@ -634,11 +634,9 @@
   const usageStatus = node("p", "等待读取本机记录", "fine-print live-usage-status");
   usageStatus.setAttribute("role", "status");
   const accountButton = node("button", "更新账户用量与额度", "text-button live-refresh");
-  const providerSettings = node("button", "账户来源设置", "text-button live-refresh");
-  providerSettings.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
   const usageHeading = $("#usage .page-title>div");
   usageToolbar.append(tokenUnitLabel);
-  if (nativeBridge) usageToolbar.append(refreshButton, accountButton, providerSettings);
+  if (nativeBridge) usageToolbar.append(refreshButton, accountButton);
   usageHeading.append(toolPicker, usageToolbar);
   usageHeading.append(usageStatus);
   function sessionTable(rows, metadata) {
@@ -662,20 +660,66 @@
       if (!remaining) {
         item.target.textContent = "已到记录的重置时间 · 待新快照确认";
         item.summary.textContent = item.label + " · 剩余未知";
+        setQuotaInkLevel(item.ink, null);
         return;
       }
       const days = Math.floor(remaining / 86400), hours = Math.floor(remaining % 86400 / 3600), minutes = Math.floor(remaining % 3600 / 60), seconds = remaining % 60;
       item.target.textContent = "还需 " + (days ? days + "天 " : "") + hours + "小时 " + minutes + "分 " + seconds + "秒";
     });
   }
+  let previousInkLevels = new Map();
+  const quotaInkObserver = new IntersectionObserver(entries => {
+    for (const { target, isIntersecting } of entries) {
+      target.toggleAttribute("data-in-view", isIntersecting);
+      if (!isIntersecting) continue;
+      const from = target.dataset.inkFrom;
+      delete target.dataset.inkFrom;
+      if (from !== undefined && !document.hidden && root.dataset.motion === "on") {
+        target.firstElementChild.animate(
+          [{ width: from + "%" }, { width: target.dataset.inkLevel + "%" }],
+          { duration: 480, easing: "ease-out" });
+      }
+    }
+  });
+
+  function setQuotaInkLevel(track, remaining) {
+    const level = Number.isFinite(remaining) ? Math.min(100, Math.max(0, remaining)) : null;
+    if (level === null) {
+      track.dataset.inkLevel = "unknown";
+      track.style.removeProperty("--quota-level");
+      delete track.dataset.inkFrom;
+      track.firstElementChild.getAnimations().forEach(animation => animation.cancel());
+      quotaInkObserver.unobserve(track);
+      track.removeAttribute("data-in-view");
+      return;
+    }
+    track.dataset.inkLevel = String(level);
+    track.style.setProperty("--quota-level", level + "%");
+  }
+
+  function quotaInk(remaining, key) {
+    const track = node("div", undefined, "quota-ink");
+    track.setAttribute("aria-hidden", "true");
+    track.append(node("span", undefined, "quota-ink-fill"));
+    setQuotaInkLevel(track, remaining);
+    if (key) track.dataset.quotaKey = key;
+    const level = track.dataset.inkLevel, previous = previousInkLevels.get(key);
+    if (level !== "unknown") {
+      if (previous !== undefined && previous !== "unknown" && previous !== level) track.dataset.inkFrom = previous;
+      if (track.dataset.inkFrom !== undefined || (level !== "0" && level !== "100")) quotaInkObserver.observe(track);
+    }
+    return track;
+  }
+
   function applyUsage(value) {
     const wrapper = value && Object.hasOwn(value, "report") ? value : null;
+    quotaInkObserver.disconnect();
+    previousInkLevels = new Map([...quotaSection.querySelectorAll("[data-quota-key]")].map(ink => [ink.dataset.quotaKey, ink.dataset.inkLevel]));
     usage = value; quotaRows = [];
     const walletOnly = selectedTool === "deepseek";
     refreshButton.hidden = usageSummary.hidden = usageLayout.hidden = walletOnly;
     tokenUnitLabel.hidden = walletOnly;
     accountButton.hidden = selectedTool !== "codex";
-    providerSettings.hidden = selectedTool === "codex";
     for (const button of toolPicker.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.usageTool === selectedTool));
     if (selectedTool !== "codex") { renderProviderUsage(wrapper?.provider_reports?.find(provider => provider.tool === selectedTool)); return; }
     value = wrapper ? wrapper.report : value;
@@ -723,15 +767,17 @@
     if (account?.fetched_at) container.append(node("p", "Codex 官方接口 · 更新于 " + date(account.fetched_at), "fine-print"));
     if (account?.state === "stale") container.append(node("p", "当前显示上次成功读取的账户用量。", "fine-print"));
   }
-  function quotaWindow(group, window) {
+  function quotaWindow(group, window, key) {
     const row = node("div", undefined, "live-quota-window"), clock = node("p", "等待计算", "live-countdown");
     const used = window.used_percent;
-    const remaining = window.remaining_percent;
+    const reset = Date.parse(window.resets_at);
+    const remaining = reset <= Date.now() ? null : window.remaining_percent;
     const knownNames = { limit5h: "5 小时窗口", limit7d: "7 天窗口", monthTotal: "本月总额度", monthCode: "本月代码额度" };
     const duration = knownNames[window.name] || (window.window_minutes === 10080 ? "7 天窗口" : window.window_minutes === 300 ? "5 小时窗口" : window.window_minutes ? number(window.window_minutes, 0) + " 分钟窗口" : window.name || "额度窗口");
     const label = duration + " · 已用 " + percentText(used);
     const summary = node("strong", label + " · 剩余 " + percentText(remaining));
-    row.append(summary);
+    const ink = quotaInk(remaining, key);
+    row.append(summary, ink);
     if (Number.isFinite(window.used_units) || Number.isFinite(window.total_units)) {
       const unit = window.unit ? " " + window.unit : "";
       const amount = node("p");
@@ -740,7 +786,7 @@
       row.append(amount);
     }
     row.append(node("p", "重置时间 " + date(window.resets_at)), clock);
-    quotaRows.push({ target: clock, reset: window.resets_at, label, summary });
+    quotaRows.push({ target: clock, reset: window.resets_at, label, summary, ink });
     group.append(row);
   }
   function renderQuota(account, snapshots) {
@@ -750,10 +796,11 @@
       const plan = account.plan_type ? String(account.plan_type) : "未知";
       quotaSection.append(node("p", "Codex 官方账户 · 套餐 " + plan + " · 更新于 " + date(account.fetched_at), "fine-print"));
       if (account.state === "stale") quotaSection.append(node("p", "当前显示上次成功读取的额度。", "fine-print"));
-      for (const limit of official) {
+      for (const [index, limit] of official.entries()) {
         const group = node("article", undefined, "live-quota-group");
         group.append(node("h3", limit.limit_name || limit.limit_id || "Codex"));
-        [limit.primary, limit.secondary].filter(Boolean).forEach(window => quotaWindow(group, window));
+        if (limit.primary) quotaWindow(group, limit.primary, JSON.stringify(["codex", limit.limit_id || index, "primary"]));
+        if (limit.secondary) quotaWindow(group, limit.secondary, JSON.stringify(["codex", limit.limit_id || index, "secondary"]));
         quotaSection.append(group);
       }
       return;
@@ -786,11 +833,19 @@
     };
     return labels[state] || (hasData ? "已读取" : "暂未获取数据");
   }
-  function renderWallet(card, balances, available) {
+  function renderWallet(card, balances, available, accountId) {
     for (const balance of balances) {
       const row = node("div", undefined, "live-quota-window");
+      const { topped_up_balance: toppedUp, granted_balance: granted } = balance;
       row.append(node("strong", balance.currency + " 总余额 " + number(balance.total_balance, 8)),
-        node("p", "充值余额 " + number(balance.topped_up_balance, 8) + " · 赠金余额 " + number(balance.granted_balance, 8)));
+        node("p", "充值余额 " + number(toppedUp, 8) + " · 赠金余额 " + number(granted, 8)));
+      const total = balance.total_balance, parts = toppedUp + granted;
+      if (Number.isFinite(toppedUp) && Number.isFinite(granted) && toppedUp >= 0 && granted >= 0 && parts > 0 &&
+          Number.isFinite(total) && Math.abs(total - parts) <= Math.max(1e-8, total * Number.EPSILON * 2)) {
+        const ink = quotaInk(toppedUp / parts * 100, JSON.stringify(["wallet", accountId, balance.currency]));
+        ink.classList.add("quota-ink-wallet");
+        row.append(ink, node("p", "余额构成 · 深墨为充值，淡墨为赠金", "fine-print quota-wallet-key"));
+      }
       card.append(row);
     }
     if (available === false) card.append(node("p", "余额不足以调用 API。", "fine-print"));
@@ -820,13 +875,14 @@
     const isKimi = selectedTool === "kimi";
     const hasKimiBindings = isKimi && accounts.some(account => account.source === "kimi_web_oauth");
     const cliWasOpen = quotaSection.querySelector(".provider-cli-sources")?.open;
-    quotaSection.replaceChildren(node("h2", walletOnly ? "钱包余额" : label + " 账户额度"));
-    if (isKimi && !hasKimiBindings && nativeBridge) {
-      const firstBinding = node("p", "绑定 Kimi 账号后，可分别查看每个账号的额度。", "fine-print");
-      const bind = node("button", "绑定 Kimi 账号", "text-button live-refresh");
-      bind.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
-      quotaSection.append(firstBinding, bind);
+    const quotaHeading = node("div", undefined, "live-quota-heading");
+    quotaHeading.append(node("h2", walletOnly ? "钱包余额" : label + " 账户额度"));
+    if (nativeBridge) {
+      const manage = node("button", "管理账户", "text-button");
+      manage.addEventListener("click", () => request("show-ai-settings", { metric: selectedTool }).catch(error => { usageStatus.textContent = error.message; }));
+      quotaHeading.append(manage);
     }
+    quotaSection.replaceChildren(quotaHeading);
     const cards = node("div", undefined, "provider-account-grid");
     const cliCards = hasKimiBindings ? node("div", undefined, "provider-account-grid") : null;
     for (const account of accounts) {
@@ -849,13 +905,13 @@
       const state = providerState(account.state, windows.length > 0 || balances.length > 0 || Number.isFinite(account.account_tokens));
       card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", kimi_web_oauth: "Kimi 账号授权", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
       if (nativeBridge && isKimiBinding && ["auth_expired", "login_required", "auth_required"].includes(account.state)) {
-        card.append(node("p", "在「账户来源设置」选择此账号的「重新授权」。", "fine-print"));
+        card.append(node("p", "在「管理账户」删除过期绑定，再新增网页账号。", "fine-print"));
       }
       if (nativeBridge && isKimi && !isKimiBinding && account.state === "duplicate_account") {
-        card.append(node("p", "在「账户来源设置」展开「本机 CLI 来源」，点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开授权链接，授权后更新额度。", "fine-print"));
+        card.append(node("p", "在「管理账户」展开「本机 CLI 来源」，点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开授权链接，授权后更新额度。", "fine-print"));
       }
       if (walletOnly) {
-        renderWallet(card, balances, account.is_available);
+        renderWallet(card, balances, account.is_available, account.id);
         cardGroup.append(card);
         continue;
       }
@@ -863,7 +919,7 @@
       accountTotal.append(count);
       if (count.dataset.tokenCount !== undefined) accountTotal.append(" Token");
       card.append(accountTotal);
-      windows.forEach(window => quotaWindow(card, window));
+      windows.forEach((window, index) => quotaWindow(card, window, JSON.stringify([selectedTool, account.id, window.name || index])));
       if (!windows.length) card.append(node("p", "剩余额度和重置时间未知。", "fine-print"));
       if (account.local_report) {
         const detail = node("details", undefined, "provider-local-sessions");

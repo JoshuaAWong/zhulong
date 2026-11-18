@@ -11,29 +11,49 @@ namespace Zhulong.Desktop;
 
 internal sealed class AiAccountSettingsWindow : Window
 {
-    public event Action<string?>? KimiAccountsChanged;
+    readonly TabControl tabs = new();
+
+    public event Action<string?>? AccountsChanged;
 
     public AiAccountSettingsWindow(string directory)
     {
-        Title = "烛龙 · AI 账户";
+        Title = "烛龙 · 管理 AI 账户";
         Width = 560; Height = 620; MinWidth = 470; MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new SolidColorBrush(Color.FromRgb(246, 243, 235));
         Foreground = new SolidColorBrush(Color.FromRgb(48, 55, 49));
         FontFamily = new FontFamily("Microsoft YaHei UI"); FontSize = 14;
-        var panel = new StackPanel { Margin = new Thickness(26) };
-        Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        var status = Note("");
-        var preferences = new AiAccountPreferences();
-        Try(() => preferences = AiAccountProfiles.Load(directory));
+        tabs.Margin = new Thickness(20);
+        System.Windows.Automation.AutomationProperties.SetName(tabs, "AI 账户提供方");
+        tabs.Items.Add(Tab("Kimi Code", CreateKimiSettings(directory)));
+        tabs.Items.Add(Tab("GLM Coding Plan", CreateApiSettings(directory, true)));
+        tabs.Items.Add(Tab("DeepSeek", CreateApiSettings(directory, false)));
+        Content = tabs;
+        tabs.SelectedIndex = 0;
+    }
 
-        panel.Children.Add(Heading("Kimi Code"));
+    internal void SelectProvider(string? provider)
+    {
+        tabs.SelectedIndex = provider switch { "zcode" => 1, "deepseek" => 2, _ => 0 };
+    }
+
+    static TabItem Tab(string title, Panel section)
+    {
+        section.Margin = new Thickness(18);
+        return new TabItem { Header = title, Padding = new Thickness(12, 7, 12, 7),
+            Content = new ScrollViewer { Content = section, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
+    }
+
+    StackPanel CreateKimiSettings(string directory)
+    {
+        var panel = new StackPanel();
         panel.Children.Add(CreateKimiWebSettings(directory));
         var cliPanel = new StackPanel { Margin = new Thickness(12, 6, 0, 6) };
         panel.Children.Add(new Expander { Header = "本机 CLI 来源", Content = cliPanel, Margin = new Thickness(0, 8, 0, 12) });
         cliPanel.Children.Add(Note("默认目录沿用当前登录。曾在该目录切换账号的会话，显示为本机未归属用量。"));
-        var primary = Name(preferences.KimiPrimary, "默认目录别名", cliPanel);
-        var secondary = Name(preferences.KimiSecondary, "第二账号别名", cliPanel);
+        var defaults = new AiAccountPreferences();
+        var primary = AliasField(defaults.KimiPrimary, "默认目录别名", cliPanel);
+        var secondary = AliasField(defaults.KimiSecondary, "第二账号别名", cliPanel);
         var login = Button("登录第二账号");
         var open = Button("打开第二账号的 Kimi CLI");
         var saveCli = Button("保存 CLI 别名");
@@ -44,10 +64,19 @@ internal sealed class AiAccountSettingsWindow : Window
         cliPanel.Children.Add(Note("把终端给出的设备授权链接复制到浏览器无痕窗口，登录目标账号并完成授权。终端提示成功后，回到第二账号卡片点「更新额度」。"));
         var kimiStatus = Note("");
         cliPanel.Children.Add(kimiStatus);
+        Try(() =>
+        {
+            var preferences = AiAccountProfiles.Load(directory);
+            primary.Text = preferences.KimiPrimary;
+            secondary.Text = preferences.KimiSecondary;
+        }, kimiStatus);
         saveCli.Click += (_, _) => Try(() =>
         {
-            AiAccountProfiles.Save(directory, WithCliAliases(AiAccountProfiles.Load(directory)), null, false);
+            var preferences = AiAccountProfiles.Load(directory);
+            AiAccountProfiles.Save(directory, preferences with { KimiPrimary = Alias(primary, defaults.KimiPrimary),
+                KimiSecondary = Alias(secondary, defaults.KimiSecondary) }, null, false);
             kimiStatus.Text = "CLI 别名已保存。";
+            AccountsChanged?.Invoke(null);
         }, kimiStatus);
         login.Click += (_, _) => Try(() =>
         {
@@ -55,116 +84,119 @@ internal sealed class AiAccountSettingsWindow : Window
             kimiStatus.Text = "请查看终端。如果直接提示已登录且没有授权链接，请先在第二账号的 Kimi CLI 输入 /logout。";
         }, kimiStatus);
         open.Click += (_, _) => Try(() => AiAccountProfiles.StartSecondaryKimi(directory, false), kimiStatus);
+        return panel;
+    }
 
-        panel.Children.Add(Heading("GLM Coding Plan"));
-        var glm = Name(preferences.Glm, "套餐账户别名");
-        var region = new ComboBox { Margin = new Thickness(0, 6, 0, 8) };
-        region.Items.Add("智谱 BigModel · 国内");
-        region.Items.Add("Z.ai · 国际");
-        region.SelectedIndex = preferences.GlmDomestic ? 0 : 1;
-        panel.Children.Add(region);
+    StackPanel CreateApiSettings(string directory, bool glm)
+    {
+        var panel = new StackPanel();
+        var title = glm ? "GLM Coding Plan" : "DeepSeek API 钱包";
+        var defaults = new AiAccountPreferences();
+        var fallback = glm ? defaults.Glm : defaults.DeepSeek;
+        panel.Children.Add(Heading(title));
+        var summary = Note("");
+        panel.Children.Add(summary);
+        var actions = new WrapPanel();
+        var edit = Button("新增配置");
+        var remove = Button("删除配置");
+        actions.Children.Add(edit); actions.Children.Add(remove);
+        panel.Children.Add(actions);
+
+        var form = new StackPanel { Visibility = Visibility.Collapsed };
+        panel.Children.Add(form);
+        var name = AliasField(fallback, "账户别名", form);
+        ComboBox? region = null;
+        if (glm)
+        {
+            form.Children.Add(Note("套餐地区"));
+            region = new ComboBox { Margin = new Thickness(0, 2, 0, 8) };
+            System.Windows.Automation.AutomationProperties.SetName(region, "GLM 套餐地区");
+            region.Items.Add("智谱 BigModel · 国内");
+            region.Items.Add("Z.ai · 国际");
+            form.Children.Add(region);
+        }
+        form.Children.Add(Note("API Key"));
         var key = new PasswordBox { MaxLength = 512, Margin = new Thickness(0, 6, 0, 8) };
-        System.Windows.Automation.AutomationProperties.SetName(key, "GLM Coding Plan API Key");
-        panel.Children.Add(key);
-        var keyHint = Note("API Key 保存到 Windows 凭据管理器。留空保留现有 Key。");
-        panel.Children.Add(keyHint);
-        var save = Button("保存账户设置");
-        var clear = Button("移除已保存的 GLM Key");
-        var glmActions = new WrapPanel(); glmActions.Children.Add(save); glmActions.Children.Add(clear);
-        panel.Children.Add(glmActions);
+        System.Windows.Automation.AutomationProperties.SetName(key, title + " API Key");
+        form.Children.Add(key);
+        var hint = Note("");
+        form.Children.Add(hint);
+        var save = Button("保存配置");
+        var cancel = Button("取消");
+        var formActions = new WrapPanel();
+        formActions.Children.Add(save); formActions.Children.Add(cancel);
+        form.Children.Add(formActions);
+        var status = Note("");
         panel.Children.Add(status);
-        save.Click += (_, _) => Try(() => Save(false));
-        clear.Click += (_, _) => Try(() => Save(true));
-        Try(UpdateKeyHint);
-
-        panel.Children.Add(Heading("DeepSeek API 钱包"));
-        var deepSeekKey = new PasswordBox { MaxLength = 512, Margin = new Thickness(0, 6, 0, 8) };
-        System.Windows.Automation.AutomationProperties.SetName(deepSeekKey, "DeepSeek API Key");
-        panel.Children.Add(deepSeekKey);
-        var deepSeekHint = Note("");
-        panel.Children.Add(deepSeekHint);
-        var saveDeepSeek = Button("保存 DeepSeek Key");
-        var clearDeepSeek = Button("移除已保存的 DeepSeek Key");
-        var deepSeekActions = new WrapPanel();
-        deepSeekActions.Children.Add(saveDeepSeek); deepSeekActions.Children.Add(clearDeepSeek);
-        panel.Children.Add(deepSeekActions);
-        saveDeepSeek.Click += (_, _) => Try(() => SaveDeepSeek(false), deepSeekHint);
-        clearDeepSeek.Click += (_, _) => Try(() => SaveDeepSeek(true), deepSeekHint);
-        Try(UpdateDeepSeekHint, deepSeekHint);
-
-        TextBox Name(string value, string label, Panel? section = null)
+        edit.Click += (_, _) => Try(() =>
         {
-            section ??= panel;
-            section.Children.Add(Note(label));
-            var input = new TextBox { Text = value, MaxLength = 32, Margin = new Thickness(0, 4, 0, 8) };
-            System.Windows.Automation.AutomationProperties.SetName(input, label);
-            section.Children.Add(input);
-            return input;
+            ShowConfig();
+            actions.Visibility = Visibility.Collapsed;
+            form.Visibility = Visibility.Visible;
+            status.Text = "";
+            name.Focus();
+        }, status);
+        cancel.Click += (_, _) => CloseForm();
+        save.Click += (_, _) => Try(() => SaveConfig(false), status);
+        remove.Click += (_, _) => Try(() =>
+        {
+            if (MessageBox.Show(this, $"删除「{title}」在烛龙中的配置和已保存的 Key？",
+                "删除账户配置", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes)
+                SaveConfig(true);
+        }, status);
+        Try(ShowConfig, status);
+        return panel;
+
+        bool HasKey() => glm ? AiAccountProfiles.HasGlmKey(directory) : AiAccountProfiles.HasDeepSeekKey(directory);
+
+        void ShowConfig()
+        {
+            var preferences = AiAccountProfiles.Load(directory);
+            var exists = HasKey();
+            name.Text = glm ? preferences.Glm : preferences.DeepSeek;
+            if (region is not null) region.SelectedIndex = preferences.GlmDomestic ? 0 : 1;
+            var regionName = glm ? $" · {(preferences.GlmDomestic ? "国内" : "国际")}" : "";
+            summary.Text = exists ? $"{name.Text}{regionName} · 已保存 API Key" : "尚未配置。新增配置后可在账本更新读取。";
+            edit.Content = exists ? "修改配置" : "新增配置";
+            remove.Visibility = exists ? Visibility.Visible : Visibility.Collapsed;
+            hint.Text = exists ? "留空保留已保存的 Key。新 Key 由 Windows 凭据管理器保存。"
+                : "API Key 由 Windows 凭据管理器保存。";
         }
 
-        AiAccountPreferences WithCliAliases(AiAccountPreferences previous)
+        void CloseForm()
         {
-            var defaults = new AiAccountPreferences();
-            return previous with { KimiPrimary = Alias(primary, defaults.KimiPrimary),
-                KimiSecondary = Alias(secondary, defaults.KimiSecondary) };
-        }
-
-        void Save(bool remove)
-        {
-            var previous = WithCliAliases(AiAccountProfiles.Load(directory));
-            var defaults = new AiAccountPreferences();
-            var value = previous with { Glm = Alias(glm, defaults.Glm),
-                GlmDomestic = region.SelectedIndex == 0 };
-            var token = key.Password.Trim();
-            AiAccountProfiles.Save(directory, value, !remove && token.Length > 0 ? token : null, remove);
             key.Clear();
-            UpdateKeyHint();
-            status.Text = remove ? "GLM Key 已移除。" : "账户设置已保存，可回到账本刷新。";
+            form.Visibility = Visibility.Collapsed;
+            actions.Visibility = Visibility.Visible;
         }
 
-        void UpdateKeyHint()
+        void SaveConfig(bool deleting)
         {
-            var exists = AiAccountProfiles.HasGlmKey(directory);
-            keyHint.Text = exists ? "已保存 GLM Key。留空保留现有 Key。" : "输入 GLM Coding Plan API Key 并保存，才能读取套餐。";
-            clear.IsEnabled = exists;
-        }
-
-        void SaveDeepSeek(bool remove)
-        {
-            var token = deepSeekKey.Password.Trim();
-            if (!remove && token.Length == 0)
+            var value = deleting ? fallback : Alias(name, fallback);
+            var replacement = !deleting && key.Password.Trim() is { Length: > 0 } password ? password : null;
+            if (!deleting && replacement is null && !HasKey()) { status.Text = "请输入 API Key。"; return; }
+            if (glm)
             {
-                deepSeekHint.Text = "请输入 DeepSeek 开放平台的 API Key。";
-                return;
+                var preferences = AiAccountProfiles.Load(directory);
+                AiAccountProfiles.Save(directory, preferences with { Glm = value,
+                    GlmDomestic = deleting || region!.SelectedIndex == 0 }, replacement, deleting);
             }
-            AiAccountProfiles.SaveDeepSeekKey(directory, remove ? null : token);
-            deepSeekKey.Clear();
-            UpdateDeepSeekHint();
-            deepSeekHint.Text = remove ? "DeepSeek Key 已移除。" : "已保存到 Windows 凭据管理器，可回到账本查询余额。";
-        }
-
-        void UpdateDeepSeekHint()
-        {
-            clearDeepSeek.IsEnabled = AiAccountProfiles.HasDeepSeekKey(directory);
-            deepSeekHint.Text = clearDeepSeek.IsEnabled ? "已保存 DeepSeek API Key。"
-                : "输入 DeepSeek 开放平台的 API Key 并保存，即可查询钱包余额。";
-        }
-
-        void Try(Action work, TextBlock? feedback = null)
-        {
-            try { work(); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException
-                or Win32Exception or InvalidOperationException or ArgumentException)
-            { (feedback ?? status).Text = "操作未完成。 " + error.Message; }
+            else AiAccountProfiles.SaveDeepSeekProfile(directory, value, replacement, deleting);
+            CloseForm();
+            AccountsChanged?.Invoke(null);
+            ShowConfig();
+            status.Text = deleting ? "配置已删除。" : "配置已保存，可回到账本更新读取。";
         }
     }
 
     FrameworkElement CreateKimiWebSettings(string directory)
     {
         var panel = new StackPanel();
-        panel.Children.Add(Note("通过 Kimi 授权绑定账号，可在账本分别查看各账号额度。"));
+        panel.Children.Add(Heading("网页授权账号"));
+        var accounts = new StackPanel();
+        panel.Children.Add(accounts);
 
-        var form = new StackPanel();
+        var form = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
         panel.Children.Add(form);
         var label = new TextBox { MaxLength = 32, Margin = new Thickness(0, 2, 0, 6) };
         System.Windows.Automation.AutomationProperties.SetName(label, "账号备注（选填）");
@@ -176,7 +208,7 @@ internal sealed class AiAccountSettingsWindow : Window
         region.Items.Add("Kimi · 国内");
         region.Items.Add("Kimi · 国际");
         region.SelectedIndex = 0;
-        var add = Button("绑定 Kimi 账号");
+        var add = Button("新增网页账号");
         var addRow = new WrapPanel();
         addRow.Children.Add(region);
         addRow.Children.Add(add);
@@ -204,8 +236,6 @@ internal sealed class AiAccountSettingsWindow : Window
         panel.Children.Add(cancel);
         var status = Note("");
         panel.Children.Add(status);
-        var accounts = new StackPanel();
-        panel.Children.Add(accounts);
 
         CancellationTokenSource? pending = null;
         string? verificationLink = null;
@@ -216,7 +246,7 @@ internal sealed class AiAccountSettingsWindow : Window
             pending?.Cancel();
         };
         cancel.Click += (_, _) => pending?.Cancel();
-        add.Click += async (_, _) => await BindAsync(region.SelectedIndex == 0, label.Text.Trim(), null);
+        add.Click += async (_, _) => await BindAsync(region.SelectedIndex == 0, label.Text.Trim());
         openPage.Click += (_, _) =>
         {
             if (verificationLink is null) return;
@@ -245,7 +275,7 @@ internal sealed class AiAccountSettingsWindow : Window
         ReloadAccounts();
         return panel;
 
-        async Task BindAsync(bool domestic, string? accountLabel, string? replaceId)
+        async Task BindAsync(bool domestic, string? accountLabel)
         {
             await RunAsync(async token =>
             {
@@ -260,8 +290,8 @@ internal sealed class AiAccountSettingsWindow : Window
                 authorization.Visibility = Visibility.Visible;
                 authorization.BringIntoView();
                 status.Text = "正在等待完成浏览器授权…";
-                var account = await KimiWebAccounts.BindAsync(directory, flow, accountLabel, replaceId, token);
-                if (!closed && replaceId is null) label.Clear();
+                var account = await KimiWebAccounts.BindAsync(directory, flow, accountLabel, null, token);
+                if (!closed) label.Clear();
                 return (account.Id, "已绑定「" + account.Label + "」，可回到账本查看额度。");
             });
         }
@@ -280,7 +310,7 @@ internal sealed class AiAccountSettingsWindow : Window
                     status.Text = result.Message;
                     ReloadAccounts();
                 }
-                KimiAccountsChanged?.Invoke(result.AccountId);
+                AccountsChanged?.Invoke(result.AccountId);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -317,28 +347,26 @@ internal sealed class AiAccountSettingsWindow : Window
                 return;
             }
             accounts.Children.Clear();
+            if (current.Count == 0) accounts.Children.Add(Note("尚未绑定网页账号。"));
             foreach (var account in current)
             {
                 var accountTitle = Note($"{account.Label} · {(account.Domestic ? "国内" : "国际")}");
                 accountTitle.FontWeight = FontWeights.SemiBold;
-                accounts.Children.Add(accountTitle);
-                var row = new WrapPanel();
-                var reauthorize = Button("重新授权");
-                var remove = Button("移除绑定");
-                System.Windows.Automation.AutomationProperties.SetName(reauthorize, $"重新授权 {account.Label}");
-                System.Windows.Automation.AutomationProperties.SetName(remove, $"移除绑定 {account.Label}");
-                row.Children.Add(reauthorize);
+                var row = new DockPanel();
+                var remove = Button("删除绑定");
+                System.Windows.Automation.AutomationProperties.SetName(remove, $"删除绑定 {account.Label}");
+                DockPanel.SetDock(remove, Dock.Right);
                 row.Children.Add(remove);
+                row.Children.Add(accountTitle);
                 accounts.Children.Add(row);
-                reauthorize.Click += async (_, _) => await BindAsync(account.Domestic, account.Label, account.Id);
                 remove.Click += async (_, _) =>
                 {
-                    if (MessageBox.Show(this, $"移除烛龙中的「{account.Label}」绑定？", "移除 Kimi 账号",
+                    if (MessageBox.Show(this, $"删除烛龙中的「{account.Label}」绑定？", "删除 Kimi 绑定",
                         MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
                     await RunAsync(async token =>
                     {
                         await KimiWebAccounts.RemoveAsync(directory, account.Id, token);
-                        return (null, "已移除「" + account.Label + "」的绑定。");
+                        return (null, "已删除「" + account.Label + "」的绑定。");
                     });
                 };
             }
@@ -347,6 +375,22 @@ internal sealed class AiAccountSettingsWindow : Window
 
     static bool IsStorageError(Exception error) =>
         error is IOException or UnauthorizedAccessException or JsonException or Win32Exception or InvalidOperationException or ArgumentException;
+
+    static void Try(Action work, TextBlock feedback)
+    {
+        try { work(); }
+        catch (Exception error) when (IsStorageError(error))
+        { feedback.Text = "操作未完成。" + error.Message; }
+    }
+
+    static TextBox AliasField(string value, string label, Panel section)
+    {
+        section.Children.Add(Note(label));
+        var input = new TextBox { Text = value, MaxLength = 32, Margin = new Thickness(0, 4, 0, 8) };
+        System.Windows.Automation.AutomationProperties.SetName(input, label);
+        section.Children.Add(input);
+        return input;
+    }
 
     static string Alias(TextBox input, string fallback) => input.Text.Trim() is { Length: > 0 } label ? label : fallback;
     static TextBlock Heading(string text) => new() { Text = text, FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 5) };

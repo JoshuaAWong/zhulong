@@ -371,18 +371,26 @@ internal static class Program
         if(quitting)return;
         MessageBox.Show(values.Count==0?"当前没有需要更改的目标。":string.Join("\n",values.Select(x=>x.Target+" · "+(x.Status=="throttled"?"已限流":x.Status=="restored"?"已还原":x.Status.StartsWith("degraded:")?"未完整完成":x.Status.StartsWith("blocked:")?"安全检查拒绝":"未执行")+" · "+x.Status+(x.Detail is null?"":" · "+x.Detail))),title);
     }
-    static void OpenAiSettings()
+    static void OpenAiSettings() => OpenAiSettings(null);
+
+    static void OpenAiSettings(string? provider)
     {
         if (quitting) return;
         if (aiSettingsWindow is null)
         {
             aiSettingsWindow = new AiAccountSettingsWindow(directory);
-            aiSettingsWindow.KimiAccountsChanged += async id =>
-                await NativeAsync(() => window?.RefreshKimiAccountsAsync(id) ?? Task.CompletedTask);
+            aiSettingsWindow.AccountsChanged += async id =>
+                await NativeAsync(() => window?.RefreshAiAccountsAsync(id) ?? Task.CompletedTask);
             aiSettingsWindow.Closed += (_, _) => aiSettingsWindow = null;
+            aiSettingsWindow.SelectProvider(provider);
             aiSettingsWindow.Show();
         }
-        else aiSettingsWindow.Activate();
+        else
+        {
+            if (aiSettingsWindow.WindowState == WindowState.Minimized) aiSettingsWindow.WindowState = WindowState.Normal;
+            aiSettingsWindow.SelectProvider(provider);
+            aiSettingsWindow.Activate();
+        }
     }
 
     static void OpenSettings()

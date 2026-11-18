@@ -170,6 +170,7 @@ public static class AiUsageSelfTests
         assertions += KimiUsageSelfTests.Run(Path.Combine(directory, "kimi-usage"));
         assertions += await TestAccountIsolationAsync(Path.Combine(directory, "profile-isolation"));
         await CheckKimiWebAccountsAsync(test, Check);
+        CheckGlmProfile(test, Check);
         await CheckDeepSeekWalletAsync(test, Check);
         return assertions;
     }
@@ -290,6 +291,44 @@ public static class AiUsageSelfTests
         }
     }
 
+    static void CheckGlmProfile(string directory, Action<bool, string> check)
+    {
+        var data = Path.Combine(directory, "glm-profile");
+        Directory.CreateDirectory(data);
+        var profilePath = Path.Combine(data, "ai-profiles.json");
+        File.WriteAllText(profilePath, """{"KimiPrimary":"原 CLI 账号","Glm":"原 GLM 配置","GlmDomestic":false}""", Encoding.UTF8);
+        var initial = AiAccountProfiles.Load(data);
+        check(initial.KimiPrimary == "原 CLI 账号" && initial.Glm == "原 GLM 配置" && !initial.GlmDomestic &&
+            initial.DeepSeek == new AiAccountPreferences().DeepSeek, "旧账户设置读入时沿用原字段，新增别名取默认值");
+        const string key = "fixture-glm-key";
+        try
+        {
+            AiAccountProfiles.Save(data, initial, key, false);
+            var (saved, savedKey) = AiAccountProfiles.ReadGlmProfile(data);
+            check(savedKey == key && saved.GlmKeyRevision.HasValue &&
+                !File.ReadAllText(profilePath, Encoding.UTF8).Contains(key, StringComparison.Ordinal),
+                "新增 GLM 配置时凭据只保存在 Windows 凭据管理器");
+            AiAccountProfiles.Save(data, saved with { Glm = "新别名", GlmDomestic = true }, null, false);
+            var (changed, retainedKey) = AiAccountProfiles.ReadGlmProfile(data);
+            check(changed.KimiPrimary == initial.KimiPrimary && changed.Glm == "新别名" && changed.GlmDomestic &&
+                retainedKey == key && changed.GlmKeyRevision == saved.GlmKeyRevision,
+                "修改 GLM 别名与地区时保存新信息并保留原凭据和 CLI 设置");
+
+            var blocked = false;
+            using (File.Open(profilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                try { AiAccountProfiles.Save(data, changed with { Glm = "未落盘别名" }, "unsaved-fixture-key", false); }
+                catch (IOException) { blocked = true; }
+                catch (UnauthorizedAccessException) { blocked = true; }
+            }
+            check(blocked && AiAccountProfiles.ReadGlmProfile(data) == (changed, key),
+                "账户文件无法替换时恢复旧凭据和元数据");
+            AiAccountProfiles.Save(data, changed, null, true);
+            check(!AiAccountProfiles.HasGlmKey(data), "删除 GLM 配置会移除对应凭据");
+        }
+        finally { AiAccountProfiles.SetKey(data, "GLM", null); }
+    }
+
     static async Task CheckDeepSeekWalletAsync(string directory, Action<bool, string> check)
     {
         var data = Path.Combine(directory, "deepseek-wallet");
@@ -328,18 +367,23 @@ public static class AiUsageSelfTests
                 balances[1].GetProperty("topped_up_balance").ValueKind == JsonValueKind.Null &&
                 !wallet.GetRawText().Contains(key, StringComparison.Ordinal), "按币种保留余额、零值、未知值和可用状态，不产生套餐窗口或泄露凭据");
 
+            AiAccountProfiles.SaveDeepSeekProfile(data, "测试钱包", null, false);
+            check(Account().GetProperty("label").GetString() == "测试钱包" && Account().GetProperty("balances").GetArrayLength() == 2 &&
+                http.Calls == 1 && !File.ReadAllText(Path.Combine(data, "ai-profiles.json"), Encoding.UTF8).Contains(key, StringComparison.Ordinal),
+                "DeepSeek 编辑别名保留已读余额和凭据，账户元数据不包含密钥");
+
             http.Status = HttpStatusCode.ServiceUnavailable;
             await source.RefreshAccountAsync("deepseek", token);
             check(Account().GetProperty("state").GetString() == "stale" &&
                 Account().GetProperty("fetched_at").GetDateTimeOffset() == wallet.GetProperty("fetched_at").GetDateTimeOffset(),
                 "临时查询失败时显示同一密钥下的上次成功快照");
-            AiAccountProfiles.SaveDeepSeekKey(data, "fixture-deepseek-new");
+            AiAccountProfiles.SaveDeepSeekProfile(data, "测试钱包", "fixture-deepseek-new", false);
             check(Account().GetProperty("state").GetString() == "not_checked" && Account().GetProperty("balances").GetArrayLength() == 0,
                 "更换密钥后隐藏之前的余额");
             http.Status = HttpStatusCode.Unauthorized;
             await source.RefreshAccountAsync("deepseek", token);
             check(Account().GetProperty("state").GetString() == "auth_rejected", "DeepSeek 认证失败需保留独立状态");
-            AiAccountProfiles.SaveDeepSeekKey(data, null);
+            AiAccountProfiles.SaveDeepSeekProfile(data, new AiAccountPreferences().DeepSeek, null, true);
             check(!AiAccountProfiles.HasDeepSeekKey(data) && Account().GetProperty("state").GetString() == "not_configured",
                 "移除密钥后回到未配置状态");
         }

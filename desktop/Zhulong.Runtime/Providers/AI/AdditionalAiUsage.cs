@@ -82,8 +82,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                 }
                 else if (id == Glm)
                 {
-                    preferences = AiAccountProfiles.Load(directory);
-                    var key = AiAccountProfiles.ReadGlmKey(directory);
+                    (preferences, var key) = AiAccountProfiles.ReadGlmProfile(directory);
                     result = key is null ? new("not_configured", null, null, [])
                         : await ZCodeAccountClient.ReadAsync(key, preferences.GlmDomestic, token).ConfigureAwait(false);
                 }
@@ -126,10 +125,12 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         KimiWebAccounts.Entry[] webKimi;
         try { webKimi = KimiWebAccounts.LoadEntries(directory); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { webKimi = []; }
-        string? walletKeyVersion = null, walletOverride = null;
+        string? walletKeyVersion = null, walletOverride = null, glmOverride = null;
         try { walletKeyVersion = AiAccountProfiles.DeepSeekKeyVersion(directory); }
         catch (Win32Exception) { walletOverride = "unavailable"; }
         if (walletKeyVersion is null) walletOverride ??= "not_configured";
+        try { if (!AiAccountProfiles.HasGlmKey(directory)) glmOverride = "not_configured"; }
+        catch (Win32Exception) { glmOverride = "unavailable"; }
         var now = DateTimeOffset.UtcNow;
         lock (gate)
         {
@@ -159,11 +160,11 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                 })).ToArray() },
                 new { tool = "zcode", state = glmState, report = glmReport, accounts = new[]
                 {
-                    Account(Glm, preferences.Glm, "glm_official_plan", plan, now, null, null)
+                    Account(Glm, preferences.Glm, "glm_official_plan", plan, now, glmOverride, null)
                 } },
                 new { tool = DeepSeek, state = AccountState(wallet, now, walletOverride), report = (JsonElement?)null, accounts = new[]
                 {
-                    Account(DeepSeek, "DeepSeek API 钱包", "deepseek_official_balance", wallet, now, walletOverride, null)
+                    Account(DeepSeek, preferences.DeepSeek, "deepseek_official_balance", wallet, now, walletOverride, null)
                 } }
             };
         }
