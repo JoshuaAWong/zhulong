@@ -534,10 +534,10 @@
   const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）", deepseek: "DeepSeek" };
   let selectedTool = "codex";
   const tokenUnitKey = "zhulong-token-units";
-  const tokenUnits = { chinese: [[8, "亿"], [7, "千万"], [6, "百万"]], international: [[9, "B"], [6, "M"]] };
+  const tokenUnits = { chinese: [[100_000_000n, "亿"], [10_000n, "万"]], international: [[1_000_000_000n, "B"], [1_000_000n, "M"]] };
   const tokenUnitPicker = node("select");
   tokenUnitPicker.id = "tokenUnitPicker";
-  for (const [value, label] of [["chinese", "亿 / 千万 / 百万"], ["international", "B / M"]]) {
+  for (const [value, label] of [["chinese", "万 / 亿"], ["international", "B / M"]]) {
     const option = node("option", label);
     option.value = value;
     tokenUnitPicker.append(option);
@@ -546,17 +546,21 @@
   const groupDigits = digits => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const tokenQuota = unit => /^tokens?$/i.test(unit);
   function formatTokens(digits) {
-    const unit = tokenUnits[tokenUnitPicker.value].find(([places]) => digits.length > places);
-    if (!unit) return groupDigits(digits);
-    const [places, label] = unit;
-    return `${groupDigits(digits.slice(0, -places))} ${label} ${groupDigits(digits.slice(-places))}`;
+    const count = BigInt(digits);
+    const [upper, lower] = tokenUnits[tokenUnitPicker.value];
+    if (count < lower[0]) return groupDigits(digits);
+    // 低一档四舍五入后达到进位线时，直接用上一档单位。
+    const [divisor, label] = count >= upper[0] - lower[0] / 200n ? upper : lower;
+    const hundredths = (count * 100n + divisor / 2n) / divisor;
+    const fraction = String(hundredths % 100n).padStart(2, "0").replace(/0+$/, "");
+    return `${groupDigits(String(hundredths / 100n))}${fraction ? "." + fraction : ""} ${label}`;
   }
-  function tokenAmount(row, key, missing = "—") {
+  function tokenAmount(row, key, { compact = false, missing = "—" } = {}) {
     const amount = row?.[key + "_exact"] ?? row?.[key];
     const digits = typeof amount === "string" && /^\d+$/.test(amount) ? amount.replace(/^0+(?=\d)/, "")
       : Number.isSafeInteger(amount) && amount >= 0 ? String(amount) : null;
-    const value = node("span", digits === null ? missing : formatTokens(digits), "live-token-amount");
-    if (digits !== null) {
+    const value = node("span", digits === null ? missing : compact ? formatTokens(digits) : groupDigits(digits), "live-token-amount");
+    if (digits !== null && compact) {
       value.dataset.tokenCount = digits;
       value.title = groupDigits(digits);
     }
@@ -630,12 +634,12 @@
     const totals = value?.totals;
     const accountUsage = wrapper?.account_usage, accountQuota = wrapper?.account_quota;
     text(".ai-summary h2", "Codex 已采集用量");
-    $(".ai-summary p").replaceChildren(tokenAmount(totals, "total_tokens"), " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
+    $(".ai-summary p").replaceChildren(tokenAmount(totals, "total_tokens", { compact: true }), " tokens · " + number(value?.metadata_session_count, 0) + " 个会话快照");
     text(".ai-price strong", "—"); text(".ai-price>span", "未估算费用");
     text("#usage .page-title h2", "Codex 会话账本"); text("#usage .page-title>div>p:nth-of-type(2)", "请求明细与会话累计快照分别展示，不相加。");
     const summary = all(".usage-summary>div");
     ["账户已消耗 Token", "本机请求累计 Token", "本机会话快照"].forEach((label, index) => summary[index].querySelector("span").textContent = label);
-    [tokenAmount(accountUsage, "lifetime_tokens"), tokenAmount(totals, "total_tokens"), number(value?.metadata_session_count, 0)].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
+    [tokenAmount(accountUsage, "lifetime_tokens", { compact: true }), tokenAmount(totals, "total_tokens", { compact: true }), number(value?.metadata_session_count, 0)].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
     ledger.replaceChildren(node("h2", "请求明细汇总"), sessionTable(value?.sessions || [], false), node("p", "每会话包含回放/继承历史，总览按唯一事件记账。最多展示100行。", "fine-print"), node("h2", "桌面会话累计快照"), sessionTable(value?.metadata_sessions || [], true), node("p", "累计快照没有输入输出拆分，不用于今日账单；不与请求明细相加。", "fine-print"));
     const breakdown = $(".token-breakdown"); breakdown.replaceChildren(node("h2", "已采集 Token 构成"));
     const dl = node("dl");
@@ -754,7 +758,7 @@
       const summary = all(".usage-summary>div");
       const count = report?.session_count ?? report?.sessions?.length;
       ["待归属 Token", Number.isFinite(report?.session_count) ? "待归属会话" : "已列出会话记录", "账户来源"].forEach((item, index) => summary[index].querySelector("span").textContent = item);
-      [tokenAmount(totals, "total_tokens"), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
+      [tokenAmount(totals, "total_tokens", { compact: true }), number(count, 0), provider ? number(accounts.length, 0) : "—"].forEach((amount, index) => summary[index].querySelector("strong").replaceChildren(amount));
       ledger.replaceChildren(node("h2", "本机待归属会话"), sessionTable(report?.sessions || [], false),
         node("p", "会话没有可确认的账户归属。最多显示 100 行。", "fine-print"));
       const breakdown = $(".token-breakdown");
@@ -807,7 +811,7 @@
         cardGroup.append(card);
         continue;
       }
-      const accountTotal = node("p", "账户累计 ", "fine-print"), count = tokenAmount(account, "account_tokens", "未知");
+      const accountTotal = node("p", "账户累计 ", "fine-print"), count = tokenAmount(account, "account_tokens", { compact: true, missing: "未知" });
       accountTotal.append(count);
       if (count.dataset.tokenCount !== undefined) accountTotal.append(" Token");
       card.append(accountTotal);
