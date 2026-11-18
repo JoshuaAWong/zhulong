@@ -224,7 +224,7 @@ public sealed class RuntimeHost : IDisposable
             case "refresh-provider-account":
                 await additionalUsage.RefreshAccountAsync(metric ?? "",stopped.Token);
                 return AiReport(await usage.ReportAsync(stopped.Token));
-            case "health":lock(failures)return new {paused=Paused,muted=Muted,failures=new Dictionary<string,string>(failures),sampleSeconds=Settings.SampleSeconds};
+            case "health":lock(failures)return new {paused=Paused,muted=Muted,failures=new Dictionary<string,string>(failures),sampleSeconds=Settings.SampleSeconds,commitEnter=Settings.Alerts.CommitEnter};
             case "actions":lock(decisionGate)return pending.Concat(manualActions).Select(x=>new {id=x.Key,title=x.Value.Title,text=x.Value.Text,action=x.Value.SuggestedAction,target=x.Value.Target??x.Value.ProcessName}).ToArray();
             default:throw new ArgumentException("不支持的面板请求。");
         }

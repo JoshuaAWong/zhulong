@@ -256,8 +256,15 @@ public static partial class RuntimeSafetyTests
                 Metrics: new() { ["cpu_max_core"] = new("cpu_max_core", core, "%") });
         var engine = new RuleEngine(new RuntimeSettings { WatchProcesses = [] });
         Check(engine.Evaluate(Snapshot(86), 0).Count == 0 && engine.Evaluate(Snapshot(86), 89).Count == 0, "持续窗口未到90秒不触发");
-        var at90 = engine.Evaluate(Snapshot(86), 90);
+        var at90 = engine.Evaluate(Snapshot(86) with
+        {
+            CommitGrowth = new("ready", 10, [new(456, "growing.exe", now.UtcTicks, 10, 1.25, 10, 8)])
+        }, 90);
         Check(at90.Any(value => value.Rule == "commit_high") && at90.Any(value => value.Rule == "single_core_hot"), "提交和单核规则真实取到指标");
+        var commitAlert = at90.Single(value => value.Rule == "commit_high");
+        Check(commitAlert.Text.Contains("growing.exe") && commitAlert.Text.Contains("10 分钟") &&
+            commitAlert.Text.Contains("距上限") && commitAlert.SuggestedAction is null,
+            "提交告警展示采样证据和余量，不生成处置动作");
         Check(!engine.Evaluate(Snapshot(82), 120).Any(value => value.Rule == "commit_high"), "迟滞冷却中不重复");
         Check(engine.Evaluate(Snapshot(82), 690).Any(value => value.Rule == "commit_high"), "已触发后80到85保持高位迟滞");
         engine.Evaluate(Snapshot(80), 700);
@@ -267,7 +274,11 @@ public static partial class RuntimeSafetyTests
         growth.Evaluate(Snapshot(40, core: 10, processCommit: 5), 0);
         Check(growth.Evaluate(Snapshot(40, core: 10, processCommit: 10), 30).Any(value => value.Rule == "anomaly_leak"), "按创建身份识别增长，不能只按大小");
         var configured=new RuleEngine(new RuntimeSettings{WatchProcesses=[],Alerts=new(70,60,30,60,90,80,30)});
-        Check(configured.Evaluate(Snapshot(75),0).Count==0&&configured.Evaluate(Snapshot(75),30).Any(x=>x.Rule=="commit_high"),"配置水位和持续时长必须真实生效");
+        Check(configured.Evaluate(Snapshot(75), 0).Count == 0, "配置水位仍遵循持续时长");
+        var configuredAlert = configured.Evaluate(Snapshot(75), 30).Single(x => x.Rule == "commit_high");
+        Check(configuredAlert.Text.Contains("70%") && configuredAlert.Text.Contains("60%") &&
+            configuredAlert.Text.Contains("进程榜") && !configuredAlert.Text.Contains("growing.exe"),
+            "自定义阈值真实生效，无增长数据时提供排查入口");
         CheckCommitGrowth(Check, now.UtcTicks);
         CheckCpuTemperature(Check, now);
         return assertions;

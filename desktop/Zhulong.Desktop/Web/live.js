@@ -182,6 +182,56 @@
         "随后按 PID 复核提交占用。整理内存针对物理工作集，提交需要由应用释放。"
     };
   }
+  const commitAdviceLink = node("button", undefined, "text-button live-commit-advice-link");
+  commitAdviceLink.type = "button";
+  commitAdviceLink.hidden = true;
+  $(".hero-description").after(commitAdviceLink);
+  commitAdviceLink.addEventListener("click", () => {
+    const search = $("#processSearch");
+    search.value = "";
+    const rank = rankGroup.querySelector(`[data-rank='${commitAdviceLink.dataset.openRank}']`);
+    rank.click();
+    rank.focus();
+  });
+
+  function commitAdvice(value) {
+    const { commitUsedGb: used, commitLimitGb: limit } = value;
+    const headroom = Number.isFinite(limit) && Number.isFinite(used)
+      ? "剩余提交额度 " + number(Math.max(0, limit - used)) + " GB。" : "";
+    const growing = growthRows()[0];
+    if (growing) {
+      const name = growthName(growing);
+      return {
+        rank: "growth",
+        text: headroom + name + " 在 " + number(growing.minutes) + " 分钟内私有提交增加 " +
+          number(growing.growthGb, 2) + " GB。" + growthAdvice(name)
+      };
+    }
+    const contributor = processes.reduce((highest, item) =>
+      Number.isFinite(item.memory) && (!highest || item.memory > highest.memory) ? item : highest, null);
+    const evidence = value.commitGrowth?.state === "ready" ? "近期未发现符合条件的持续增长。" : "连续增长证据暂不足。";
+    const highest = contributor ? "当前已采集进程中，" + contributor.name + " 的提交量最高（" +
+      number(contributor.memory, 2) + " GB）。" : "";
+    return { rank: "memory", text: headroom + evidence + highest + "先保存工作并正常退出确认闲置的应用，保留正在使用的游戏和模拟器。" };
+  }
+
+  function renderCommitVerdict() {
+    const percent = latest?.commitPercent;
+    const valid = Number.isFinite(percent);
+    const stale = growthStale();
+    const high = valid && !stale && percent >= (health?.commitEnter ?? 85);
+    const state = !valid ? ["候", "等待采样"] : stale ? ["候", "等待新样本"] : high ? ["慎", "提交水位偏高"] :
+      health?.paused ? ["候", "处置已暂停"] : ["安", "当前平稳"];
+    const advice = high ? commitAdvice(latest) : null;
+    text(".verdict-character", state[0]); text(".verdict h2", state[1]);
+    text(".hero-description", advice?.text || (stale ? "采样已过期，等待最新读数后再判断。" : latest?.error ||
+      (health?.paused ? "自动处置已暂停，采样、告警与历史记录继续。" : "关注资源变化，处置结果会另行留档。")));
+    commitAdviceLink.hidden = !advice;
+    if (advice) {
+      commitAdviceLink.dataset.openRank = advice.rank;
+      commitAdviceLink.textContent = advice.rank === "growth" ? "查看增长进程" : "查看提交内存排行";
+    }
+  }
   function refreshGrowthDetail() {
     if (!selectedGrowth || !detailDialog.open) return;
     const item = growthRows().find(row => growthKey(row) === selectedGrowth);
@@ -395,9 +445,7 @@
     const percent = value?.commitPercent;
     const ratio = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
     const stale = sampleState({ value: percent, sampledAt: value?.timestamp }) === "旧采样";
-    const state = !Number.isFinite(percent) ? ["候", "等待采样"] : health?.paused ? ["候", "处置已暂停"] : stale ? ["候", "等待新样本"] : percent >= 85 ? ["慎", "提交水位偏高"] : ["安", "当前平稳"];
-    text(".verdict-character", state[0]); text(".verdict h2", state[1]);
-    text(".hero-description", value?.error || (health?.paused ? "自动处置已暂停，采样、告警与历史记录继续。" : "关注资源变化，处置结果会另行留档。"));
+    renderCommitVerdict();
     const facts = all(".hero-facts strong");
     facts[0].textContent = number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB";
     const dial = $(".instrument-dial");
@@ -589,9 +637,9 @@
   const providerSettings = node("button", "账户来源设置", "text-button live-refresh");
   providerSettings.addEventListener("click", () => request("show-ai-settings").catch(error => { usageStatus.textContent = error.message; }));
   const usageHeading = $("#usage .page-title>div");
-  usageToolbar.append(toolPicker, tokenUnitLabel);
-  usageHeading.append(usageToolbar);
-  if (nativeBridge) usageHeading.append(refreshButton, accountButton, providerSettings);
+  usageToolbar.append(tokenUnitLabel);
+  if (nativeBridge) usageToolbar.append(refreshButton, accountButton, providerSettings);
+  usageHeading.append(toolPicker, usageToolbar);
   usageHeading.append(usageStatus);
   function sessionTable(rows, metadata) {
     const table = node("table"), head = node("thead"), header = node("tr"), body = node("tbody");
@@ -874,7 +922,10 @@
       if (values[1].status === "fulfilled" && hours === eventHours) applyEvents(values[1].value);
       if (values[2].status === "fulfilled") applyActions(values[2].value);
       if (values[0].status === "fulfilled") applySnapshot(values[0].value);
-      else if (currentRank === "growth" && growthStale()) { renderProcesses(); refreshGrowthDetail(); }
+      else {
+        renderCommitVerdict();
+        if (currentRank === "growth" && growthStale()) { renderProcesses(); refreshGrowthDetail(); }
+      }
       const failed = values.filter(value => value.status === "rejected");
       if (failed.length) status("部分读取未完成：" + failed.map(value => value.reason.message).join("；"));
       await readHistory();

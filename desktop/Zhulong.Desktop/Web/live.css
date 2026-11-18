@@ -19,6 +19,7 @@ html[data-live] .ledger>h2:not(:first-child) { margin-top:28px; }
 .live-quota-window p { margin:7px 0 0; }
 .live-countdown { color:var(--accent); font-variant-numeric:tabular-nums; }
 html[data-live] .hero-description { max-width:410px; }
+.live-commit-advice-link { margin-top:4px; }
 @media(max-width:1000px) { html[data-live] .sample-time { max-width:260px; font-size:11px; } }
 
 /* 主界面和托盘共用朱印。 */
@@ -274,8 +275,9 @@ html[data-live] .token-breakdown h3 { margin-top:18px; font-size:14px; }
   html[data-live] .navigation-row .tabs { min-width:0; gap:12px; flex-wrap:wrap; }
 }
 
-.usage-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px 16px; margin-top:9px; }
-.usage-tool-picker { display:flex; flex-wrap:wrap; gap:6px; }
+.usage-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; margin-top:7px; }
+.usage-toolbar .live-refresh { margin:0; }
+.usage-tool-picker { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
 .usage-tool-picker button { padding:6px 11px; border-radius:9px; }
 .usage-tool-picker button[aria-pressed="true"] { color:var(--ink); background:var(--wash); }
 .live-token-unit { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }

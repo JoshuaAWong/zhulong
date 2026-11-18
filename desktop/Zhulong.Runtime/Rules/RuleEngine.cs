@@ -17,7 +17,7 @@ public sealed class RuleEngine(RuntimeSettings settings)
     {
         var output = new List<AlertDecision>();
         if (Check("commit_high", snapshot.CommitPercent >= settings.Alerts.CommitEnter, snapshot.CommitPercent, settings.Alerts.CommitSeconds, monotonicSeconds, true))
-            output.Add(new("commit_high", "提交内存水位持续偏高", $"提交水位持续{settings.Alerts.CommitSeconds}秒；进入{settings.Alerts.CommitEnter:F0}%，回落至{settings.Alerts.CommitExit:F0}%解除。", "warning"));
+            output.Add(new("commit_high", "提交内存水位持续偏高", DescribeCommitAlert(snapshot), "warning"));
         var maximum = Metric(snapshot, "cpu_max_core", "cpu.cpu_max_core", "cpu.max_core");
         bool? singleCore = maximum.HasValue && snapshot.CpuPercent.HasValue ? maximum >= settings.Alerts.SingleCoreEnter && snapshot.CpuPercent < settings.Alerts.SingleCoreAverageBelow : null;
         if (Check("single_core_hot", singleCore, maximum, settings.Alerts.SingleCoreSeconds, monotonicSeconds))
@@ -79,6 +79,17 @@ public sealed class RuleEngine(RuntimeSettings settings)
         foreach (var key in lastSeen.Where(pair => monotonicSeconds - pair.Value > 1800).Select(pair => pair.Key).ToArray())
         { lastSeen.Remove(key); histories.Remove(key); redlineNotified.Remove(key); windows.Remove("leak:" + key); }
         return output;
+    }
+
+    string DescribeCommitAlert(SystemSnapshot snapshot)
+    {
+        var headroom = snapshot.CommitLimitGb is { } limit && snapshot.CommitUsedGb is { } used
+            ? $"，距上限 {Math.Max(0, limit - used):F1} GB" : "";
+        var growth = snapshot.CommitGrowth is { State: "ready" } report ? report.Rows.FirstOrDefault() : null;
+        var evidence = growth is null ? "" : $"{growth.Name} 在 {growth.Minutes:F0} 分钟内私有提交增加 {growth.GrowthGb:F2} GB。";
+        return $"提交占用 {snapshot.CommitPercent:F1}%{headroom}。{evidence}" +
+            "查看系统总览的进程榜，先保存工作并退出确认闲置的应用，保留正在使用的游戏和模拟器。" +
+            $"进入 {settings.Alerts.CommitEnter:G}% 持续 {settings.Alerts.CommitSeconds} 秒提醒，回落至 {settings.Alerts.CommitExit:G}% 解除。";
     }
 
     bool Check(string key, bool? condition, double? value, double duration, double now, bool hysteresis = false)
