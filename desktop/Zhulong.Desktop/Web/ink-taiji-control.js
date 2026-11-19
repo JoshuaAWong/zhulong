@@ -1,9 +1,7 @@
 "use strict";
 // 与加速共用整块太极命中区域，切换时保留新旧界面的内容。
 const mainDial = $(".instrument-dial");
-mainDial.setAttribute("role", "group");
-mainDial.setAttribute("aria-label", "提交水位 55%，上限余量 45%；太极可切换昼夜");
-mainDial.setAttribute("title", "点击切换昼夜；悬停三倍速并持续聚卦。当前提交水位 55%");
+mainDial.setAttribute("title", "提交内存占用未知；点击切换昼夜，悬停聚卦");
 [dialSvg, demoSvg].forEach((svg, index) => {
   svg.removeAttribute("aria-hidden");
   svg.setAttribute("data-taiji-toggle", "");
@@ -77,6 +75,7 @@ document.addEventListener("click", event => {
 [dialSvg, demoSvg].forEach(svg => svg.addEventListener("keydown", event => {
   if (!["Enter", " "].includes(event.key)) return;
   event.preventDefault();
+  if (svg === dialSvg) mainFluid.ripple();
   const center = controlCenter(svg);
   revealInkTheme(nextInkTone(), center.x, center.y);
 }));

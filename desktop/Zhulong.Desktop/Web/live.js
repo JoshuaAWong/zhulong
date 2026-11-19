@@ -449,13 +449,7 @@
     const facts = all(".hero-facts strong");
     facts[0].textContent = number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB";
     const dial = $(".instrument-dial");
-    dial.querySelectorAll(".ratio-value,.ratio-halo").forEach(arc => arc.setAttribute("stroke-dasharray", (ratio ?? 0) + " 100"));
-    const inkRatio = ratio ?? 50;
-    const core = dial.querySelector(".taiji-core");
-    if (core && core.dataset.inkRatio !== String(inkRatio)) {
-      core.innerHTML = balanceCoreMarkup(inkRatio);
-      core.dataset.inkRatio = String(inkRatio);
-    }
+    mainFluid.setRatio(ratio);
     const caption = dial.querySelector(".dial-caption strong"); if (caption) caption.textContent = ratio === null ? "—" : percentText(ratio);
     dial.setAttribute("aria-label", "提交内存占用 " + percentText(ratio) + (stale ? "，旧采样" : ""));
     dial.setAttribute("title", "提交 " + number(value?.commitUsedGb) + " / " + number(value?.commitLimitGb) + " GB，采样于 " + date(value?.timestamp));

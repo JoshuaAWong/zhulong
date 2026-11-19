@@ -33,19 +33,15 @@ function updateRatioPreview(value) {
   syncUnifiedMotion();
 }
 $("#ratioPreview").addEventListener("input", event => updateRatioPreview(Number(event.target.value)));
-// 外环与内圈共用旋转组，百分比读数保持水平。
+// 主仪表使用流体鱼身，独立试验保留原墨环。
 const dialSvg = $(".instrument-dial>.taiji-svg");
-const spirit = document.createElementNS("http://www.w3.org/2000/svg", "g");
-spirit.setAttribute("class", "taiji-spirit");
-spirit.innerHTML = '<path class="orbit-ink" d="M10 38A55 55 0 0 1 48 6M82 9A55 55 0 0 1 114 61M99 99A55 55 0 0 1 38 110"/>';
-spirit.append(...Array.from(dialSvg.children));
-dialSvg.append(spirit);
+const mainFluid = createFluidTaiji(dialSvg);
 const demoSvg = $("#ringDemo .taiji-svg");
 const demoRotor = document.createElementNS("http://www.w3.org/2000/svg", "g");
 demoRotor.setAttribute("class", "taiji-spirit");
 demoRotor.append(...Array.from(demoSvg.children));
 demoSvg.append(demoRotor);
-let spiritAnimation = null, demoAnimation = null, dialInView = false, demoInView = false;
+let demoAnimation = null, dialInView = false, demoInView = false;
 let dialHovered = false, demoHovered = false, activeBloom = null;
 function taijiRate(value, hovered = false) { return (1 + 9 * value / 100) * (hovered ? 3 : 1); }
 function motionAllowed() { return root.dataset.motion === "on" && !reduced.matches && !document.hidden; }
@@ -66,8 +62,7 @@ function syncRotor(element, animation, value, visible, hovered) {
 }
 function syncUnifiedMotion() {
   if (!motionAllowed()) clearBloom();
-  const value = parseFloat(dialSvg.querySelector(".ratio-value").getAttribute("stroke-dasharray"));
-  spiritAnimation = syncRotor(spirit, spiritAnimation, value, dialInView && !$("#overview").hidden, dialHovered);
+  mainFluid.setMotion(motionAllowed() && dialInView && !$("#overview").hidden, dialHovered);
   demoAnimation = syncRotor(demoRotor, demoAnimation, Number($("#ratioPreview").value), demoInView, demoHovered);
   document.dispatchEvent(new window.Event("taiji-motion-sync"));
 }
@@ -75,7 +70,12 @@ const dialObserver = new IntersectionObserver(entries => { dialInView = entries[
 dialObserver.observe($(".instrument-dial"));
 const demoObserver = new IntersectionObserver(entries => { demoInView = entries[0].isIntersecting; syncUnifiedMotion(); });
 demoObserver.observe($("#ringDemo"));
-dialSvg.addEventListener("pointerenter", () => { dialHovered = true; syncUnifiedMotion(); });
+dialSvg.addEventListener("pointerenter", event => {
+  dialHovered = true;
+  syncUnifiedMotion();
+  if (event.pointerType !== "touch") mainFluid.ripple(event);
+});
+dialSvg.addEventListener("pointerdown", event => { if (event.isPrimary && event.button === 0) mainFluid.ripple(event); });
 dialSvg.addEventListener("pointerleave", () => { dialHovered = false; syncUnifiedMotion(); });
 demoSvg.addEventListener("pointerenter", () => { demoHovered = true; syncUnifiedMotion(); });
 demoSvg.addEventListener("pointerleave", () => { demoHovered = false; syncUnifiedMotion(); });
@@ -121,7 +121,7 @@ document.addEventListener("click", event => {
 $(".brand").addEventListener("click", () => { cancelSharedFade(); syncUnifiedMotion(); bloomInk($("#overview")); });
 document.addEventListener("visibilitychange", syncUnifiedMotion);
 reduced.addEventListener("change", syncUnifiedMotion);
-window.addEventListener("pagehide", () => { clearBloom(); spiritAnimation?.cancel(); demoAnimation?.cancel(); spiritAnimation = demoAnimation = null; });
+window.addEventListener("pagehide", () => { clearBloom(); mainFluid.setMotion(false, false); demoAnimation?.cancel(); demoAnimation = null; });
 window.addEventListener("pageshow", syncUnifiedMotion);
 updateRatioPreview(55);
 cancelSharedFade();
