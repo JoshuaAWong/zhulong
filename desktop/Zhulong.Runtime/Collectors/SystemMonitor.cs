@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using Zhulong.Core;
+using Zhulong.Runtime.Actions;
 
 namespace Zhulong.Runtime.Collectors;
 
@@ -12,6 +13,7 @@ public sealed class SystemMonitor : IDisposable
     readonly RuntimeSettings settings;
     readonly SlowMetrics slow;
     readonly CommitGrowthTracker commitGrowth;
+    readonly ManualTrimActivity manualTrimActivity;
     NativeCounters.CoreTimes[] previousCores = [];
     Dictionary<int, ProcessCounter> previousProcesses = [];
     Dictionary<string, NetworkCounter> previousNetwork = [];
@@ -21,7 +23,10 @@ public sealed class SystemMonitor : IDisposable
         this.settings = settings ?? new RuntimeSettings();
         slow = new SlowMetrics(this.settings);
         commitGrowth = new CommitGrowthTracker(this.settings.SampleSeconds);
+        manualTrimActivity = new ManualTrimActivity(this.settings.SampleSeconds);
     }
+    internal (bool HasRecentSamples, IReadOnlyList<ProcessRow> Rows) ManualTrimIdleSnapshot =>
+        manualTrimActivity.Read(Stopwatch.GetTimestamp());
     public Task CollectSlowAsync(CancellationToken cancellationToken) => slow.CollectAsync(cancellationToken);
 
     public SystemSnapshot Collect()
@@ -51,6 +56,7 @@ public sealed class SystemMonitor : IDisposable
         try { processes = Processes(); }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         { previousProcesses.Clear(); processes = []; errors.Add("进程排行采集失败"); }
+        manualTrimActivity.Observe(processes, logicalProcessors, now.UtcTicks, Stopwatch.GetTimestamp());
         var growth = commitGrowth.Observe(processes, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         Network(metrics, now);
         var watch = settings.WatchProcesses.Select(value => value.Name)
@@ -106,7 +112,8 @@ public sealed class SystemMonitor : IDisposable
                         var seconds = Stopwatch.GetElapsedTime(previous.Time, now).TotalSeconds;
                         if (seconds > 0)
                         {
-                            cpuPercent = Math.Clamp((cpu - previous.Cpu) / (double)TimeSpan.TicksPerSecond / seconds / logicalProcessors * 100, 0, 100);
+                            if (cpu >= previous.Cpu)
+                                cpuPercent = Math.Clamp((cpu - previous.Cpu) / (double)TimeSpan.TicksPerSecond / seconds / logicalProcessors * 100, 0, 100);
                             if (counter.Read is { } readNow && previous.Read is { } readBefore && readNow >= readBefore &&
                                 counter.Write is { } writeNow && previous.Write is { } writeBefore && writeNow >= writeBefore)
                             { read = (readNow - readBefore) / NativeCounters.Mb / seconds; write = (writeNow - writeBefore) / NativeCounters.Mb / seconds; }

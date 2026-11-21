@@ -10,6 +10,9 @@ using Zhulong.Runtime.Rules;
 using Zhulong.Runtime.Storage;
 namespace Zhulong.Runtime.Application;
 
+public sealed record ManualTrimReport(IReadOnlyList<ActionResult> Results, long? AvailableDeltaBytes,
+    int CandidateCount, long? CommitDeltaBytes = null, bool HasRecentSamples = true);
+
 // 唯一后台属主：独立节拍，无重叠；UI只读快照，慢IO不阻塞快采样。
 public sealed class RuntimeHost : IDisposable
 {
@@ -290,6 +293,47 @@ public sealed class RuntimeHost : IDisposable
         }
         return results;
     }
+
+    public Task<ManualTrimReport> AccelerateMemoryAsync() => RunManual(AccelerateMemoryCoreAsync);
+
+    async Task<ManualTrimReport> AccelerateMemoryCoreAsync()
+    {
+        var sample = monitor.ManualTrimIdleSnapshot;
+        var before = NativeCounters.ReadTrimMemoryCounters();
+        (int candidates, IReadOnlyList<ActionResult> results) = sample.HasRecentSamples
+            ? await actions.TrimBackgroundAsync(sample.Rows, StillIdle, stopped.Token).ConfigureAwait(false) : (0, []);
+        var attempted = results.Any(item => item.Status == "trimmed" || item.PrivateWorkingSetReductionBytes.HasValue);
+        (long? AvailableBytes, long? CommitBytes) after = attempted ? NativeCounters.ReadTrimMemoryCounters() : (null, null);
+        var report = new ManualTrimReport(results, after.AvailableBytes - before.AvailableBytes, candidates,
+            after.CommitBytes - before.CommitBytes, sample.HasRecentSamples);
+        var measured = results.Where(item => item.PrivateWorkingSetReductionBytes.HasValue).ToArray();
+        var incomplete = results.Any(item => item.Status.StartsWith("degraded:", StringComparison.Ordinal) && item.Status != "degraded:frequency_cap");
+        var checkedCount = results.Count(item => item.Status != "cancelled");
+        var detail = sample.HasRecentSamples ? $"候选 {candidates} 项，复核 {checkedCount} 项。" : "等待活动采样。";
+        if (measured.Length > 0)
+            detail += $"已测 {measured.Length} 项的专用工作集合计减少 {measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value) / NativeCounters.Mb:F1} MiB。";
+        detail += "同期整机可用物理内存 " + FormatDelta(report.AvailableDeltaBytes) +
+            "，提交量 " + FormatDelta(report.CommitDeltaBytes) + "。";
+        try
+        {
+            Record(new(DateTimeOffset.UtcNow, "手动整理内存", detail, incomplete ? "warning" : "info", "action"));
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException error)
+        {
+            WriteDiagnostic("手动整理结果", error.Message);
+        }
+        return report;
+
+        bool StillIdle(ProcessIdentity process)
+        {
+            var current = monitor.ManualTrimIdleSnapshot;
+            return current.HasRecentSamples && current.Rows.Any(row => row.Pid == process.Pid && row.CreatedTicks == process.CreatedTicks);
+        }
+
+        static string FormatDelta(long? bytes) => bytes is { } change
+            ? $"{change / NativeCounters.Mb:+0.0;-0.0;0.0} MiB" : "变化未知";
+    }
+
     public Task<IReadOnlyList<ActionResult>> ToggleThrottleAsync()=>RunManual(ToggleThrottleCoreAsync);
     async Task<IReadOnlyList<ActionResult>> ToggleThrottleCoreAsync()
     {

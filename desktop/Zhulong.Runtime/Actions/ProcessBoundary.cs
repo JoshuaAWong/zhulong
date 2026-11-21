@@ -7,7 +7,10 @@ using System.Text;
 namespace Zhulong.Runtime.Actions;
 
 public sealed record ProcessIdentity(int Pid, string Name, long CreatedTicks, double CommitGb,
-    double WorkingSetGb, string? ExecutablePath, string? ProtectionReason = null);
+    double WorkingSetGb, string? ExecutablePath, string? ProtectionReason = null)
+{
+    internal string? UserSid { get; init; }
+}
 public sealed record ProcessLimits(uint Priority, ulong Affinity, ulong SystemAffinity);
 
 // 测试替身只需实现这些边界；规则/安全链测试不操作真实进程。
@@ -57,12 +60,14 @@ public sealed class NativeProcessBoundary : IProcessBoundary
         if (executable?.Contains("\\Windows\\System32\\", StringComparison.OrdinalIgnoreCase) == true ||
             executable?.Contains("\\Windows\\SysWOW64\\", StringComparison.OrdinalIgnoreCase) == true)
             protection = "system_path";
+        string? sid = null;
         if (OpenProcessToken(handle.DangerousGetHandle(), 8, out var token))
         {
             try
             {
                 using var identity = new WindowsIdentity(token);
-                if (identity.User?.Value is "S-1-5-18" or "S-1-5-19" or "S-1-5-20") protection = "system_account";
+                sid = identity.User?.Value;
+                if (sid is "S-1-5-18" or "S-1-5-19" or "S-1-5-20") protection = "system_account";
             }
             finally { CloseHandle(token); }
         }
@@ -75,7 +80,7 @@ public sealed class NativeProcessBoundary : IProcessBoundary
         }
         return new ProcessIdentity(pid, executable is null ? "" : Path.GetFileName(executable),
             DateTime.FromFileTimeUtc(created.Value).Ticks, counters.PrivateUsage.ToUInt64() / 1073741824d,
-            counters.WorkingSet.ToUInt64() / 1073741824d, executable, protection);
+            counters.WorkingSet.ToUInt64() / 1073741824d, executable, protection) { UserSid = sid };
     }
 
     public void Terminate(ProcessIdentity expected)

@@ -21,7 +21,7 @@ internal sealed class ResourceDockWindow : Window
         AccelerationSeconds = OuterSpinStart + OuterRippleSeconds,
         CircleRadius = 22, CircleCenter = 24, RippleMaxScale = 6,
         RippleMargin = CircleRadius * RippleMaxScale - PanelWidth / 2 + 4;
-    const string AccelerationHint = "点击太极整理白名单进程内存";
+    const string AccelerationHint = "点击太极扫描并整理闲置后台进程";
     const int ExtendedStyle = -20, ToolWindowStyle = 0x80, AppWindowStyle = 0x40000;
     static readonly Color Jade = Color.FromRgb(87, 214, 162), Amber = Color.FromRgb(255, 186, 94),
         Red = Color.FromRgb(255, 107, 118), Gray = Color.FromRgb(157, 157, 154);
@@ -288,6 +288,8 @@ internal sealed class ResourceDockWindow : Window
         label.TextAlignment = TextAlignment.Center;
         label.TextWrapping = TextWrapping.Wrap;
         label.TextTrimming = TextTrimming.CharacterEllipsis;
+        label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+        label.LineHeight = 12;
         label.MaxHeight = 40;
         label.Opacity = 0;
         return label;
@@ -884,14 +886,17 @@ internal sealed class ResourceDockWindow : Window
             }
             check(dock.waitingStatus.Text == "整理中…" && dock.feedbackLayer.Opacity == 1 && dock.diskSurface.Opacity == 0 &&
                 !dock.resultTimer.IsEnabled, "没有结果时显示等待文字并延后计时");
-            dock.CompleteAcceleration("已整理\n2.42 G");
+            const string figure = "工作集\n↓999.9M\n可用−1.06G";
+            dock.CompleteAcceleration(figure);
             if (SystemParameters.ClientAreaAnimation)
             {
                 check(dock.rendering && !dock.resultTimer.IsEnabled && dock.waitingStatus.Opacity == 1 && dock.accelerationStatus.Opacity == 0,
                     "晚到结果应等文字交叠完再计时");
                 PumpFrames(420);
             }
-            check(dock.accelerationStatus.Text == "已整理\n2.42 G" && dock.accelerationStatus.Opacity == 1 &&
+            dock.accelerationStatus.Measure(new Size(PanelWidth - 4, 40));
+            check(dock.accelerationStatus.DesiredSize.Height is >= 33 and < 40, "两项整理读数应完整放入三行反馈区");
+            check(dock.accelerationStatus.Text == figure && dock.accelerationStatus.Opacity == 1 &&
                 dock.waitingStatus.Opacity == 0 && !dock.rendering && dock.resultTimer.IsEnabled && dock.meterButton.ToolTip is null &&
                 (!SystemParameters.ClientAreaAnimation || (dock.shell.Opacity == 0 && dock.readings.Opacity == 0)),
                 "完全可读的整理结果应在太极原位独立计时且无逐帧绘制");

@@ -128,6 +128,14 @@ internal static class NativeCounters
         return (memory.MemoryLoad, (memory.TotalPhysical - memory.AvailablePhysical) / Gb, memory.TotalPhysical / Gb);
     }
 
+    internal static (long? AvailableBytes, long? CommitBytes) ReadTrimMemoryCounters()
+    {
+        if (!GetPerformanceInfo(out var info, (uint)Marshal.SizeOf<PerformanceInfo>())) return (null, null);
+        var pageBytes = info.PageSize.ToUInt64();
+        return (checked((long)(info.PhysicalAvailable.ToUInt64() * pageBytes)),
+            checked((long)(info.CommitTotal.ToUInt64() * pageBytes)));
+    }
+
     internal static (double UsedGb, double TotalGb)? Pagefile()
     {
         const int capacity = 1024 * 1024;

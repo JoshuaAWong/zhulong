@@ -98,6 +98,8 @@ public static partial class RuntimeSafetyTests
             catch (ArgumentException) { rejected = true; }
             Check(rejected, "较低的手动门槛必须受路径与32–2048MiB取值范围约束");
         }
+        ManualTrimCandidateTests.Check(Check);
+        await CheckBackgroundTrimAsync(Check, now).ConfigureAwait(false);
 
         var throttled = Fake(); var throttleSettings = Settings(); throttleSettings.ThrottleEnabled = true;
         var original = throttled.Limits;
@@ -171,7 +173,11 @@ public static partial class RuntimeSafetyTests
         {
             var trimResults = await runtime.TrimWorkingSetsAsync();
             Check(trimResults is [{ Status: "skipped:process_gone", Action: "mem_trim" }],
-                "点击不受自动整理开关和压力阈值限制，同名目标仅检查一次且仅提交工作集整理");
+                "指定名单入口不受自动整理开关和压力阈值限制，同名目标仅检查一次且仅提交工作集整理");
+            var cold = await runtime.AccelerateMemoryAsync();
+            Check(!cold.HasRecentSamples && cold.CandidateCount == 0 && cold.Results.Count == 0 &&
+                cold.AvailableDeltaBytes is null && cold.CommitDeltaBytes is null,
+                "手动加速冷启动时应等待连续活动样本，且不绕回名看名单或报告整机变化");
         }
         manualTrimSettings.TrimProcesses = [];
         new SettingsStore(trimDirectory).Save(manualTrimSettings);
@@ -359,16 +365,68 @@ public static partial class RuntimeSafetyTests
             "300秒采样仍需至少三个可比较的上升间隔");
     }
 
+    static async Task CheckBackgroundTrimAsync(Action<bool, string> check, DateTimeOffset now)
+    {
+        var candidate = new ProcessIdentity(71, "worker.exe", now.AddMinutes(-10).UtcTicks, 2, 1, @"C:\Fixture\worker.exe");
+        var settings = new RuntimeSettings { TrimProcesses = [] };
+        var processes = new FakeProcesses(candidate);
+        await using (var coordinator = new ActionCoordinator(settings, processes, utcNow: () => now))
+        {
+            var scoped = new[] { candidate with { ProtectionReason = "foreground" }, candidate with { WorkingSetGb = .4 } };
+            check((await coordinator.TrimBackgroundAsync(scoped, _ => true, CancellationToken.None)).CandidateCount == 0 &&
+                processes.Trims == 0, "后台批量整理应剔除已保护进程及不足500MiB工作集");
+            var changed = await coordinator.TrimBackgroundAsync([candidate], _ => false, CancellationToken.None);
+            check(changed.Results is [{ Status: "blocked:background_unconfirmed" }] && processes.Trims == 0,
+                "后台批量整理在实际动作入口拒绝新活跃或身份不明进程");
+            processes.ReuseOnRead = true;
+            var reused = await coordinator.TrimBackgroundAsync([candidate], _ => true, CancellationToken.None);
+            processes.ReuseOnRead = false;
+            check(reused.Results is [{ Status: "skipped:pid_reused" }] && processes.Trims == 0,
+                "后台批量整理须拒绝已复用的PID");
+            var trimmed = await coordinator.TrimBackgroundAsync([candidate], _ => true, CancellationToken.None);
+            var repeated = await coordinator.TrimBackgroundAsync([candidate], _ => true, CancellationToken.None);
+            check(trimmed.Results is [{ Status: "trimmed", PrivateWorkingSetReductionBytes: 1048576 }] &&
+                repeated.Results is [{ Status: "degraded:frequency_cap" }] && processes.Trims == 1,
+                "非白名单的合格后台进程可手动整理，仍按实测字节和原有频次记账");
+        }
+        var configured = new RuntimeSettings
+        {
+            TrimProcesses = [new(candidate.Name, PathContains: @"D:\Configured", ManualMinWorkingSetMiB: 768)]
+        };
+        await using (var coordinator = new ActionCoordinator(configured, processes, utcNow: () => now))
+        {
+            var bypass = await coordinator.TrimBackgroundAsync([candidate], _ => true, CancellationToken.None);
+            check(bypass.CandidateCount == 0 && processes.Trims == 1, "同名已配置目标不得绕过路径限制重新进入筛选");
+            var undersized = candidate with { WorkingSetGb = .65, ExecutablePath = @"D:\Configured\worker.exe" };
+            check((await coordinator.TrimBackgroundAsync([undersized], _ => true, CancellationToken.None)).CandidateCount == 0,
+                "全量扫描沿用同名目标已配置的更高门槛");
+        }
+        var batch = Enumerable.Range(1, 4).Select(index => candidate with { Pid = 71 + index,
+            Name = $"worker-{index}.exe", ExecutablePath = $@"C:\Fixture\worker-{index}.exe" }).ToArray();
+        var batchProcesses = new FakeProcesses(candidate) { AdditionalProcesses = batch };
+        await using (var coordinator = new ActionCoordinator(settings, batchProcesses, utcNow: () => now))
+        {
+            var bounded = await coordinator.TrimBackgroundAsync(batch, _ => true, CancellationToken.None);
+            check(bounded.CandidateCount == 4 && bounded.Results.Count == 3 && batchProcesses.Trims == 3 &&
+                batchProcesses.Kills == 0, "单次整理最多处理三个已识别后台程序");
+        }
+    }
+
     sealed class FakeProcesses(ProcessIdentity identity) : IProcessBoundary
     {
         public ProcessIdentity Value = identity;
         public int SelfPid = 99, Kills, Trims, Sets, FindCalls;
         public bool ReuseOnRead;
+        public IReadOnlyList<ProcessIdentity> AdditionalProcesses = [];
         public ProcessLimits Limits = new(0x80, 0b0011, 0b1111);
         public int CurrentPid => SelfPid;
         public int ProcessorCount => 4;
         public IReadOnlyList<ProcessIdentity> Find(string name) { FindCalls++; return [Value]; }
-        public ProcessIdentity? Read(int pid) => ReuseOnRead ? Value with { CreatedTicks = Value.CreatedTicks + 1 } : Value;
+        public ProcessIdentity? Read(int pid)
+        {
+            var process = AdditionalProcesses.FirstOrDefault(item => item.Pid == pid) ?? Value;
+            return ReuseOnRead ? process with { CreatedTicks = process.CreatedTicks + 1 } : process;
+        }
         public void Terminate(ProcessIdentity expected) => Kills++;
         public long? Trim(ProcessIdentity expected) { Trims++; return 1048576; }
         public ProcessLimits ReadLimits(ProcessIdentity expected) => Limits;

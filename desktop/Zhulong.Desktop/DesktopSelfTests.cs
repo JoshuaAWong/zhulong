@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Zhulong.Runtime.Application;
 
 namespace Zhulong.Desktop;
 
@@ -41,19 +42,24 @@ internal static class DesktopSelfTests
                 expectedMark.ToArray().SequenceEqual(actualMark.ToArray()),
                 "系统托盘应加载与程序图标一致的 C 朱印");
             var trim = new ActionResult("trimmed", "mem_trim", "fixture.exe");
-            Check(Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 999_999_999 }]) == $"已整理\n{999.9:0.#} M" &&
-                Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 1_000_000_000 }]) == "已整理\n1 G" &&
-                Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 0 }]) == "已整理\n0 M",
-                "整理结果应按十进制进位并保留实际测得的零下降");
-            Check(Program.FormatMemoryAcceleration([]) == "无整理项" &&
-                Program.FormatMemoryAcceleration([trim]) == "已整理\n变化不可测",
-                "区分没有整理项和已整理但无法计量");
+            Check(Program.FormatMemoryAcceleration(new([trim with { PrivateWorkingSetReductionBytes = 999_999_999 }], -20_000_000, 1), true)
+                == $"工作集\n↓{999.9:0.#}M\n可用−20M" &&
+                Program.FormatMemoryAcceleration(new([trim with { PrivateWorkingSetReductionBytes = 1_000_000_000 }], 75_000_000, 1), false)
+                == "工作集 ↓1 G\n整机可用内存变化 +75 M" &&
+                Program.FormatMemoryAcceleration(new([trim with { PrivateWorkingSetReductionBytes = 0 }], 0, 1), true)
+                == "工作集\n↓0M\n可用0M",
+                "整理结果分别展示工作集减少量和有符号的整机可用内存变化");
+            Check(Program.FormatMemoryAcceleration(new([], null, 0), true) == "无整理项\n暂无合格后台" &&
+                Program.FormatMemoryAcceleration(new([], null, 0, HasRecentSamples: false), true) == "无整理项\n等待活动采样" &&
+                Program.FormatMemoryAcceleration(new([trim], null, 1), true) == "工作集\n不可测\n可用未知",
+                "区分没有候选、等待采样、读数未知和实际测得的零下降");
             var missing = trim with { Status = "skipped:process_gone" };
             var small = trim with { Status = "skipped:ws_below_threshold" };
-            Check(Program.FormatMemoryAcceleration([missing]) == "无整理项\n名单进程未运行" &&
-                Program.FormatMemoryAcceleration([missing, small]) == "无整理项\n未达内存门槛" &&
-                Program.FormatMemoryAcceleration([small, trim with { Status = "blocked:foreground" }]) == "无整理项\n详情见事件记录",
-                "整理反馈应区分名单进程未运行、工作集未达门槛和其他跳过原因");
+            Check(Program.FormatMemoryAcceleration(new([missing], null, 1), true) == "无整理项\n候选进程已退出" &&
+                Program.FormatMemoryAcceleration(new([missing, small], null, 2), true) == "无整理项\n未达内存门槛" &&
+                Program.FormatMemoryAcceleration(new([small, trim with { Status = "blocked:foreground" }], null, 2), true)
+                == "无整理项\n详情见事件记录",
+                "整理反馈应区分候选已退出、工作集未达门槛和其他跳过原因");
             ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))

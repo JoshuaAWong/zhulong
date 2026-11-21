@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using Zhulong.Runtime.Application;
 using Forms = System.Windows.Forms;
 
 namespace Zhulong.Desktop;
@@ -338,8 +339,8 @@ internal static class Program
         }
         try
         {
-            var results = await hub!.TrimWorkingSetsAsync();
-            ShowResult(FormatMemoryAcceleration(results));
+            var report = await hub!.AccelerateMemoryAsync();
+            ShowResult(FormatMemoryAcceleration(report, compact: dock is not null));
         }
         catch (Exception error) when (error is not (OutOfMemoryException or StackOverflowException))
         {
@@ -349,25 +350,35 @@ internal static class Program
         finally { acceleratingMemory = false; }
     }
 
-    internal static string FormatMemoryAcceleration(IReadOnlyList<ActionResult> results)
+    internal static string FormatMemoryAcceleration(ManualTrimReport report, bool compact)
     {
+        var results = report.Results;
         var measured = results.Where(item => item.PrivateWorkingSetReductionBytes.HasValue).ToArray();
         var degraded = results.Any(item => item.Status.StartsWith("degraded:", StringComparison.Ordinal) && item.Status != "degraded:frequency_cap");
-        if (measured.Length > 0)
+        if (measured.Length > 0 || results.Any(item => item.Status == "trimmed"))
         {
-            var bytes = measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value);
-            var amount = bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.##} G" : $"{bytes / 100_000 / 10d:0.#} M";
             var incomplete = degraded || results.Any(item => item.Status == "trimmed" && !item.PrivateWorkingSetReductionBytes.HasValue);
-            return $"{(incomplete ? "已测部分" : "已整理")}\n{amount}";
+            var label = incomplete && measured.Length > 0 ? "部分工作集" : "工作集";
+            var workingSet = measured.Length == 0 ? "不可测" : "↓" + FormatTrimBytes(measured.Sum(item => item.PrivateWorkingSetReductionBytes!.Value), compact);
+            var available = report.AvailableDeltaBytes is { } delta
+                ? (delta > 0 ? "+" : delta < 0 ? "−" : "") + FormatTrimBytes(Math.Abs(delta), compact) : "未知";
+            return compact ? $"{label}\n{workingSet}\n可用{available}" :
+                $"{label} {workingSet}\n整机可用内存变化 {available}";
         }
-        if (results.Any(item => item.Status == "trimmed")) return "已整理\n变化不可测";
         if (degraded) return "整理未完整完成";
         if (results.Any(item => item.Status == "degraded:frequency_cap")) return "刚整理过\n请稍后再试";
-        if (results.Count == 0) return "无整理项";
-        if (results.All(item => item.Status == "skipped:process_gone")) return "无整理项\n名单进程未运行";
+        if (!report.HasRecentSamples) return "无整理项\n等待活动采样";
+        if (results.Count == 0) return "无整理项\n暂无合格后台";
+        if (results.All(item => item.Status == "skipped:process_gone")) return "无整理项\n候选进程已退出";
         if (results.All(item => item.Status is "skipped:process_gone" or "skipped:ws_below_threshold"))
             return "无整理项\n未达内存门槛";
         return "无整理项\n详情见事件记录";
+    }
+
+    static string FormatTrimBytes(long bytes, bool compact)
+    {
+        var space = compact ? "" : " ";
+        return bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.##}{space}G" : $"{bytes / 100_000 / 10d:0.#}{space}M";
     }
 
     static void ShowActionResults(IReadOnlyList<ActionResult> values,string title)

@@ -40,12 +40,24 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         }
     }
 
-    public async Task<ActionResult> ExecuteAsync(string action, AlertDecision decision,
+    public Task<ActionResult> ExecuteAsync(string action, AlertDecision decision,
         CancellationToken cancellationToken, bool automatic = false)
     {
         var target = decision.Target ?? decision.ProcessName ?? "";
         if (automatic && !settings.AutomaticActions)
-            return new("skipped:automatic_disabled", action, target);
+            return Task.FromResult(new ActionResult("skipped:automatic_disabled", action, target));
+        return ExecuteGuardedAsync(action, target, async token => action switch
+        {
+            "kill_process" => Kill(target, decision),
+            "mem_trim" => Trim(target, decision, automatic),
+            "restart_service" => await RestartServiceAsync(target, token).ConfigureAwait(false),
+            _ => new ActionResult("skipped:unknown_action", action, target)
+        }, cancellationToken);
+    }
+
+    async Task<ActionResult> ExecuteGuardedAsync(string action, string target,
+        Func<CancellationToken, Task<ActionResult>> execute, CancellationToken cancellationToken)
+    {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping.Token);
         var entered = false;
         ActionResult result;
@@ -53,13 +65,7 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         {
             await gate.WaitAsync(linked.Token).ConfigureAwait(false);
             entered = true;
-            result = await Task.Run(async () => action switch
-            {
-                "kill_process" => Kill(target, decision),
-                "mem_trim" => Trim(target, decision, automatic),
-                "restart_service" => await RestartServiceAsync(target, linked.Token).ConfigureAwait(false),
-                _ => new ActionResult("skipped:unknown_action", action, target)
-            }, linked.Token).ConfigureAwait(false);
+            result = await Task.Run(() => execute(linked.Token), linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { result = new("cancelled", action, target); }
         catch (Win32Exception error)
@@ -130,9 +136,71 @@ public sealed partial class ActionCoordinator : IAsyncDisposable
         if (SafetyPolicy.ProcessBlocked(fresh, processes.CurrentPid) is { } freshReason)
             return new("blocked:" + freshReason, action, target);
         if (fresh.WorkingSetGb < minimum) return new("skipped:ws_below_threshold", action, target);
+        return TrimAndAccount(fresh, target);
+    }
+
+    internal async Task<(int CandidateCount, IReadOnlyList<ActionResult> Results)> TrimBackgroundAsync(
+        IReadOnlyList<ProcessRow> idleRows, Func<ProcessIdentity, bool> stillIdle, CancellationToken cancellationToken)
+    {
+        var candidates = ManualTrimCandidates.Scan(idleRows, processes, cancellationToken);
+        return await TrimBackgroundAsync(candidates, candidate => ManualTrimCandidates.IsStillBackground(candidate) &&
+            stillIdle(candidate), cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<(int CandidateCount, IReadOnlyList<ActionResult> Results)> TrimBackgroundAsync(
+        IReadOnlyList<ProcessIdentity> candidates, Func<ProcessIdentity, bool> stillBackground, CancellationToken cancellationToken)
+    {
+        var selected = candidates.Where(candidate => BackgroundTrimBlock(candidate, TrimPolicyFor(candidate.Name)) is null)
+            .OrderByDescending(candidate => candidate.WorkingSetGb)
+            .DistinctBy(candidate => SafetyPolicy.Normalize(candidate.Name)).ToArray();
+        var results = new List<ActionResult>(Math.Min(3, selected.Length));
+        foreach (var candidate in selected.Take(3))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            results.Add(await ExecuteGuardedAsync("mem_trim", candidate.Name,
+                _ => Task.FromResult(TrimBackground(candidate, stillBackground)), cancellationToken).ConfigureAwait(false));
+        }
+        return (selected.Length, results);
+    }
+
+    ActionResult TrimBackground(ProcessIdentity candidate, Func<ProcessIdentity, bool> stillBackground)
+    {
+        const string action = "mem_trim";
+        var target = candidate.Name;
+        var policy = TrimPolicyFor(target);
+        if (!state.Readable) return new("degraded:accounting_unavailable", action, target);
+        if (OverLimit(action, target, policy?.MaxTrimsPerTenMinutes ?? 1, 600))
+            return new("degraded:frequency_cap", action, target);
+        var fresh = processes.Read(candidate.Pid);
+        if (fresh is null) return new("skipped:process_gone", action, target);
+        if (fresh.Pid != candidate.Pid || fresh.CreatedTicks != candidate.CreatedTicks ||
+            !string.Equals(fresh.ExecutablePath, candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+            return new("skipped:pid_reused", action, target);
+        if (BackgroundTrimBlock(fresh, policy) is { } reason) return new(reason, action, target);
+        if (!stillBackground(fresh)) return new("blocked:background_unconfirmed", action, target);
+        return TrimAndAccount(fresh, target);
+    }
+
+    TrimPolicy? TrimPolicyFor(string name) => settings.TrimProcesses.FirstOrDefault(rule => Equal(rule.Name, name));
+
+    string? BackgroundTrimBlock(ProcessIdentity process, TrimPolicy? policy)
+    {
+        if (string.IsNullOrWhiteSpace(process.ExecutablePath)) return "blocked:exe_unreadable";
+        if (SafetyPolicy.ProcessBlocked(process, processes.CurrentPid) is { } reason) return "blocked:" + reason;
+        var configuredMinimum = policy?.ManualMinWorkingSetMiB is { } manual
+            ? manual / 1024d : policy is null ? 0 : Math.Max(2, policy.MinWorkingSetGb);
+        if (!double.IsFinite(process.WorkingSetGb) || process.WorkingSetGb < Math.Max(ManualTrimCandidates.MinimumWorkingSetGb, configuredMinimum))
+            return "skipped:ws_below_threshold";
+        if (!OldEnough(process, Math.Max(ManualTrimCandidates.MinimumAgeSeconds, policy?.MinAgeSeconds ?? 0)))
+            return "skipped:too_young";
+        return PathMatches(process, policy?.PathContains) ? null : "skipped:path_mismatch";
+    }
+
+    ActionResult TrimAndAccount(ProcessIdentity fresh, string target)
+    {
         var reduction = processes.Trim(fresh);
         var detail = reduction is { } bytes ? $"专用工作集下降 {bytes / 1048576d:F1} MiB" : "专用工作集变化不可测";
-        return Account(action, target, "trimmed", $"{detail}；PID {fresh.Pid}") with { PrivateWorkingSetReductionBytes = reduction };
+        return Account("mem_trim", target, "trimmed", $"{detail}；PID {fresh.Pid}") with { PrivateWorkingSetReductionBytes = reduction };
     }
 
     bool OldEnough(ProcessIdentity process, int seconds) => process.CreatedTicks > 0 &&
