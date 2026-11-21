@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 
 namespace Zhulong.Runtime.Providers.AI;
@@ -199,8 +200,37 @@ public sealed partial class UsageStore : IDisposable
         }
         using var countSources = Command("SELECT COUNT(*) FROM source_cursors");
         var sourceCount = Convert.ToInt64(countSources.ExecuteScalar());
-        return JsonSerializer.Serialize(new { generated_at = Iso(now), provider = "openai", tool = "codex", coverage = "local_rollout_only",
-            totals, sessions, metadata_sessions = metadata, metadata_session_count = metadataCount, metadata_rows_limit = 100, quota, quality, session_totals_include_replayed_history = true, source_count = sourceCount, session_rows_limit = 100, source_rows_limit = 100, quota_rows_limit = 100, sources }, new JsonSerializerOptions { WriteIndented = true });
+        var report = new { generated_at = Iso(now), provider = "openai", tool = "codex", coverage = "local_rollout_only",
+            totals, sessions, metadata_sessions = metadata, metadata_session_count = metadataCount, metadata_rows_limit = 100, quota, quality, session_totals_include_replayed_history = true, source_count = sourceCount, session_rows_limit = 100, source_rows_limit = 100, quota_rows_limit = 100, sources };
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        if (tool != "kimi") return JsonSerializer.Serialize(report, options);
+        var kimi = JsonSerializer.SerializeToNode(report)!.AsObject();
+        kimi["provider"] = provider;
+        kimi["tool"] = tool;
+        kimi["coverage"] = "local_kimi_cli";
+        kimi["daily_usage_source"] = "local_kimi_cli";
+        kimi["daily_usage"] = ReadKimiDays(now);
+        return kimi.ToJsonString(options);
+    }
+
+    JsonArray ReadKimiDays(DateTimeOffset now)
+    {
+        // 当前与前一段各三十个本地自然日。直接汇总唯一事件，避免会话重播造成重复。
+        var today = now.LocalDateTime.Date;
+        using var command = Command("""
+            SELECT date(timestamp,'localtime') AS local_date, COUNT(*),
+                SUM(input_tokens), SUM(output_tokens), SUM(total_tokens)
+            FROM usage_records WHERE timestamp >= $start AND timestamp < $end
+            GROUP BY local_date ORDER BY local_date
+            """, null, ("$start", Iso(today.AddDays(-59))), ("$end", Iso(today.AddDays(1))));
+        var days = new JsonArray();
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) days.Add(new JsonObject {
+            ["local_date"] = reader.GetString(0), ["event_count"] = reader.GetInt64(1),
+            ["input_tokens"] = reader.GetInt64(2), ["output_tokens"] = reader.GetInt64(3),
+            ["total_tokens"] = reader.GetInt64(4)
+        });
+        return days;
     }
 
     static object? Window(QuotaWindow? window, DateTimeOffset now)

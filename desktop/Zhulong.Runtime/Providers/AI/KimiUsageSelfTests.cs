@@ -17,7 +17,8 @@ internal static class KimiUsageSelfTests
 
         var fixture = Path.GetFullPath(Path.Combine(directory, "kimi-" + Guid.NewGuid().ToString("N")));
         var home = Path.Combine(fixture, "profiles", "default");
-        var stamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var today = DateTime.Now.Date;
+        var stamp = new DateTimeOffset(today.AddHours(12)).ToUnixTimeMilliseconds();
         string Record(long time, string agent, object usage) => JsonSerializer.Serialize(new
         {
             type = "usage.record", time, agentId = agent, model = "kimi-k3", usageScope = "turn", usage
@@ -43,7 +44,7 @@ internal static class KimiUsageSelfTests
             Check(Scalar("SELECT COUNT(*) FROM usage_sessions") == 3, "Kimi 副本保留会话关联，子 Agent 归入原会话");
             Check(Scalar("SELECT COUNT(*) FROM usage_sessions WHERE session_id='original'") == 2, "子 Agent 用量不能计入其目录名");
             Check(Scalar("SELECT SUM(malformed_lines) FROM source_cursors") == 1, "损坏的用量 JSON 行要记录且不阻断扫描");
-            using (var report = JsonDocument.Parse(store.ReportJson(DateTimeOffset.UtcNow, "kimi", "moonshot")))
+            using (var report = JsonDocument.Parse(store.ReportJson(today, "kimi", "moonshot")))
             {
                 var totals = report.RootElement.GetProperty("totals");
                 Check(totals.GetProperty("input_tokens").GetInt64() == 80 &&
@@ -53,6 +54,11 @@ internal static class KimiUsageSelfTests
                 Check(totals.GetProperty("output_tokens").GetInt64() == 10 &&
                     totals.GetProperty("total_tokens").GetInt64() == 90,
                     "已包含的缓存不得重复加入 Kimi 用量总量");
+                var daily = report.RootElement.GetProperty("daily_usage").EnumerateArray().Single();
+                Check(report.RootElement.GetProperty("daily_usage_source").GetString() == "local_kimi_cli" &&
+                    daily.GetProperty("event_count").GetInt64() == 2 && daily.GetProperty("input_tokens").GetInt64() == 80 &&
+                    daily.GetProperty("output_tokens").GetInt64() == 10 && daily.GetProperty("total_tokens").GetInt64() == 90,
+                    "本机 Kimi 日用量须按唯一事件计量，复制日志不重复累加");
             }
             var unchanged = source.ScanBatch(store, CancellationToken.None);
             Check(unchanged.BytesRead == 0 && unchanged.EventsAdded == 0, "不变的 Kimi 日志无需再次读内容");
@@ -81,6 +87,26 @@ internal static class KimiUsageSelfTests
             Check(Scalar("SELECT malformed_lines FROM source_cursors WHERE path=$path", longWire) == 1 &&
                 Scalar("SELECT offset FROM source_cursors WHERE path=$path", longWire) == new FileInfo(longWire).Length,
                 "同一超限行只标记一次，游标越过后续合法完整行");
+        }
+        var firstDay = today.AddDays(-59);
+        var dayBoundary = new DateTimeOffset(firstDay).ToUnixTimeMilliseconds();
+        Write(Wire("daily-boundary"), Record(dayBoundary - 1, "main", new { inputOther = 9 }) +
+            Record(dayBoundary, "main", new { inputOther = 0, output = 0 }));
+        using (var dailySource = new KimiSessionSource(home))
+        {
+            ScanResult batch;
+            do { batch = dailySource.ScanBatch(store, CancellationToken.None); } while (batch.HasMore);
+        }
+        using (var report = JsonDocument.Parse(store.ReportJson(today, "kimi", "moonshot")))
+        using (var nextDay = JsonDocument.Parse(store.ReportJson(today.AddDays(1), "kimi", "moonshot")))
+        {
+            var days = report.RootElement.GetProperty("daily_usage");
+            Check(days.GetArrayLength() == 2 &&
+                days[0].GetProperty("local_date").GetString() == firstDay.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) &&
+                days[0].GetProperty("event_count").GetInt64() == 1 && days[0].GetProperty("total_tokens").GetInt64() == 0,
+                "六十日本地窗口应包含首日零点的真实零值，缺失日期不补零，窗口外事件不混入");
+            Check(nextDay.RootElement.GetProperty("daily_usage").GetArrayLength() == 1,
+                "跨本地午夜后首日自然移出比较窗口");
         }
         return assertions;
 

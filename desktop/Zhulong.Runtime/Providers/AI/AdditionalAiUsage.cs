@@ -222,6 +222,7 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
         Func<UsageStore, CancellationToken, ScanResult> scan, IDisposable? source = null) : IDisposable
     {
         UsageStore? store;
+        DateOnly reportDay;
         SnapshotData snapshot = new("not_observed", null);
 
         internal (string State, JsonElement? Report) Snapshot
@@ -239,10 +240,13 @@ internal sealed class AdditionalAiUsage : IAsyncDisposable
                 var available = exists();
                 var result = available ? scan(store, token) : null;
                 var report = current.Report;
-                if (report is null || result?.EventsAdded > 0)
+                var now = DateTimeOffset.Now;
+                var day = DateOnly.FromDateTime(now.LocalDateTime);
+                if (report is null || result?.EventsAdded > 0 || (tool == "kimi" && reportDay != day))
                 {
-                    using var document = JsonDocument.Parse(store.ReportJson(DateTimeOffset.UtcNow, tool, provider));
+                    using var document = JsonDocument.Parse(store.ReportJson(now, tool, provider));
                     report = document.RootElement.Clone();
+                    reportDay = day;
                 }
                 var state = !available ? "source_missing" : result?.HasMore == true ? "scanning" : "local_sources";
                 Volatile.Write(ref snapshot, new(state, report));

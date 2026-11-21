@@ -1,9 +1,11 @@
 "use strict";
 // 独立桌面数据层：只通过受限宿主桥读取新版数据，不连接旧面板。
-(() => {
+(async () => {
+  await KimiCard.dashboardReady;
   const nativeBridge = window.chrome?.webview;
   const bridge = nativeBridge || window.zhulongPortalBridge;
-  const windowControls = $("#windowControls");
+  const cardOnly = location.hash === "#usage-card";
+  const windowControls = document.querySelector("#windowControls");
   function setWindowMode(value) {
     const maximized = value === "maximized";
     root.dataset.windowState = maximized ? "maximized" : "normal";
@@ -67,11 +69,52 @@
     pending.forEach(item => { clearTimeout(item.timer); item.reject(new Error("页面已暂停")); });
     pending.clear();
   }
+  const quotaSection = node("section", undefined, "panel live-quota");
+  const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）", deepseek: "DeepSeek" };
+  let selectedTool = cardOnly ? "kimi" : "codex";
+  const tokenUnitKey = "zhulong-token-units";
+  const tokenUnits = { chinese: [[100_000_000n, "亿"], [10_000n, "万"]], international: [[1_000_000_000n, "B"], [1_000_000n, "M"]] };
+  const tokenUnitPicker = node("select");
+  tokenUnitPicker.id = "tokenUnitPicker";
+  for (const [value, label] of [["chinese", "万 / 亿"], ["international", "B / M"]]) {
+    const option = node("option", label);
+    option.value = value;
+    tokenUnitPicker.append(option);
+  }
+  try { if (localStorage.getItem(tokenUnitKey) === "international") tokenUnitPicker.value = "international"; } catch { /* 存储不可用时沿用默认单位。 */ }
+  const groupDigits = digits => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const tokenQuota = unit => /^tokens?$/i.test(unit);
+  const usageStatus = node("p", "等待读取本机记录", "fine-print live-usage-status");
+  usageStatus.setAttribute("role", "status");
+  let previousInkLevels = new Map();
+  const quotaInkObserver = new IntersectionObserver(entries => {
+    for (const { target, isIntersecting } of entries) {
+      target.toggleAttribute("data-in-view", isIntersecting);
+      if (!isIntersecting) continue;
+      const from = target.dataset.inkFrom;
+      delete target.dataset.inkFrom;
+      if (from !== undefined && !document.hidden && document.documentElement.dataset.motion === "on") {
+        target.firstElementChild.animate(
+          [{ width: from + "%" }, { width: target.dataset.inkLevel + "%" }],
+          { duration: 480, easing: "ease-out" });
+      }
+    }
+  });
+  if (cardOnly) {
+    KimiCard.openWindow(bridge, quotaSection, usageStatus, value => {
+      quotaInkObserver.disconnect();
+      quotaRows = [];
+      renderProviderUsage(value?.provider_reports?.find(provider => provider.tool === "kimi"));
+    }, countdown);
+    return;
+  }
   function status(value) { text(".sample-time", value); $(".sample-time").title = value; }
   let sentTheme;
   function syncWindowTheme() {
     const theme = root.dataset.theme;
-    if (!nativeBridge || !token || theme === sentTheme || !["light", "dark"].includes(theme)) return;
+    if (!["light","dark"].includes(theme) || theme === sentTheme) return;
+    try { localStorage.setItem("zhulong-panel-theme", theme); } catch { /* 存储不可用时只同步本次窗口。 */ }
+    if (!nativeBridge || !token) return;
     nativeBridge.postMessage({ kind: "theme", token, theme });
     sentTheme = theme;
   }
@@ -570,23 +613,9 @@
       return row;
     }));
   }
-  const ledger = $(".ledger"), quotaSection = node("section", undefined, "panel live-quota");
+  const ledger = $(".ledger");
   const usageSummary = $("#usage .usage-summary"), usageLayout = $("#usage .usage-layout");
   quotaSection.append(node("h2", "套餐额度与重置")); usageLayout.before(quotaSection);
-  const toolNames = { codex: "Codex", kimi: "Kimi Code", zcode: "GLM（ZCode）", deepseek: "DeepSeek" };
-  let selectedTool = "codex";
-  const tokenUnitKey = "zhulong-token-units";
-  const tokenUnits = { chinese: [[100_000_000n, "亿"], [10_000n, "万"]], international: [[1_000_000_000n, "B"], [1_000_000n, "M"]] };
-  const tokenUnitPicker = node("select");
-  tokenUnitPicker.id = "tokenUnitPicker";
-  for (const [value, label] of [["chinese", "万 / 亿"], ["international", "B / M"]]) {
-    const option = node("option", label);
-    option.value = value;
-    tokenUnitPicker.append(option);
-  }
-  try { if (localStorage.getItem(tokenUnitKey) === "international") tokenUnitPicker.value = "international"; } catch { /* 存储不可用时沿用默认单位。 */ }
-  const groupDigits = digits => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const tokenQuota = unit => /^tokens?$/i.test(unit);
   function formatTokens(digits) {
     const count = BigInt(digits);
     const [upper, lower] = tokenUnits[tokenUnitPicker.value];
@@ -625,8 +654,6 @@
     toolPicker.append(button);
   }
   const refreshButton = node("button", "刷新本机记录", "text-button live-refresh");
-  const usageStatus = node("p", "等待读取本机记录", "fine-print live-usage-status");
-  usageStatus.setAttribute("role", "status");
   const accountButton = node("button", "更新账户用量与额度", "text-button live-refresh");
   const usageHeading = $("#usage .page-title>div");
   usageToolbar.append(tokenUnitLabel);
@@ -661,20 +688,6 @@
       item.target.textContent = "还需 " + (days ? days + "天 " : "") + hours + "小时 " + minutes + "分 " + seconds + "秒";
     });
   }
-  let previousInkLevels = new Map();
-  const quotaInkObserver = new IntersectionObserver(entries => {
-    for (const { target, isIntersecting } of entries) {
-      target.toggleAttribute("data-in-view", isIntersecting);
-      if (!isIntersecting) continue;
-      const from = target.dataset.inkFrom;
-      delete target.dataset.inkFrom;
-      if (from !== undefined && !document.hidden && root.dataset.motion === "on") {
-        target.firstElementChild.animate(
-          [{ width: from + "%" }, { width: target.dataset.inkLevel + "%" }],
-          { duration: 480, easing: "ease-out" });
-      }
-    }
-  });
 
   function setQuotaInkLevel(track, remaining) {
     const level = Number.isFinite(remaining) ? Math.min(100, Math.max(0, remaining)) : null;
@@ -848,6 +861,10 @@
     const label = toolNames[selectedTool], report = provider?.report, totals = report?.totals;
     const accounts = Array.isArray(provider?.accounts) ? provider.accounts : [];
     const walletOnly = selectedTool === "deepseek";
+    if (!cardOnly) renderProviderOverview(label, walletOnly, accounts, provider, report, totals);
+    renderProviderAccounts(label, walletOnly, accounts, provider, report);
+  }
+  function renderProviderOverview(label, walletOnly, accounts, provider, report, totals) {
     text("#usage .page-title h2", label + (walletOnly ? " API 钱包" : " 会话账本"));
     text("#usage .page-title>div>p:nth-of-type(2)", walletOnly ? "按币种查看开放平台余额。"
       : "账户数据按来源展示。共享本机记录列在待归属会话中。");
@@ -866,12 +883,17 @@
       });
       breakdown.append(dl);
     }
+  }
+  function renderProviderAccounts(label, walletOnly, accounts, provider, report) {
     const isKimi = selectedTool === "kimi";
+    const active = document.activeElement;
+    const focusedSource = active?.closest(".kimi-daily")?.dataset.kimiSource;
+    const focusedDate = active?.dataset.date;
     const hasKimiBindings = isKimi && accounts.some(account => account.source === "kimi_web_oauth");
     const cliWasOpen = quotaSection.querySelector(".provider-cli-sources")?.open;
     const quotaHeading = node("div", undefined, "live-quota-heading");
     quotaHeading.append(node("h2", walletOnly ? "钱包余额" : label + " 账户额度"));
-    if (nativeBridge) {
+    if (nativeBridge && !cardOnly) {
       const manage = node("button", "管理账户", "text-button");
       manage.addEventListener("click", () => request("show-ai-settings", { metric: selectedTool }).catch(error => { usageStatus.textContent = error.message; }));
       quotaHeading.append(manage);
@@ -885,7 +907,7 @@
       const cardGroup = cliCards && !isKimiBinding ? cliCards : cards;
       const head = node("div", undefined, "provider-account-head");
       head.append(node("h3", account.label || "账户"));
-      if (nativeBridge && account.id) {
+      if (nativeBridge && !cardOnly && account.id) {
         const actionLabel = walletOnly ? "余额" : "额度";
         const button = node("button", "更新" + actionLabel, "text-button");
         button.dataset.providerRefresh = "true";
@@ -898,10 +920,10 @@
       const balances = Array.isArray(account.balances) ? account.balances : [];
       const state = providerState(account.state, windows.length > 0 || balances.length > 0 || Number.isFinite(account.account_tokens));
       card.append(head, node("p", [state, account.plan_type, ({ kimi_local_api: "Kimi 本地接口", kimi_web_oauth: "Kimi 账号授权", glm_official_plan: "GLM 官方套餐", deepseek_official_balance: "DeepSeek 官方接口" })[account.source], account.fetched_at && "更新于 " + date(account.fetched_at)].filter(Boolean).join(" · "), "fine-print"));
-      if (nativeBridge && isKimiBinding && ["auth_expired", "login_required", "auth_required"].includes(account.state)) {
+      if (nativeBridge && !cardOnly && isKimiBinding && ["auth_expired", "login_required", "auth_required"].includes(account.state)) {
         card.append(node("p", "在「管理账户」删除过期绑定，再新增网页账号。", "fine-print"));
       }
-      if (nativeBridge && isKimi && !isKimiBinding && account.state === "duplicate_account") {
+      if (nativeBridge && !cardOnly && isKimi && !isKimiBinding && account.state === "duplicate_account") {
         card.append(node("p", "在「管理账户」展开「本机 CLI 来源」，点「打开第二账号的 Kimi CLI」，输入 /logout。再点「登录第二账号」，用无痕窗口打开授权链接，授权后更新额度。", "fine-print"));
       }
       if (walletOnly) {
@@ -915,22 +937,30 @@
       card.append(accountTotal);
       windows.forEach((window, index) => quotaWindow(card, window, JSON.stringify([selectedTool, account.id, window.name || index])));
       if (!windows.length) card.append(node("p", "剩余额度和重置时间未知。", "fine-print"));
-      if (account.local_report) {
+      if (isKimi && account.id === "kimi-secondary") card.append(KimiCard.daily(account.local_report, "独立 CLI 目录", account.id, formatTokens));
+      if (account.local_report && !cardOnly) {
         const detail = node("details", undefined, "provider-local-sessions");
         const summary = node("summary", "此来源本机累计 ");
         summary.append(tokenAmount(account.local_report.totals, "total_tokens"), " Token");
         detail.append(summary, sessionTable(account.local_report.sessions || [], false));
         card.append(detail);
-      } else if (account.local_state) card.append(node("p", "本机来源 · " + providerState(account.local_state, false), "fine-print"));
+      } else if (!account.local_report && account.local_state) card.append(node("p", "本机来源 · " + providerState(account.local_state, false), "fine-print"));
       cardGroup.append(card);
     }
     if (cards.childElementCount) quotaSection.append(cards);
-    else if (!isKimi || !nativeBridge) quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
+    else if (!isKimi || !nativeBridge || !accounts.length) quotaSection.append(node("p", "尚无已配置账户来源。", "fine-print"));
     if (cliCards?.childElementCount) {
       const details = node("details", undefined, "provider-local-sessions provider-cli-sources");
       details.open = Boolean(cliWasOpen);
       details.append(node("summary", "本机 CLI 来源"), cliCards);
       quotaSection.append(details);
+    }
+    if (isKimi) quotaSection.append(KimiCard.daily(report, "主 CLI 日志 · 未归入网页账号", "kimi-primary", formatTokens));
+    if (isKimi && focusedSource) {
+      const block = [...quotaSection.querySelectorAll(".kimi-daily")].find(item => item.dataset.kimiSource === focusedSource);
+      const nextFocus = focusedDate ? [...(block?.querySelectorAll(".kimi-bars button") || [])].find(button => button.dataset.date === focusedDate)
+        : block?.querySelector(".kimi-day-detail summary");
+      nextFocus?.focus({ preventScroll:true });
     }
     usageStatus.textContent = walletOnly ? "" : providerState(provider?.state, Boolean(report));
     if (report?.generated_at) usageStatus.textContent += " · 本机汇总于 " + date(report.generated_at);

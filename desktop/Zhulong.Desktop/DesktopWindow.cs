@@ -18,6 +18,8 @@ internal sealed class DesktopWindow : Window
     const int BorderColor = 34;
     const int NonClientLeftDown = 0x00a1, CaptionHit = 2, LeftButton = 1;
     readonly DataHub hub;
+    readonly bool usageCard;
+    string frameTheme;
     readonly string webDirectory, profileDirectory, sessionToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
     readonly Grid frame = new();
     readonly ContentControl page = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
@@ -32,23 +34,27 @@ internal sealed class DesktopWindow : Window
     public event Action? ExitRequested;
     public event Action? SettingsRequested;
     public event Action<string?>? AiSettingsRequested;
+    public event Action<string>? ThemeChanged;
 
-    public DesktopWindow(DataHub hub, string webDirectory, string profileDirectory)
+    public DesktopWindow(DataHub hub, string webDirectory, string profileDirectory, string? cardTheme = null)
     {
         this.hub = hub;
         this.webDirectory = webDirectory;
         this.profileDirectory = profileDirectory;
-        Title = "烛龙新版 · 朱印";
+        usageCard = cardTheme is not null;
+        frameTheme = cardTheme ?? "light";
+        Title = usageCard ? "烛龙 · Kimi 用量卡" : "烛龙新版 · 朱印";
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "zhulong-next.ico")));
-        Width = 1440; Height = 960; MinWidth = 500; MinHeight = 420;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        if (!usageCard) { Width = 1440; Height = 960; MinWidth = 500; MinHeight = 420; }
+        WindowStartupLocation = usageCard ? WindowStartupLocation.Manual : WindowStartupLocation.CenterScreen;
+        ShowInTaskbar = !usageCard;
         WindowStyle = WindowStyle.None;
-        ResizeMode = ResizeMode.CanResize;
+        ResizeMode = usageCard ? ResizeMode.NoResize : ResizeMode.CanResize;
         UseLayoutRounding = true;
         page.Margin = resizeBorder;
         frame.Children.Add(page);
         Content = frame;
-        ApplyFrameTheme("light");
+        ApplyFrameTheme(frameTheme);
         SourceInitialized += (_, _) =>
         {
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
@@ -60,12 +66,21 @@ internal sealed class DesktopWindow : Window
                 CornerRadius = new CornerRadius(8),
                 UseAeroCaptionButtons = false
             });
-            ApplyFrameTheme("light");
+            ApplyFrameTheme(frameTheme);
         };
         StateChanged += (_, _) => UpdateWindowState();
         IsVisibleChanged += (_, _) => UpdateReadoutSubscription();
-        PreviewKeyDown += (_,args) => {if(args.Key==System.Windows.Input.Key.Q&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;ExitRequested?.Invoke();}
-            else if(args.Key==System.Windows.Input.Key.OemComma&&(System.Windows.Input.Keyboard.Modifiers&System.Windows.Input.ModifierKeys.Control)!=0){args.Handled=true;SettingsRequested?.Invoke();}};
+        PreviewKeyDown += (_, args) =>
+        {
+            if (usageCard)
+            {
+                if (args.Key == System.Windows.Input.Key.Escape) { args.Handled = true; Close(); }
+                return;
+            }
+            if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
+            if (args.Key == System.Windows.Input.Key.Q) { args.Handled = true; ExitRequested?.Invoke(); }
+            else if (args.Key == System.Windows.Input.Key.OemComma) { args.Handled = true; SettingsRequested?.Invoke(); }
+        };
         Loaded += async (_, _) => await InitializeAsync();
         Closed += (_, _) =>
         {
@@ -124,7 +139,7 @@ internal sealed class DesktopWindow : Window
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] static extern bool ReleaseCapture();
     [DllImport("user32.dll", EntryPoint = "SendMessageW")] static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
 
-    bool CanPublishReadout => !closed && pageReady && IsVisible && WindowState != WindowState.Minimized;
+    bool CanPublishReadout => !usageCard && !closed && pageReady && IsVisible && WindowState != WindowState.Minimized;
 
     void UpdateReadoutSubscription()
     {
@@ -184,7 +199,7 @@ internal sealed class DesktopWindow : Window
             core.WebMessageReceived += MessageReceived;
             core.DownloadStarting += DownloadStarting;
             core.ProcessFailed += ProcessFailed;
-            view.Source = new Uri(Address);
+            view.Source = new Uri(usageCard ? Address + "#usage-card" : Address);
             Lifecycle?.Invoke("webview_opened", new { browserPid = BrowserPid });
         }
         catch (Exception error) when (!closed)
@@ -202,9 +217,20 @@ internal sealed class DesktopWindow : Window
     internal static bool IsTrustedSource(string source) =>
         source.Split('#')[0] == Address;
 
+    internal static bool AllowsCardOperation(string? kind, string? operation) =>
+        (kind, operation) is ("query", "usage") or ("window-command", "close");
+
+    internal void SetCardTheme(string theme)
+    {
+        if (!usageCard || closed || frameTheme == theme) return;
+        ApplyFrameTheme(theme);
+        if (pageReady) Reply(new { kind = "card-theme", theme = frameTheme });
+    }
+
     void ApplyFrameTheme(string? theme)
     {
         if (theme is not ("light" or "dark")) return;
+        frameTheme = theme;
         var dark = theme == "dark";
         var contrast = SystemParameters.HighContrast;
         Brush background = contrast ? SystemColors.WindowBrush : Palette(dark ? 0x111f24 : 0xf6f7f2);
@@ -249,16 +275,28 @@ internal sealed class DesktopWindow : Window
             if (kind == "ready")
             {
                 pageReady = true;
-                Reply(new { kind = "init", token = sessionToken, windowState = WindowMode, nativeDrag });
+                Reply(new { kind = "init", token = sessionToken, windowState = WindowMode, nativeDrag, theme = frameTheme });
                 UpdateReadoutSubscription();
                 return;
             }
             if (message.GetProperty("token").GetString() != sessionToken) return;
-            if (kind == "theme") { ApplyFrameTheme(message.GetProperty("theme").GetString()); return; }
-            if (kind == "window-command") { RunWindowCommand(message.GetProperty("command").GetString()); return; }
+            if (kind == "theme" && !usageCard)
+            {
+                var theme = message.GetProperty("theme").GetString();
+                if (theme is "light" or "dark")
+                { ApplyFrameTheme(theme); ThemeChanged?.Invoke(theme); }
+                return;
+            }
+            if (kind == "window-command")
+            {
+                var command = message.GetProperty("command").GetString();
+                if (!usageCard || AllowsCardOperation(kind, command)) RunWindowCommand(command);
+                return;
+            }
             if (kind != "query") return;
             id = message.GetProperty("id").GetInt32();
             var api = message.GetProperty("api").GetString()!;
+            if (usageCard && !AllowsCardOperation(kind, api)) throw new ArgumentException("用量卡仅支持读取 AI 用量。");
             var metric = message.TryGetProperty("metric", out var metricValue) ? metricValue.GetString() : null;
             var hours = message.TryGetProperty("hours", out var hoursValue) ? hoursValue.GetInt32() : 24;
             object? result;

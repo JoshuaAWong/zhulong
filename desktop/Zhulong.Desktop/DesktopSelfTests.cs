@@ -173,6 +173,12 @@ internal static class DesktopSelfTests
             }
             Check(DesktopWindow.IsTrustedSource("https://desktop.zhulong.invalid/index.html"), "应允许固定入口");
             Check(DesktopWindow.IsTrustedSource("https://desktop.zhulong.invalid/index.html#ai"), "应允许固定入口片段");
+            Check(DesktopWindow.IsTrustedSource("https://desktop.zhulong.invalid/index.html#usage-card") &&
+                DesktopWindow.AllowsCardOperation("query", "usage") && DesktopWindow.AllowsCardOperation("window-command", "close"),
+                "挂件卡片应能读取账本并关闭自身");
+            Check(!DesktopWindow.AllowsCardOperation("query", "action") && !DesktopWindow.AllowsCardOperation("query", "show-settings") &&
+                !DesktopWindow.AllowsCardOperation("query", "refresh-provider-account") && !DesktopWindow.AllowsCardOperation("window-command", "toggle-maximize"),
+                "卡片桥应拒绝主窗口的处置、设置、额度刷新与窗口管理操作");
             Check(!DesktopWindow.IsTrustedSource("http://desktop.zhulong.invalid/index.html"), "应拒绝HTTP来源");
             Check(!DesktopWindow.IsTrustedSource("https://desktop.zhulong.invalid/other.html"), "应拒绝其他路径");
             Check(!DesktopWindow.IsTrustedSource("https://desktop.zhulong.invalid.evil/index.html"), "应拒绝近似域名");

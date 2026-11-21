@@ -13,6 +13,8 @@ internal static class Program
     static Application? application;
     static DataHub? hub;
     static DesktopWindow? window;
+    static DesktopWindow? usageCard;
+    static string desktopTheme = "light";
     static ResourceDockWindow? resourceDock;
     static ZhulongContextMenu? trayMenu;
     static SystemSnapshot? traySnapshot;
@@ -189,6 +191,7 @@ internal static class Program
             resourceDock = null;
         };
         dock.OpenRequested += OpenWindow;
+        dock.UsageCardRequested += () => OpenUsageCard(dock);
         dock.HideRequested += async () => await NativeAsync(Synchronous(() => SetDockVisibility(false)));
         dock.AccelerateRequested += async () => await AccelerateMemoryAsync(dock);
         dock.ApplySample(traySnapshot);
@@ -265,6 +268,22 @@ internal static class Program
             $"提交内存 {Memory(value.CommitPercent, value.CommitUsedGb, value.CommitLimitGb)}";
     }
 
+    static void OpenUsageCard(ResourceDockWindow dock)
+    {
+        if (quitting || hub is null) return;
+        var bounds = dock.UsageCardBounds();
+        if (usageCard is null)
+        {
+            usageCard = new DesktopWindow(hub, Path.Combine(AppContext.BaseDirectory, "Web"),
+                Path.Combine(directory, "cache", "WebView"), desktopTheme) { Owner = dock };
+            usageCard.Closed += (_, _) => usageCard = null;
+        }
+        usageCard.Left = bounds.Left; usageCard.Top = bounds.Top;
+        usageCard.Width = bounds.Width; usageCard.Height = bounds.Height;
+        if (!usageCard.IsVisible) usageCard.Show();
+        usageCard.Activate();
+    }
+
     static void OpenWindow()
     {
         if (quitting || hub is null) return;
@@ -275,6 +294,7 @@ internal static class Program
             window.ExitRequested += async()=>await QuitAsync();
             window.SettingsRequested += async()=>await NativeAsync(()=>{OpenSettings();return Task.CompletedTask;});
             window.AiSettingsRequested += OpenAiSettings;
+            window.ThemeChanged += theme => { desktopTheme = theme; usageCard?.SetCardTheme(theme); };
             window.Closed += (_, _) => window = null;
             window.Show();
         }

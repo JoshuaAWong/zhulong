@@ -360,3 +360,36 @@ html[data-live] .token-breakdown h3 { margin-top:18px; font-size:14px; }
 .provider-account .live-quota-window { margin-top:8px; padding:8px 10px; }
 .provider-local-sessions { margin-top:9px; }
 .provider-local-sessions summary { cursor:pointer; color:var(--chart); font-size:12px; }
+
+/* 挂件和账本使用同一个日表；图中的缺口保留“没有采集记录”的含义。 */
+.kimi-daily { min-width:0; margin-top:16px; padding-top:12px; border-top:1px solid var(--line); color:var(--ink); }
+.kimi-daily h3,.kimi-daily h4 { margin:0 0 5px; font-family:var(--display); }
+.kimi-daily h4 { margin-top:16px; }
+.kimi-daily .fine-print { margin:4px 0 8px; }
+.kimi-periods { width:100%; table-layout:auto; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.kimi-periods td,.kimi-periods th { padding:6px 3px; font-size:12px; text-align:right; overflow-wrap:anywhere; border-bottom:1px solid var(--line); }
+.kimi-periods th:first-child { text-align:left; }
+.kimi-periods small { display:block; font-size:10px; font-weight:normal; color:var(--muted); }
+.kimi-bars { display:grid; grid-template-columns:repeat(30,minmax(0,1fr)); align-items:stretch; height:77px; border-bottom:1px solid var(--line); }
+.kimi-bars button { min-width:0; padding:0; display:flex; align-items:flex-end; justify-content:center; border:0; background:transparent; }
+.kimi-bars i { display:block; min-height:2px; width:70%; max-width:16px; border-radius:2px 2px 0 0; background:var(--chart); }
+.kimi-bars [data-state="missing"] i { background:transparent; border-bottom:1px dashed var(--muted); }
+.kimi-bars [data-state="zero"] i { background:var(--muted); }
+.kimi-bars [aria-pressed="true"] { box-shadow:inset 0 -3px var(--accent); background:var(--wash); }
+.kimi-bars button:focus-visible,.kimi-day-detail summary:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.kimi-date-range { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }
+.kimi-day-detail { background:var(--wash); border-radius:8px; padding:7px 10px; margin-top:8px; }
+.kimi-day-detail summary { font-size:12px; cursor:pointer; }
+.kimi-day-detail p { margin:7px 0 0; font-size:12px; overflow-wrap:anywhere; }
+html[data-usage-card] body { margin:0; color:var(--ink); background:var(--surface); min-height:100vh; }
+html[data-usage-card] body>:not(.kimi-card-window) { display:none!important; }
+.kimi-card-window { margin:0 auto; padding:16px; width:min(100%,680px); font-family:var(--body); }
+.kimi-card-window>header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.kimi-card-window h1 { font:500 23px var(--display); margin:0; }
+.kimi-card-window .live-quota { padding:0; border:0; margin:12px 0; box-shadow:none; background:transparent; }
+.kimi-card-window .provider-account-grid { grid-template-columns:minmax(0,1fr); }
+.kimi-card-window .provider-account { padding:9px 11px; }
+.kimi-card-window .live-quota-window { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:8px; }
+.kimi-card-window .live-quota-window>strong,.kimi-card-window .quota-ink { grid-column:1/-1; }
+.kimi-card-window .live-quota-window p { overflow-wrap:anywhere; }
+@media(max-width:440px){.kimi-card-window { padding:10px; }.kimi-periods :is(td,th) { font-size:11px; }.kimi-card-window .live-quota-window { display:block; }}

@@ -67,6 +67,7 @@ internal sealed class ResourceDockWindow : Window
 
     internal event Action? AccelerateRequested;
     internal event Action? OpenRequested;
+    internal event Action? UsageCardRequested;
     internal event Action? HideRequested;
     internal event Action<bool>? ExpandedChanged;
 
@@ -187,6 +188,7 @@ internal sealed class ResourceDockWindow : Window
         resultTimer.Tick += (_, _) => BeginRestore();
         dockMenu = new ZhulongContextMenu();
         dockMenu.Add("打开烛龙", () => OpenRequested?.Invoke());
+        dockMenu.Add("Kimi 用量卡", () => UsageCardRequested?.Invoke());
         dockMenu.Add("整理内存", AccelerateFromMenu);
         dockMenu.Items.Add(new Separator());
         dockMenu.Add("仅在托盘显示", () => HideRequested?.Invoke());
@@ -600,6 +602,17 @@ internal sealed class ResourceDockWindow : Window
         return (until - from - boostSeconds) * idleSpeed + boostSeconds * averageBoostSpeed;
     }
 
+    internal Rect UsageCardBounds()
+    {
+        var width = Math.Min(600, workArea.Width);
+        var height = Math.Min(780, workArea.Height);
+        // 贴着可见面板而非透明扩散区，左右两侧都朝工作区内展开。
+        var panel = panelClip.Rect;
+        var x = dockRight ? Left + panel.Left - width - 8 : Left + panel.Right + 8;
+        return new Rect(Math.Clamp(x, workArea.Left, workArea.Right - width),
+            Math.Clamp(anchorY - height / 2, workArea.Top, workArea.Bottom - height), width, height);
+    }
+
     void SetWindowBounds(bool expand) => SetWindowBounds(expand, null);
 
     void SetWindowBounds(bool expand, double? dragX)
@@ -933,12 +946,22 @@ internal sealed class ResourceDockWindow : Window
                 "拖放到右下角应贴右并避开任务栏");
             var openedFromMenu = 0;
             var hiddenFromMenu = 0;
+            var cardsFromMenu = 0;
             dock.OpenRequested += () => openedFromMenu++;
             dock.HideRequested += () => hiddenFromMenu++;
+            dock.UsageCardRequested += () => cardsFromMenu++;
             foreach (var item in dock.dockMenu.Items.OfType<MenuItem>())
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            check(dock.opened && openedFromMenu == 1 && hiddenFromMenu == 1 && accelerations == 2,
-                "收起态菜单应能打开烛龙、沿用内存整理，并发出隐藏挂件请求");
+            check(dock.opened && openedFromMenu == 1 && hiddenFromMenu == 1 && accelerations == 2 && cardsFromMenu == 1,
+                "收起态菜单应能打开烛龙、打开用量卡、沿用内存整理，并发出隐藏挂件请求");
+            var rightCard = dock.UsageCardBounds();
+            check(dock.workArea.Contains(rightCard) && rightCard.Right <= dock.Left + dock.panelClip.Rect.Left,
+                "右下角的卡片应朝工作区内侧展开并避开任务栏");
+            dock.anchorY = dock.workArea.Top;
+            dock.SnapDock(dock.workArea.Left);
+            var leftCard = dock.UsageCardBounds();
+            check(dock.workArea.Contains(leftCard) && leftCard.Left >= dock.Left + dock.panelClip.Rect.Right,
+                "左上角的卡片应朝右展开并留在工作区内");
         }
         finally { dock.Close(); }
     }
