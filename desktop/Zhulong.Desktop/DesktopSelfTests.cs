@@ -46,9 +46,14 @@ internal static class DesktopSelfTests
                 Program.FormatMemoryAcceleration([trim with { PrivateWorkingSetReductionBytes = 0 }]) == "已整理\n0 M",
                 "整理结果应按十进制进位并保留实际测得的零下降");
             Check(Program.FormatMemoryAcceleration([]) == "无整理项" &&
-                Program.FormatMemoryAcceleration([trim with { Status = "skipped:ws_below_threshold" }]) == "无整理项" &&
                 Program.FormatMemoryAcceleration([trim]) == "已整理\n变化不可测",
                 "区分没有整理项和已整理但无法计量");
+            var missing = trim with { Status = "skipped:process_gone" };
+            var small = trim with { Status = "skipped:ws_below_threshold" };
+            Check(Program.FormatMemoryAcceleration([missing]) == "无整理项\n名单进程未运行" &&
+                Program.FormatMemoryAcceleration([missing, small]) == "无整理项\n未达内存门槛" &&
+                Program.FormatMemoryAcceleration([small, trim with { Status = "blocked:foreground" }]) == "无整理项\n详情见事件记录",
+                "整理反馈应区分名单进程未运行、工作集未达门槛和其他跳过原因");
             ResourceDockWindow.CheckBehavior(Check);
             var database = Path.Combine(outputDirectory, "monitor-test-" + Guid.NewGuid().ToString("N") + ".db");
             using (var store = new MonitorStore(database))

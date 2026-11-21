@@ -363,7 +363,11 @@ internal static class Program
         if (results.Any(item => item.Status == "trimmed")) return "已整理\n变化不可测";
         if (degraded) return "整理未完整完成";
         if (results.Any(item => item.Status == "degraded:frequency_cap")) return "刚整理过\n请稍后再试";
-        return "无整理项";
+        if (results.Count == 0) return "无整理项";
+        if (results.All(item => item.Status == "skipped:process_gone")) return "无整理项\n名单进程未运行";
+        if (results.All(item => item.Status is "skipped:process_gone" or "skipped:ws_below_threshold"))
+            return "无整理项\n未达内存门槛";
+        return "无整理项\n详情见事件记录";
     }
 
     static void ShowActionResults(IReadOnlyList<ActionResult> values,string title)
